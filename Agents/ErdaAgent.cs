@@ -22,11 +22,27 @@ public static class ErdaAgent
     public const string Name = "erda";
 
     private const string Instructions = """
-        You are Erda, Phil's concise personal assistant.
-        You can browse and edit his Obsidian vault with these tools:
-        list_notes, read_note, search_notes, write_note, append_note.
-        You can also process an Apple Voice Memo end-to-end with process_voice_memo (give it an absolute .m4a path).
+        You are Erda, Phil's concise personal assistant and orchestrator. You run on a small, fast
+        model with limited and possibly outdated knowledge, so your job is to route work — not to
+        answer factual questions from your own memory.
+
+        Vault tools: list_notes, read_note, search_notes, write_note, append_note.
         Prefer reading or searching before writing, and confirm before overwriting an existing note.
+
+        process_voice_memo: transcribe + process an Apple Voice Memo (give it an absolute .m4a path).
+
+        consult_codex: a stronger model WITH live web search. This is your source of truth for
+        facts and your tool for hard thinking.
+        GROUND FIRST: whenever a request asks you to explain, summarize, describe, or write a note
+        ABOUT a topic, technology, framework, product, company, person, or event — assume your own
+        knowledge is unreliable or stale and call consult_codex FIRST to get an accurate, cited
+        answer, THEN write the note from what it returns. Do not write factual notes from memory.
+        Also use consult_codex for complex analysis, planning, multi-step logic, math, or non-trivial
+        code. It cannot see the vault and has no memory between calls, so include any needed context
+        (e.g. note contents you read) in the 'context' argument. It takes ~10-30s.
+        You may answer directly only for simple conversation, vault operations, and things that
+        clearly do not depend on external facts.
+
         Keep answers short and practical.
         """;
 
@@ -47,12 +63,15 @@ public static class ErdaAgent
             .GetChatClient(options.ChatDeployment);
 
         var obsidian = services.GetRequiredService<ObsidianTools>();
+        var reasoning = services.GetRequiredService<ReasoningTools>();
         var tools = new List<AITool>(obsidian.AsTools())
         {
             // The voice-memo workflow, exposed as a tool (agent-as-tool). Erda passes the .m4a
             // path; the workflow runs Transcribe -> Codex -> Obsidian and returns a confirmation.
             VoiceMemoWorkflow.CreateTool(services),
         };
+        // consult_codex: Codex (gpt-5.5, subscription) + live web search — grounding + hard reasoning.
+        tools.AddRange(reasoning.AsTools());
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
         return chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);

@@ -18,13 +18,13 @@ reason this project exists:
 |---|---|---|---|
 | **Chat agent** (`gpt-5-mini`) | Azure AI Foundry, via the Azure OpenAI client | API key | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` |
 | **Transcription** (`gpt-4o-transcribe`) | OpenAI platform | API key (pay-per-token) | `OPENAI_API_KEY` |
-| **Codex** (`gpt-5-codex`) | ChatGPT **subscription**, via the `codex` CLI | logged-in session in `~/.codex` | *(none in this app)* |
+| **Codex** (`gpt-5.5`) | ChatGPT **subscription**, via the `codex` CLI | logged-in session in `~/.codex` | *(none in this app)* |
 
 > **Hard rule, enforced in code:** `OPENAI_API_KEY` is **stripped** from the Codex subprocess
 > environment (`ProcessStartInfo.Environment.Remove("OPENAI_API_KEY")` in
 > [`Services/CodexRunner.cs`](Services/CodexRunner.cs)). This forces Codex to authenticate with
 > the ChatGPT subscription instead of falling back to per-token API billing. On every launch
-> Erda logs the command and `OPENAI_API_KEY stripped from child env: True`.
+> Erda logs the command and `OPENAI_API_KEY absent from child env: True`.
 
 The Azure key and the OpenAI-platform key are **different keys** — don't conflate them.
 
@@ -32,7 +32,7 @@ The Azure key and the OpenAI-platform key are **different keys** — don't confl
 
 - **.NET 10 SDK** (`dotnet --version` → `10.0.x`).
 - **`codex` CLI** installed and logged in via your ChatGPT subscription (`codex --version`;
-  auth lives in `~/.codex`). Verify with `codex exec -m gpt-5-codex "hello"`.
+  auth lives in `~/.codex`). Verify with `codex exec -m gpt-5.5 "hello"`.
 - A **gpt-5-mini deployment in Azure AI Foundry**, and the endpoint + key from the portal.
 - An **OpenAI platform API key** (only used for transcription).
 - An **Obsidian vault** to point at (defaults to `/Users/phil/TestingNotes`).
@@ -63,16 +63,34 @@ Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/de
 DevUI is only mounted in the **Development** environment (it exposes system prompts), guarded by
 `app.Environment.IsDevelopment()`.
 
+## Architecture: Erda is the single orchestrator
+
+DevUI shows **one** entity, **`erda`** — a MAF `ChatClientAgent` on gpt-5-mini that owns the
+agent loop. Everything else is a **tool** Erda routes to:
+
+- the five **Obsidian vault** tools;
+- **`process_voice_memo`** — the voice-memo MAF *workflow*, exposed as a tool via `AsAIFunction`
+  (agent-as-tool), so Erda runs the real Transcribe→Codex→Obsidian pipeline rather than a
+  standalone agent;
+- **`consult_codex`** — Codex (gpt-5.5, high effort) **with live web search**, on the ChatGPT
+  subscription. This is Erda's source of truth for facts and its tool for hard reasoning.
+
+Because gpt-5-mini has limited/stale knowledge, Erda is instructed to **ground first**: any
+request to explain/summarize/write-about a topic, technology, product, person, or event calls
+`consult_codex` (which searches the web and cites sources) *before* writing — rather than
+answering from memory. This is what keeps notes accurate instead of hallucinated.
+
 ## Using it in DevUI
 
 - **Chat** — select **`erda`** and talk to it.
-- **Vault tools** — ask Erda to `list_notes`, `read_note`, `search_notes`, `write_note`, or
-  `append_note`. All paths are confined to the vault root; anything that escapes is rejected.
-- **Voice memo** — select the **`voice-memo`** entity and give it the **absolute path** to a
-  real `.m4a` file. Erda transcribes it, sends the transcript to Codex, and writes the
-  resulting Markdown note to `VoiceMemos/<yyyy-MM-dd-HHmmss>.md` in your vault.
-  You can also trigger the same pipeline conversationally by asking Erda to
-  `process_voice_memo` with a path.
+- **Vault tools** — ask Erda to list/read/search/write/append notes. All paths are confined to
+  the vault root; anything that escapes is rejected.
+- **Voice memo** — ask Erda to process a voice memo and give it the **absolute path** to a real
+  `.m4a` file (e.g. *"process my voice memo at /Users/you/Recording.m4a"*). Erda calls
+  `process_voice_memo`, which runs the workflow (transcribe → Codex → write) and saves the note to
+  `VoiceMemos/<yyyy-MM-dd-HHmmss>.md`.
+- **Facts / research / hard reasoning** — just ask normally (*"write a note about how X works"*).
+  Erda grounds via `consult_codex` (web search) and writes a cited note.
 
 ## Configuration
 
@@ -82,7 +100,7 @@ DevUI is only mounted in the **Development** environment (it exposes system prom
 |---|---|---|
 | `Erda:ChatDeployment` | `gpt-5-mini` | Foundry deployment name for the chat model |
 | `Erda:TranscribeModel` | `gpt-4o-transcribe` | OpenAI STT model (`gpt-4o-mini-transcribe` is cheaper) |
-| `Erda:CodexModel` | `gpt-5-codex` | Model passed to `codex exec -m` |
+| `Erda:CodexModel` | `gpt-5.5` | Model passed to `codex exec -m` (must be a model the ChatGPT subscription supports; `gpt-5-codex` is API-only) |
 | `Erda:CodexReasoningEffort` | `high` | `codex exec -c model_reasoning_effort` |
 | `Erda:VaultPath` | `/Users/phil/TestingNotes` | Obsidian vault root Erda may read/write |
 | `Erda:VoiceMemoSubfolder` | `VoiceMemos` | Where processed memos are saved |
@@ -101,15 +119,16 @@ Erda__VaultPath="/Users/you/MyVault" dotnet run
 
 ```
 Erda/
-  Program.cs                          # host + DI + DevUI wiring
+  Program.cs                          # host + DI + DevUI wiring (registers only the erda agent)
   Configuration/ErdaOptions.cs        # strongly-typed settings
-  Agents/ErdaAgent.cs                 # chat agent factory + instructions + tools
-  Tools/ObsidianTools.cs             # the 5 vault function tools
+  Agents/ErdaAgent.cs                 # orchestrator agent: instructions + tool wiring
+  Tools/ObsidianTools.cs              # the 5 vault function tools
+  Tools/ReasoningTools.cs             # consult_codex tool (Codex + web search)
   Services/VaultService.cs            # path-safe file IO under VaultPath
   Services/Transcriber.cs             # OpenAI audio transcription (OPENAI_API_KEY)
-  Services/CodexRunner.cs             # codex exec wrapper; strips OPENAI_API_KEY
-  Workflows/VoiceMemoWorkflow.cs      # the 3-step workflow + shared note writer
-  Workflows/Executors/                # TranscribeExecutor, CodexExecutor, ObsidianWriteExecutor
+  Services/CodexRunner.cs             # codex exec wrapper; strips OPENAI_API_KEY; optional web search
+  Workflows/VoiceMemoWorkflow.cs      # the workflow + CreateTool (AsAIFunction) + note writer
+  Workflows/Executors/                # VoiceMemoInput (chat adapter), Transcribe, Codex, ObsidianWrite
 ```
 
 ## Notes on the MAF API (verified against the installed packages)
@@ -122,10 +141,20 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 - DevUI transport is registered on the **builder**: `builder.AddOpenAIResponses()` /
   `builder.AddOpenAIConversations()` (extensions on `IHostApplicationBuilder`), then
   `app.MapOpenAIResponses()` / `app.MapOpenAIConversations()` / `app.MapDevUI()`.
-- The workflow is registered with `builder.AddWorkflow("voice-memo", factory).AddAsAIAgent()` —
-  `AddAsAIAgent()` is what makes a workflow runnable as a selectable entity in DevUI.
-- A pure-code executor workflow (no `AIAgent` nodes) takes a `string`-typed start executor that
-  receives the user's input text directly — no `ChatMessage` adapter or `TurnToken` needed.
+- **Workflow-as-tool**: the voice-memo workflow is wrapped with `workflow.AsAIAgent(...)` then
+  `.AsAIFunction(...)` and attached to Erda as the `process_voice_memo` tool — the orchestrator
+  routes to it rather than it being a separate top-level agent.
+- **A workflow hosted as an agent must speak the chat protocol.** When a workflow runs as an
+  `AIAgent`, its start executor must accept `List<ChatMessage>` + `TurnToken` and its output must
+  be a `ChatMessage`. So the voice-memo chain is bookended by a `ChatProtocolExecutor` input
+  adapter (chat → path string) and a `ChatMessage`-returning terminal; the middle steps stay plain
+  string executors. (A plain `string` start executor fails with "Workflow does not support
+  ChatProtocol".) `AsAIAgent(..., includeWorkflowOutputsInResponse: true)` surfaces the terminal
+  message as the response.
+- **Codex model** must be one the ChatGPT subscription supports — `gpt-5.5`, not `gpt-5-codex`
+  (the latter is API-only and Codex rejects it on a ChatGPT account).
+- **Codex web search**: `codex exec -c tools.web_search=true` (with a read-only sandbox) enables
+  the native web_search tool — this is how `consult_codex` grounds and cites facts.
 - **An agent's `name` must equal its registration key** (e.g. both `"erda"`), or DevUI's eager
   entity enumeration throws at startup.
 

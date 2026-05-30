@@ -14,6 +14,7 @@ builder.Services.Configure<ErdaOptions>(builder.Configuration.GetSection(ErdaOpt
 // --- Erda services ---------------------------------------------------------
 builder.Services.AddSingleton<VaultService>();
 builder.Services.AddSingleton<ObsidianTools>();
+builder.Services.AddSingleton<ReasoningTools>();
 builder.Services.AddSingleton<Transcriber>();
 builder.Services.AddSingleton<CodexRunner>();
 
