@@ -2,7 +2,6 @@ using Erda.Agents;
 using Erda.Configuration;
 using Erda.Services;
 using Erda.Tools;
-using Erda.Workflows;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.Options;
@@ -19,14 +18,11 @@ builder.Services.AddSingleton<Transcriber>();
 builder.Services.AddSingleton<CodexRunner>();
 
 // --- Agents & workflows (discovered by DevUI) ------------------------------
-// Chat agent: gpt-5-mini on Azure Foundry (key auth), with Obsidian + voice-memo tools.
+// Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). Its tools are
+// the five Obsidian vault tools plus process_voice_memo, which is the voice-memo MAF workflow
+// exposed via AsAIFunction. So DevUI shows just "erda", and Erda routes voice memos into the
+// workflow rather than the workflow being a separate top-level agent.
 builder.AddAIAgent(ErdaAgent.Name, (sp, _) => ErdaAgent.Create(sp));
-
-// Voice-memo workflow: Input -> Transcribe -> Codex -> Obsidian, hosted as an AIAgent so it is
-// selectable/runnable in DevUI. Registered via the agent factory (rather than
-// AddWorkflow(...).AddAsAIAgent()) so we can pass includeWorkflowOutputsInResponse: true, which
-// is what surfaces the terminal ChatMessage (the save confirmation) as the response.
-builder.AddAIAgent(VoiceMemoWorkflow.Name, (sp, _) => VoiceMemoWorkflow.CreateAgent(sp));
 
 // --- DevUI transport: OpenAI-compatible endpoints DevUI rides on -----------
 builder.AddOpenAIResponses();

@@ -1,7 +1,6 @@
 using System.ClientModel;
 using Azure.AI.OpenAI;
 using Erda.Configuration;
-using Erda.Services;
 using Erda.Tools;
 using Erda.Workflows;
 using Microsoft.Agents.AI;
@@ -12,9 +11,11 @@ using OpenAI.Chat;
 namespace Erda.Agents;
 
 /// <summary>
-/// Builds the Erda chat agent: gpt-5-mini on Azure AI Foundry, reached via the Azure OpenAI
-/// client with API-key auth. Tools = the five Obsidian vault tools plus a process_voice_memo
-/// convenience tool that runs the same Transcribe -> Codex -> Obsidian pipeline.
+/// Builds the Erda chat agent (the orchestrator): gpt-5-mini on Azure AI Foundry, reached via
+/// the Azure OpenAI client with API-key auth. Tools = the five Obsidian vault tools plus the
+/// process_voice_memo tool, which is the voice-memo MAF workflow exposed via AsAIFunction
+/// (agent-as-tool). Erda routes voice memos into the workflow rather than the workflow being a
+/// separate top-level agent.
 /// </summary>
 public static class ErdaAgent
 {
@@ -48,29 +49,12 @@ public static class ErdaAgent
         var obsidian = services.GetRequiredService<ObsidianTools>();
         var tools = new List<AITool>(obsidian.AsTools())
         {
-            AIFunctionFactory.Create(
-                BuildProcessVoiceMemo(services),
-                "process_voice_memo",
-                "Transcribe an Apple Voice Memo (.m4a), process the transcript with Codex, and save the result as a note in the vault. Returns a confirmation."),
+            // The voice-memo workflow, exposed as a tool (agent-as-tool). Erda passes the .m4a
+            // path; the workflow runs Transcribe -> Codex -> Obsidian and returns a confirmation.
+            VoiceMemoWorkflow.CreateTool(services),
         };
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
         return chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);
-    }
-
-    // Stretch goal: the same pipeline as the voice-memo workflow, callable conversationally.
-    private static Func<string, Task<string>> BuildProcessVoiceMemo(IServiceProvider services)
-    {
-        var transcriber = services.GetRequiredService<Transcriber>();
-        var codex = services.GetRequiredService<CodexRunner>();
-        var vault = services.GetRequiredService<VaultService>();
-        var options = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
-
-        return async (string path) =>
-        {
-            var transcript = await transcriber.TranscribeAsync(path.Trim());
-            var note = await codex.RunAsync(VoiceMemoWorkflow.DeveloperInstruction, transcript);
-            return VoiceMemoWriter.Write(vault, options, note);
-        };
     }
 }

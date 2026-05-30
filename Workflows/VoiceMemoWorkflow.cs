@@ -3,6 +3,7 @@ using Erda.Services;
 using Erda.Workflows.Executors;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
 namespace Erda.Workflows;
@@ -53,16 +54,33 @@ public static class VoiceMemoWorkflow
             .Build();
     }
 
+    /// <summary>Description shown to the orchestrator for the process_voice_memo tool.</summary>
+    public const string ToolDescription =
+        "Transcribe an Apple Voice Memo (.m4a), process the transcript with Codex, and save the " +
+        "result as a structured note in the vault. Pass the absolute path to the .m4a file. " +
+        "Returns a confirmation of where the note was saved.";
+
     /// <summary>
-    /// Wrap the workflow as an AIAgent for DevUI. <c>includeWorkflowOutputsInResponse: true</c>
-    /// is required for the terminal ChatMessage to appear as the agent's response.
+    /// Expose the workflow as an <see cref="AIFunction"/> tool the Erda orchestrator can call
+    /// (agent-as-tool pattern). The workflow is first wrapped as an AIAgent — its ChatProtocol
+    /// input adapter turns the tool's <c>query</c> argument (the .m4a path) into the workflow's
+    /// starting message — then surfaced as a named function. <c>includeWorkflowOutputsInResponse</c>
+    /// makes the terminal ChatMessage (the save confirmation) the tool's return value.
     /// </summary>
-    public static AIAgent CreateAgent(IServiceProvider services)
-        => Build(services).AsAIAgent(
+    public static AIFunction CreateTool(IServiceProvider services)
+    {
+        AIAgent workflowAgent = Build(services).AsAIAgent(
             id: Name,
             name: Name,
-            description: "Transcribe an Apple Voice Memo (.m4a path), process it with Codex, and save a note to the vault.",
+            description: ToolDescription,
             includeWorkflowOutputsInResponse: true);
+
+        return workflowAgent.AsAIFunction(new AIFunctionFactoryOptions
+        {
+            Name = "process_voice_memo",
+            Description = ToolDescription,
+        });
+    }
 }
 
 /// <summary>Shared helper so the workflow and the conversational tool write memos identically.</summary>
