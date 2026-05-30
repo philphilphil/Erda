@@ -1,0 +1,12 @@
+# Local dev secrets — real API keys go here, never committed
+appsettings.Development.json
+
+bin/
+obj/
+*.user
+.vs/
+.idea/
+*.DotSettings.user
+
+# macOS
+.DS_Store
