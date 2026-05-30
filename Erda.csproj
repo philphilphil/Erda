@@ -7,6 +7,13 @@
     <UserSecretsId>erda-personal-agent</UserSecretsId>
   </PropertyGroup>
 
+  <!-- The test project lives in a subfolder; keep its sources out of this Web project's glob. -->
+  <ItemGroup>
+    <Compile Remove="Erda.Tests/**/*.cs" />
+    <Content Remove="Erda.Tests/**/*" />
+    <None Remove="Erda.Tests/**/*" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Core Microsoft Agent Framework (stable 1.8.0 train) -->
     <PackageReference Include="Microsoft.Agents.AI" Version="1.8.0" />
@@ -26,6 +33,10 @@
 
     <!-- Official OpenAI SDK: used ONLY for audio transcription (platform key) -->
     <PackageReference Include="OpenAI" Version="2.10.0" />
+    <PackageReference Include="Seq.Api" Version="2025.2.2" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.Seq" Version="9.1.0" />
   </ItemGroup>
 
 </Project>

@@ -10,3 +10,15 @@ obj/
 
 # macOS
 .DS_Store
+
+# WhatsApp bridge: session/auth, downloaded media, local env
+whatsapp-bridge/whatsmeow-session.db*
+whatsapp-bridge/.env
+whatsapp-bridge/whatsapp-bridge
+/tmp/erda-bridge/
+
+# Error-watch scheduler local state
+errorwatch-state.json
+
+# Go build artifacts
+*.test

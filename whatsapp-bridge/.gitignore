@@ -1,0 +1,15 @@
+# Local secrets and runtime state — never commit these.
+.env
+
+# whatsmeow SQLite session store (and its WAL/SHM sidecars).
+whatsmeow-session.db
+whatsmeow-session.db-*
+*.db
+*.db-shm
+*.db-wal
+
+# Downloaded media scratch.
+/media/
+
+# Compiled binary.
+/whatsapp-bridge

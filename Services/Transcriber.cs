@@ -6,6 +6,12 @@ using OpenAI.Audio;
 
 namespace Erda.Services;
 
+/// <summary>Speech-to-text abstraction (so callers can be unit-tested without the OpenAI client).</summary>
+public interface ITranscriber
+{
+    Task<string> TranscribeAsync(string audioFilePath, CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Speech-to-text via the OpenAI platform API. Uses the OPENAI_API_KEY (pay-per-token),
 /// which is a DIFFERENT credential from the Azure/Foundry key used by the chat agent.
@@ -13,7 +19,7 @@ namespace Erda.Services;
 public sealed class Transcriber(
     IOptions<ErdaOptions> options,
     IConfiguration configuration,
-    ILogger<Transcriber> logger)
+    ILogger<Transcriber> logger) : ITranscriber
 {
     private const long MaxBytes = 25L * 1024 * 1024; // OpenAI transcription limit
 
