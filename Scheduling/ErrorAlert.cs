@@ -32,8 +32,10 @@ public static class ErrorAlert
 
     private static string Source(SeqError e)
     {
-        if (e.Properties.TryGetValue("Application", out var app) && !string.IsNullOrWhiteSpace(app))
+        if (e.Properties.TryGetValue("app", out var app) && !string.IsNullOrWhiteSpace(app))
             return app;
+        if (e.Properties.TryGetValue("Application", out var application) && !string.IsNullOrWhiteSpace(application))
+            return application;
         if (e.Properties.TryGetValue("SourceContext", out var sc) && !string.IsNullOrWhiteSpace(sc))
             return sc;
         return "";

@@ -21,6 +21,7 @@ builder.Host.UseSerilog((context, configuration) =>
         .MinimumLevel.Information()
         .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
         .Enrich.FromLogContext()
+        .Enrich.WithProperty("app", "Erda") // tag every event so Erda's logs are filterable in Seq
         .WriteTo.Console();
 
     var seq = context.Configuration.GetSection(SeqOptions.SectionName).Get<SeqOptions>();

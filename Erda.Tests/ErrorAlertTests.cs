@@ -28,6 +28,19 @@ public class ErrorAlertTests
     }
 
     [Fact]
+    public void Uses_the_app_property_as_the_source_label()
+    {
+        var e = new SeqError
+        {
+            Level = "Error",
+            RenderedMessage = "boom",
+            Timestamp = DateTimeOffset.UnixEpoch,
+            Properties = new Dictionary<string, string> { ["app"] = "Erda" },
+        };
+        Assert.Contains("Erda", ErrorAlert.Format(e, null));
+    }
+
+    [Fact]
     public void Truncates_very_long_content()
     {
         var e = new SeqError { Level = "Error", RenderedMessage = new string('x', 6000), Timestamp = DateTimeOffset.UnixEpoch };
