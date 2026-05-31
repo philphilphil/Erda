@@ -5,10 +5,18 @@ using Microsoft.Extensions.DependencyInjection; // FromKeyedServices
 
 namespace Erda.Channels;
 
-/// <summary>Runs a set of chat messages through an agent and returns the reply text.</summary>
+/// <summary>The result of an agent turn: the reply text plus telemetry for logging.</summary>
+public sealed record AgentReply(
+    string Text,
+    long? InputTokens,
+    long? OutputTokens,
+    long? TotalTokens,
+    IReadOnlyList<string> ToolsUsed);
+
+/// <summary>Runs a set of chat messages through an agent and returns the reply + telemetry.</summary>
 public interface IAgentResponder
 {
-    Task<string> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default);
+    Task<AgentReply> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -24,14 +32,30 @@ public sealed class ErdaAgentResponder(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private AgentSession? _session;
 
-    public async Task<string> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
+    public async Task<AgentReply> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             _session ??= await agent.CreateSessionAsync(cancellationToken);
             var response = await agent.RunAsync(messages, _session, cancellationToken: cancellationToken);
-            return response.Text ?? "";
+
+            // Tools the agent actually called this turn (distinct, in call order).
+            var tools = response.Messages
+                .SelectMany(m => m.Contents)
+                .OfType<FunctionCallContent>()
+                .Select(f => f.Name)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct()
+                .ToList();
+            var usage = response.Usage;
+
+            return new AgentReply(
+                response.Text ?? "",
+                usage?.InputTokenCount,
+                usage?.OutputTokenCount,
+                usage?.TotalTokenCount,
+                tools);
         }
         finally
         {

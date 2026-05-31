@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Erda.Configuration;
 using Erda.Services;
 using Microsoft.Extensions.AI;
@@ -38,8 +39,16 @@ public sealed class WhatsAppChannelService(
                 return;
             }
 
+            var sw = Stopwatch.StartNew();
             var reply = await responder.RespondAsync(messages, cancellationToken);
-            await sender.SendAsync(replyTarget, string.IsNullOrWhiteSpace(reply) ? "(no response)" : reply, cancellationToken);
+            sw.Stop();
+
+            // Per-turn telemetry → Seq (carries app=Erda). Tokens + tools + latency.
+            logger.LogInformation(
+                "WhatsApp turn complete: type={Type} tokensIn={TokensIn} tokensOut={TokensOut} tokensTotal={TokensTotal} tools={Tools} replyChars={ReplyChars} ms={ElapsedMs}",
+                message.Type, reply.InputTokens, reply.OutputTokens, reply.TotalTokens, reply.ToolsUsed, reply.Text.Length, sw.ElapsedMilliseconds);
+
+            await sender.SendAsync(replyTarget, string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text, cancellationToken);
         }
         catch (Exception ex)
         {

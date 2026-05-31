@@ -9,9 +9,9 @@ namespace Erda.Tests;
 public sealed class FakeAgentResponder : IAgentResponder
 {
     public List<IReadOnlyList<ChatMessage>> Calls { get; } = [];
-    public string Reply { get; set; } = "ok";
+    public AgentReply Reply { get; set; } = new("ok", 10, 5, 15, ["consult_codex"]);
 
-    public Task<string> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
+    public Task<AgentReply> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
     {
         Calls.Add(messages);
         return Task.FromResult(Reply);
