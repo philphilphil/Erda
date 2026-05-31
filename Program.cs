@@ -8,9 +8,22 @@ using Erda.WhatsApp;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.Options;
+using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// --- Observability content gate (set BEFORE the agent is instrumented) -----
+// Default OFF: spans carry only metadata (tool names, durations, token counts). When
+// Observability:CaptureMessageContent is true (it is in Development), also capture prompts and
+// tool arguments. MAF reads this standard env var when instrumenting the agent.
+var observability = builder.Configuration.GetSection(ObservabilityOptions.SectionName).Get<ObservabilityOptions>()
+    ?? new ObservabilityOptions();
+if (observability.CaptureMessageContent)
+    Environment.SetEnvironmentVariable("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true");
 
 // --- Logging: Serilog (console + optional Seq sink) ------------------------
 // Erda ships its own logs to the same Seq the error-watch scheduler reads, so Erda's own errors
@@ -31,6 +44,32 @@ builder.Host.UseSerilog((context, configuration) =>
 
 // --- Configuration ---------------------------------------------------------
 builder.Services.Configure<ErdaOptions>(builder.Configuration.GetSection(ErdaOptions.SectionName));
+builder.Services.Configure<ObservabilityOptions>(builder.Configuration.GetSection(ObservabilityOptions.SectionName));
+
+// --- OpenTelemetry tracing -------------------------------------------------
+// MAF emits spans per turn: agent run -> model call (token usage) -> each tool/function call.
+// Exported to Seq over OTLP when Seq:ServerUrl is set; console exporter in Development for a
+// zero-setup local view. Message content is gated by the env var set above.
+if (observability.Enabled)
+{
+    var seqForOtel = builder.Configuration.GetSection(SeqOptions.SectionName).Get<SeqOptions>();
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService(serviceName: "Erda"))
+        .WithTracing(tracing =>
+        {
+            tracing.AddSource(ObservabilityOptions.ActivitySourceName);
+            if (builder.Environment.IsDevelopment())
+                tracing.AddConsoleExporter();
+            if (!string.IsNullOrWhiteSpace(seqForOtel?.ServerUrl))
+                tracing.AddOtlpExporter(otlp =>
+                {
+                    otlp.Endpoint = new Uri($"{seqForOtel!.ServerUrl!.TrimEnd('/')}/ingest/otlp/v1/traces");
+                    otlp.Protocol = OtlpExportProtocol.HttpProtobuf;
+                    if (!string.IsNullOrWhiteSpace(seqForOtel.ApiKey))
+                        otlp.Headers = $"X-Seq-ApiKey={seqForOtel.ApiKey}";
+                });
+        });
+}
 
 // --- Erda services ---------------------------------------------------------
 builder.Services.AddSingleton<VaultService>();

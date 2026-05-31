@@ -165,6 +165,28 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 `.DevUI` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
 `Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See `Erda.csproj`.
 
+## Observability
+
+Erda emits OpenTelemetry traces for every turn — a span tree of **agent run → model call (token
+usage) → each tool/function call** (`consult_codex`, the vault tools, `process_voice_memo`), with
+durations and errors. The agent is instrumented via MAF's `AsBuilder().UseOpenTelemetry()` on the
+`Erda.Agent` activity source ([`Agents/ErdaAgent.cs`](Agents/ErdaAgent.cs)); the pipeline is wired
+in [`Program.cs`](Program.cs).
+
+- **Where:** exported over OTLP to the Seq you already run (`{Seq:ServerUrl}/ingest/otlp/v1/traces`,
+  reusing `Seq:ApiKey`). In Development a console exporter is also enabled for a zero-setup view.
+- **Privacy:** prompt / completion / tool-argument **content** is captured only when
+  `Observability:CaptureMessageContent` is true (which sets the standard env var
+  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`). It is **false in production**
+  (`appsettings.json`) — Seq then gets tool names, timings, and token counts but no message text —
+  and **true in Development**. The Codex launch log follows the same flag: it shows the actual
+  question (not the system-prompt boilerplate) only when content capture is on.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `Observability:Enabled` | `true` | Master switch for OpenTelemetry tracing |
+| `Observability:CaptureMessageContent` | `false` (prod) / `true` (dev) | Capture prompts + tool args in spans and the Codex log |
+
 ## Deploy on a Jetson (Docker + Komodo)
 
 Erda runs on an always-on ARM64 Linux box (e.g. an NVIDIA Jetson) as a two-container Compose

@@ -53,6 +53,7 @@ public static class ErdaAgent
     {
         var configuration = services.GetRequiredService<IConfiguration>();
         var options = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
+        var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
 
         // Foundry endpoint + key. If unset we still construct the agent (so the app and DevUI
         // start) using a placeholder; the actual call fails clearly until the env vars are set.
@@ -79,6 +80,17 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
-        return chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);
+        var agent = chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);
+
+        // Instrument with OpenTelemetry (MAF builder): spans for the agent run, the model call
+        // (token usage), and each tool/function invocation, emitted on ActivitySourceName.
+        // EnableSensitiveData records prompts + tool arguments; gated by the config flag (off in
+        // production), mirroring the OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT env var.
+        return agent
+            .AsBuilder()
+            .UseOpenTelemetry(
+                sourceName: ObservabilityOptions.ActivitySourceName,
+                configure: telemetry => telemetry.EnableSensitiveData = observability.CaptureMessageContent)
+            .Build();
     }
 }

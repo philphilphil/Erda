@@ -19,7 +19,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// then runs Codex. Kept for the voice-memo workflow's CodexExecutor.
     /// </summary>
     public Task<string> RunAsync(string developerInstruction, string transcript, CancellationToken cancellationToken = default)
-        => RunPromptAsync($"{developerInstruction}\n\nTranscript:\n{transcript}", enableWebSearch: false, cancellationToken);
+        => RunPromptAsync($"{developerInstruction}\n\nTranscript:\n{transcript}", enableWebSearch: false, cancellationToken, logLabel: "voice-memo cleanup");
 
     /// <summary>
     /// Runs <c>codex exec</c> on an already-built prompt and returns Codex's final message.
@@ -28,7 +28,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// read-only sandbox since no files need writing.
     /// </summary>
     public async Task<string> RunPromptAsync(
-        string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default)
+        string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default, string? logLabel = null)
     {
         var opts = options.Value;
         var workDir = Directory.CreateTempSubdirectory("erda-codex-").FullName;
@@ -71,19 +71,28 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             psi.ArgumentList.Add(prompt);
 
             // CRITICAL: ensure the platform key is NOT in the child env, so Codex authenticates
-            // with the ChatGPT subscription rather than per-token API billing. Remove() returns
-            // true if it was present (and is now stripped), false if it was never there. Either
-            // way the child cannot see it. (If OPENAI_API_KEY lives only in appsettings, it is
-            // in IConfiguration but never in the OS process env, so it was never inherited.)
-            var wasPresentAndStripped = psi.Environment.Remove("OPENAI_API_KEY");
+            // with the ChatGPT subscription rather than per-token API billing. (If OPENAI_API_KEY
+            // lives only in appsettings it is in IConfiguration but never in the OS process env,
+            // so it was never inherited and Remove is a no-op.)
+            psi.Environment.Remove("OPENAI_API_KEY");
             var keyAbsentFromChild = !psi.Environment.ContainsKey("OPENAI_API_KEY");
 
-            var preview = prompt.Length > 120 ? prompt[..120].Replace('\n', ' ') + "…" : prompt.Replace('\n', ' ');
+            // Log WHAT was asked (logLabel = the question/task), not a preview of the raw prompt —
+            // whose first chars are always the fixed developer instruction. Content is shown only
+            // when message-content capture is on (same env var MAF's OpenTelemetry uses).
+            var captureContent = string.Equals(
+                Environment.GetEnvironmentVariable("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"),
+                "true", StringComparison.OrdinalIgnoreCase);
+            var rawTask = string.IsNullOrWhiteSpace(logLabel) ? prompt : logLabel!;
+            var task = captureContent
+                ? (rawTask.Length > 160 ? rawTask[..160].Replace('\n', ' ') + "…" : rawTask.Replace('\n', ' '))
+                : "(hidden; set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true)";
+
             logger.LogInformation(
-                "Launching Codex: codex exec -m {Model} -c model_reasoning_effort=\"{Effort}\" " +
-                "-c preferred_auth_method=\"chatgpt\" web_search={Web} --sandbox {Sandbox} --skip-git-repo-check " +
-                "-o {Out} \"{Preview}\"  |  OPENAI_API_KEY absent from child env: {Absent} (was present & stripped: {Stripped})",
-                opts.CodexModel, opts.CodexReasoningEffort, enableWebSearch, sandbox, outputFile, preview, keyAbsentFromChild, wasPresentAndStripped);
+                "Codex exec: model={Model} effort={Effort} webSearch={Web} sandbox={Sandbox} promptChars={Chars} | task={Task} | OPENAI_API_KEY absent from child: {Absent}",
+                opts.CodexModel, opts.CodexReasoningEffort, enableWebSearch, sandbox, prompt.Length, task, keyAbsentFromChild);
+
+            var sw = Stopwatch.StartNew();
 
             using var proc = new Process { StartInfo = psi };
             var stdout = new StringBuilder();
@@ -108,17 +117,23 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             if (proc.ExitCode != 0)
                 throw new InvalidOperationException($"codex exec failed (exit {proc.ExitCode}): {stderr.ToString().Trim()}");
 
-            if (File.Exists(outputFile))
+            var fromFile = File.Exists(outputFile)
+                ? (await File.ReadAllTextAsync(outputFile, cancellationToken)).Trim()
+                : string.Empty;
+            string result;
+            if (fromFile.Length > 0)
             {
-                var fromFile = (await File.ReadAllTextAsync(outputFile, cancellationToken)).Trim();
-                if (fromFile.Length > 0)
-                    return fromFile;
+                result = fromFile;
+            }
+            else
+            {
+                result = stdout.ToString().Trim();
+                if (result.Length == 0)
+                    throw new InvalidOperationException("Codex produced no output.");
             }
 
-            var fromStdout = stdout.ToString().Trim();
-            if (fromStdout.Length == 0)
-                throw new InvalidOperationException("Codex produced no output.");
-            return fromStdout;
+            logger.LogInformation("Codex completed in {ElapsedMs}ms, returned {Chars} chars.", sw.ElapsedMilliseconds, result.Length);
+            return result;
         }
         finally
         {

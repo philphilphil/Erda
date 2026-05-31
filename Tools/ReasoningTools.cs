@@ -44,6 +44,6 @@ public sealed class ReasoningTools(CodexRunner codex)
             ? $"{DeveloperInstruction}\n\nQuestion:\n{question}"
             : $"{DeveloperInstruction}\n\nQuestion:\n{question}\n\nContext:\n{context}";
 
-        return await codex.RunPromptAsync(prompt, enableWebSearch: true);
+        return await codex.RunPromptAsync(prompt, enableWebSearch: true, logLabel: question);
     }
 }
