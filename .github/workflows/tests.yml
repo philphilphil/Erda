@@ -1,0 +1,53 @@
+name: tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dotnet:
+    name: .NET (Erda)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Erda.Tests/Erda.Tests.csproj
+
+      - name: Build
+        run: dotnet build Erda.Tests/Erda.Tests.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Erda.Tests/Erda.Tests.csproj --configuration Release --no-build --verbosity normal
+
+  bridge:
+    name: Go (whatsapp-bridge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: whatsapp-bridge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: whatsapp-bridge/go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -v
