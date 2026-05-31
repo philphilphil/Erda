@@ -46,6 +46,21 @@ public class WhatsAppChannelServiceTests
         Assert.Equal("ok", sender.Sent[0].Text);
     }
 
+    [Theory]
+    [InlineData("clear")]
+    [InlineData("/clear")]
+    [InlineData("Reset")]
+    public async Task Clear_command_resets_without_calling_the_agent(string text)
+    {
+        var svc = Make(out var responder, out var sender, out _);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = text });
+
+        Assert.Empty(responder.Calls);
+        Assert.Equal(1, responder.Resets);
+        Assert.Single(sender.Sent);
+        Assert.Contains("Cleared", sender.Sent[0].Text);
+    }
+
     [Fact]
     public async Task Message_from_non_owner_is_dropped()
     {

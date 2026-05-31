@@ -15,6 +15,9 @@ public sealed record AgentReply(
 public interface IAgentResponder
 {
     Task<AgentReply> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default);
+
+    /// <summary>Discards the conversation so the next message starts fresh.</summary>
+    Task ResetAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -54,6 +57,19 @@ public sealed class ErdaAgentResponder(
                 usage?.OutputTokenCount,
                 usage?.TotalTokenCount,
                 tools);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            _session = null; // next RespondAsync creates a fresh session
         }
         finally
         {

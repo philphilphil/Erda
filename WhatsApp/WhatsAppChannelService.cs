@@ -31,6 +31,13 @@ public sealed class WhatsAppChannelService(
 
         var replyTarget = string.IsNullOrEmpty(message.Chat) ? message.From : message.Chat;
 
+        if (IsClearCommand(message))
+        {
+            await responder.ResetAsync(cancellationToken);
+            await sender.SendAsync(replyTarget, "🧹 Cleared — starting a fresh conversation.", cancellationToken);
+            return;
+        }
+
         try
         {
             var messages = await BuildMessagesAsync(message, cancellationToken);
@@ -61,6 +68,12 @@ public sealed class WhatsAppChannelService(
             CleanupMedia(message, o.MediaTempDir);
         }
     }
+
+    /// <summary>True for a "clear"/"reset" command (optionally slash-prefixed) that wipes context.</summary>
+    private static bool IsClearCommand(InboundMessage message) =>
+        message.Kind == InboundKind.Text &&
+        message.Text?.Trim().TrimStart('/') is { } t &&
+        (t.Equals("clear", StringComparison.OrdinalIgnoreCase) || t.Equals("reset", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Builds the chat message(s) for the agent, or null for an unsupported/empty message.</summary>
     private async Task<IReadOnlyList<ChatMessage>?> BuildMessagesAsync(InboundMessage message, CancellationToken cancellationToken)
