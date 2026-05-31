@@ -164,3 +164,57 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 `Microsoft.Agents.AI.Hosting` `1.8.0-preview`, `.Hosting.OpenAI` `1.8.0-alpha`,
 `.DevUI` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
 `Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See `Erda.csproj`.
+
+## Deploy on a Jetson (Docker + Komodo)
+
+Erda runs on an always-on ARM64 Linux box (e.g. an NVIDIA Jetson) as a two-container Compose
+stack: **`erda`** + **`whatsapp-bridge`**. Nothing here uses the GPU — every model call is cloud
+— so no `nvidia-docker` runtime is needed. In production Erda runs
+`ASPNETCORE_ENVIRONMENT=Production`, so **DevUI is not mounted and no web port is published**;
+you talk to Erda over WhatsApp.
+
+### Files
+
+- [`Dockerfile`](Dockerfile) — Erda image; installs the `codex` `aarch64` binary and sets
+  `CODEX_HOME=/codex`.
+- [`whatsapp-bridge/Dockerfile`](whatsapp-bridge/Dockerfile) — the Go bridge (static →
+  distroless).
+- [`docker-compose.yml`](docker-compose.yml) — the stack: a private network, a **shared
+  `/media`** volume (the bridge writes downloaded media and hands Erda the absolute path), a
+  persistent `bridge-data` volume (the WhatsApp session), and host bind-mounts for `~/.codex`
+  and the vault.
+- [`.env.example`](.env.example) — copy to `.env` and fill in paths + secrets.
+
+### Three credential contexts in the container
+
+The [three-credential model](#the-three-credential-model-the-whole-point-of-the-design) is
+preserved: Azure + OpenAI-platform keys arrive as env vars; **Codex auth is the mounted
+`~/.codex` session** (no key). `CodexRunner` still strips `OPENAI_API_KEY` from the subprocess,
+so Codex authenticates against the ChatGPT subscription, not per-token billing.
+
+### One-time bootstrap on the Jetson
+
+1. **Codex login** (host): `codex login` — opens a device-code flow (prints a URL to open on
+   another machine over SSH) and populates `~/.codex`. Point `CODEX_DIR` in `.env` at it.
+2. **Configure**: `cp .env.example .env` and fill in. `CODEX_DIR` and `VAULT_DIR` must be
+   **absolute** paths (compose does not expand `~`).
+3. **Link WhatsApp** (first run only): `docker compose run --rm whatsapp-bridge`, then scan the
+   QR via *WhatsApp → Linked devices → Link a device*. The session persists in the `bridge-data`
+   volume; later starts connect silently. Ctrl-C once linked.
+4. **Up**: `docker compose up -d --build`.
+
+### Komodo
+
+Point a Komodo **Stack** at this repo and let it run `docker compose up -d --build` on push
+(webhook). Images build natively on the Jetson (arm64); bump `CODEX_VERSION` in the `Dockerfile`
+to upgrade the CLI. `restart: unless-stopped` keeps both services up across reboots. Provide the
+`.env` values as Komodo environment/secrets.
+
+### Notes
+
+- **Obsidian sync** must run on the host (Syncthing / obsidian-git / etc.) into `VAULT_DIR`; the
+  container only reads/writes files — it does not sync them.
+- **Voice memos**: forward the audio to Erda over WhatsApp. The bridge downloads it into the
+  shared `/media` volume and Erda transcribes it from there.
+- **Seq**: the error-watch scheduler ships inside the `erda` container and reads from the central
+  `SEQ_SERVER_URL` (default `https://seq.phib.io`). No Seq container is included.

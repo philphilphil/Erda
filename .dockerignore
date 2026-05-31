@@ -1,0 +1,24 @@
+# Keep the Erda image build context small and reproducible.
+# (The bridge has its own context under ./whatsapp-bridge.)
+
+**/bin/
+**/obj/
+.git/
+.github/
+.vs/
+.idea/
+*.user
+
+# Local dev secrets — never bake into the image.
+appsettings.Development.json
+.env
+
+# Not needed by the Erda image.
+Erda.Tests/
+whatsapp-bridge/
+docs/
+*.md
+.DS_Store
+
+# Local runtime state.
+errorwatch-state.json

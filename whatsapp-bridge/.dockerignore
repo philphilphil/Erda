@@ -1,0 +1,7 @@
+# Keep the bridge build context lean and free of local state/secrets.
+.env
+whatsmeow-session.db*
+whatsapp-bridge
+*.test
+.DS_Store
+README.md

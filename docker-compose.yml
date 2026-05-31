@@ -1,0 +1,65 @@
+# Erda stack for the Jetson (ARM64) deployment — built and deployed by Komodo.
+#
+# Two services on a private network, no published host ports (WhatsApp is the only surface;
+# Erda runs Production, so DevUI is not mounted). Copy .env.example to .env and fill it in;
+# docker compose reads .env automatically.
+#
+#   First run only (link WhatsApp):  docker compose run --rm whatsapp-bridge   # scan the QR
+#   Normal:                          docker compose up -d --build
+
+name: erda
+
+services:
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+    image: erda/whatsapp-bridge:local
+    restart: unless-stopped
+    environment:
+      BRIDGE_LISTEN: 0.0.0.0:8088                                   # all-interfaces INSIDE the container; still unpublished
+      ERDA_INBOUND_URL: http://erda:5167/channel/whatsapp/in
+      SHARED_SECRET: ${SHARED_SECRET:?set SHARED_SECRET in .env}
+      OWNER_JID: ${OWNER_JID:?set OWNER_JID in .env}
+      SESSION_DB: /data/whatsmeow-session.db
+      MEDIA_DIR: /media
+    volumes:
+      - bridge-data:/data            # persistent whatsmeow session — survives rebuilds
+      - media:/media                 # SHARED with erda (same path); downloaded media
+    networks: [erdanet]
+
+  erda:
+    build:
+      context: .
+    image: erda/erda:local
+    restart: unless-stopped
+    depends_on: [whatsapp-bridge]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production                           # no DevUI, no web port
+      ASPNETCORE_URLS: http://0.0.0.0:5167
+      CODEX_HOME: /codex
+      Erda__VaultPath: /vault
+      WhatsApp__Enabled: "true"
+      WhatsApp__BridgeUrl: http://whatsapp-bridge:8088
+      WhatsApp__MediaTempDir: /media
+      WhatsApp__SharedSecret: ${SHARED_SECRET:?set SHARED_SECRET in .env}
+      WhatsApp__OwnerNumber: ${OWNER_NUMBER:?set OWNER_NUMBER in .env}
+      Seq__ServerUrl: ${SEQ_SERVER_URL:-https://seq.phib.io}
+      Seq__ApiKey: ${SEQ_API_KEY:-}
+      Seq__IngestToErda: "true"
+      ErrorWatch__Enabled: "true"
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:?set AZURE_OPENAI_ENDPOINT in .env}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:?set AZURE_OPENAI_API_KEY in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}  # transcription only; stripped from the Codex subprocess
+    volumes:
+      - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
+      - ${VAULT_DIR:?set VAULT_DIR (absolute) in .env}:/vault       # host-synced Obsidian vault, RW
+      - media:/media                                                # SHARED with the bridge (same path)
+    networks: [erdanet]
+
+networks:
+  erdanet:
+    driver: bridge
+
+volumes:
+  bridge-data:
+  media:

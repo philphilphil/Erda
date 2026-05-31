@@ -1,6 +1,9 @@
 # Local dev secrets — real API keys go here, never committed
 appsettings.Development.json
 
+# Stack deploy secrets (docker-compose reads ./.env)
+/.env
+
 bin/
 obj/
 *.user
