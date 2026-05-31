@@ -1,10 +1,10 @@
 using Erda.Agents;
-using Erda.Channels;
 using Erda.Configuration;
 using Erda.Scheduling;
 using Erda.Services;
 using Erda.Services.Seq;
 using Erda.Tools;
+using Erda.WhatsApp;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.Options;

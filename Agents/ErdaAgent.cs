@@ -76,7 +76,7 @@ public static class ErdaAgent
         // consult_codex: Codex (gpt-5.5, subscription) + live web search — grounding + hard reasoning.
         tools.AddRange(reasoning.AsTools());
         // message_me: proactive WhatsApp message to Phil (outbound via the bridge).
-        tools.AddRange(services.GetRequiredService<Erda.Tools.NotifyTools>().AsTools());
+        tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
         return chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);

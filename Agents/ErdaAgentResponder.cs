@@ -1,9 +1,7 @@
-using Erda.Agents;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection; // FromKeyedServices
 
-namespace Erda.Channels;
+namespace Erda.Agents;
 
 /// <summary>The result of an agent turn: the reply text plus telemetry for logging.</summary>
 public sealed record AgentReply(

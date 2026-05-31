@@ -1,10 +1,11 @@
 using System.Diagnostics;
+using Erda.Agents;
 using Erda.Configuration;
 using Erda.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Channels;
+namespace Erda.WhatsApp;
 
 /// <summary>
 /// Turns an inbound WhatsApp message into an agent turn and sends the reply back via the bridge.

@@ -1,7 +1,6 @@
-using Erda.Channels;
 using Erda.Configuration;
-using Erda.Services;
 using Erda.Services.Seq;
+using Erda.WhatsApp;
 using Microsoft.Extensions.Options;
 
 namespace Erda.Scheduling;

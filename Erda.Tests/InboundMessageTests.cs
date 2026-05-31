@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Erda.Channels;
+using Erda.WhatsApp;
 using Xunit;
 
 namespace Erda.Tests;

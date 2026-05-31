@@ -1,7 +1,8 @@
-using Erda.Channels;
+using Erda.Agents;
 using Erda.Scheduling;
 using Erda.Services;
 using Erda.Services.Seq;
+using Erda.WhatsApp;
 using Microsoft.Extensions.AI;
 
 namespace Erda.Tests;

@@ -1,4 +1,4 @@
-namespace Erda.Channels;
+namespace Erda.WhatsApp;
 
 /// <summary>The kind of WhatsApp message, derived from the bridge's "type" field.</summary>
 public enum InboundKind

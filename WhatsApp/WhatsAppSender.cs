@@ -1,7 +1,7 @@
 using Erda.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Services;
+namespace Erda.WhatsApp;
 
 /// <summary>Sends a WhatsApp text message to a JID by calling the bridge's <c>/send</c> endpoint.</summary>
 public interface IWhatsAppSender

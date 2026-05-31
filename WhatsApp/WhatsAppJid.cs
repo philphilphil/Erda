@@ -1,4 +1,4 @@
-namespace Erda.Channels;
+namespace Erda.WhatsApp;
 
 /// <summary>
 /// Pure helpers for WhatsApp JIDs (Jabber-style IDs). A user JID looks like

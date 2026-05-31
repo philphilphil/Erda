@@ -1,11 +1,9 @@
 using System.ComponentModel;
-using Erda.Channels;
 using Erda.Configuration;
-using Erda.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Tools;
+namespace Erda.WhatsApp;
 
 /// <summary>
 /// Exposes a single tool, <c>message_me</c>, that lets Erda proactively send Phil a WhatsApp
