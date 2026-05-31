@@ -16,6 +16,7 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -62,26 +63,48 @@ func (r *relay) handleEvent(evt any) {
 func (r *relay) handleMessage(evt *events.Message) {
 	info := evt.Info
 
+	// WhatsApp increasingly addresses users by a privacy "LID" (...@lid) instead
+	// of their phone number, so the raw sender may not be a phone JID. Resolve it
+	// back to the phone number (via the alt the server sends, then the LID store)
+	// and use that throughout, so Erda and the proactive/outbound paths all speak
+	// one consistent phone-based identity.
+	senderPN := r.resolvePN(info.Sender, info.SenderAlt)
+
+	// Always log arrivals (pre-filter) so we can see whether messages reach the
+	// bridge at all, and exactly who they're from.
+	slog.Info("message received",
+		"sender", info.Sender.String(),
+		"senderPN", senderPN.String(),
+		"chat", info.Chat.String(),
+		"fromMe", info.IsFromMe,
+		"isGroup", info.IsGroup,
+		"type", info.Type)
+
 	// 1. Drop group/broadcast messages.
 	if info.IsGroup {
-		slog.Debug("ignoring group message", "chat", info.Chat.String())
+		slog.Info("ignoring group message", "chat", info.Chat.String())
 		return
 	}
 
-	// 1b. Drop anything not from the owner. Compare on the bare user part so
-	// device/agent suffixes (and AD-JIDs) don't cause false negatives.
-	sender := info.Sender.ToNonAD()
-	if sender.User != r.cfg.ownerUser() {
-		slog.Debug("ignoring non-owner message", "sender", info.Sender.String())
+	// 1b. Drop anything not from the owner. Accept a match on either the resolved
+	// phone number OR the raw sender user part, so OWNER_JID works whether it is
+	// set to a phone number or a LID.
+	owner := r.cfg.ownerUser()
+	if senderPN.User != owner && info.Sender.ToNonAD().User != owner {
+		slog.Info("ignoring non-owner message",
+			"senderUser", info.Sender.ToNonAD().User,
+			"senderPN", senderPN.User,
+			"ownerUser", owner,
+			"senderJID", info.Sender.String())
 		return
 	}
 
-	// Reply target: the owner's bare chat JID.
-	chat := info.Chat.ToNonAD()
-
+	// From: the resolved phone number, so Erda's phone-based whitelist matches.
+	// Chat (reply target): the original chat JID, so the reply lands in the exact
+	// same conversation — whatsmeow can address a LID chat directly.
 	payload := inboundPayload{
-		From:      sender.String(),
-		Chat:      chat.String(),
+		From:      senderPN.String(),
+		Chat:      info.Chat.ToNonAD().String(),
 		MessageID: info.ID,
 		Timestamp: info.Timestamp.Unix(),
 	}
@@ -124,6 +147,27 @@ func (r *relay) handleMessage(evt *events.Message) {
 
 	slog.Info("inbound message", "type", payload.Type, "from", payload.From, "id", payload.MessageID)
 	r.forward(payload)
+}
+
+// resolvePN maps a possibly-LID JID to the user's phone-number JID. It prefers
+// the phone "alt" address the server includes alongside LID-addressed messages,
+// then falls back to the on-device LID->PN mapping. If nothing resolves, it
+// returns the original (non-AD) JID unchanged.
+func (r *relay) resolvePN(jid, alt types.JID) types.JID {
+	if jid.Server == types.DefaultUserServer {
+		return jid.ToNonAD()
+	}
+	if alt.Server == types.DefaultUserServer && alt.User != "" {
+		return alt.ToNonAD()
+	}
+	if jid.Server == types.HiddenUserServer {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if pn, err := r.client.Store.LIDs.GetPNForLID(ctx, jid.ToNonAD()); err == nil && pn.User != "" {
+			return pn.ToNonAD()
+		}
+	}
+	return jid.ToNonAD()
 }
 
 // isTextMessage reports whether the message is a plain or extended text message.
