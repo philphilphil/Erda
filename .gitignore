@@ -22,3 +22,4 @@ errorwatch-state.json
 
 # Go build artifacts
 *.test
+docs/notes.md
