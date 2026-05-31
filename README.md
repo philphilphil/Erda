@@ -175,6 +175,14 @@ in [`Program.cs`](Program.cs).
 
 - **Where:** exported over OTLP to the Seq you already run (`{Seq:ServerUrl}/ingest/otlp/v1/traces`,
   reusing `Seq:ApiKey`). In Development a console exporter is also enabled for a zero-setup view.
+- **Finding them in Seq:** every span is tagged `app = Erda` (a span attribute, so it's filterable
+  like the Serilog logs — OTLP *resource* attributes such as `service.name` land under `@ra` and
+  are **not** filterable, which is why a `service.name = 'Erda'` search finds nothing). Filter
+  `app = 'Erda'` to see logs + traces together, or `gen_ai.operation.name = 'invoke_agent'` for just
+  the turns; click a span's trace icon for the waterfall. **Tool calls aren't separate spans** —
+  they appear inside the `invoke_agent` span's `gen_ai.input.messages` / `gen_ai.output.messages`
+  (as `tool_call` / `tool_call_response` parts), visible only when content capture is on. `chat`
+  spans carry the token counts.
 - **Privacy:** prompt / completion / tool-argument **content** is captured only when
   `Observability:CaptureMessageContent` is true (which sets the standard env var
   `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`). It is **false in production**

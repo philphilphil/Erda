@@ -58,6 +58,9 @@ if (observability.Enabled)
         .WithTracing(tracing =>
         {
             tracing.AddSource(ObservabilityOptions.ActivitySourceName);
+            // Tag spans with a top-level app=Erda so traces are filterable alongside the Serilog
+            // logs in Seq (resource attributes like service.name aren't). Must precede exporters.
+            tracing.AddProcessor(new AppTagSpanProcessor("Erda"));
             if (builder.Environment.IsDevelopment())
                 tracing.AddConsoleExporter();
             if (!string.IsNullOrWhiteSpace(seqForOtel?.ServerUrl))
