@@ -31,6 +31,9 @@ public static class ErdaAgent
 
         process_voice_memo: transcribe + process an Apple Voice Memo (give it an absolute .m4a path).
 
+        message_me: send Phil a WhatsApp message proactively (reminder, confirmation, or anything
+        worth surfacing now). Use sparingly and only when it adds value.
+
         consult_codex: a stronger model WITH live web search. This is your source of truth for
         facts and your tool for hard thinking.
         GROUND FIRST: whenever a request asks you to explain, summarize, describe, or write a note
@@ -72,6 +75,8 @@ public static class ErdaAgent
         };
         // consult_codex: Codex (gpt-5.5, subscription) + live web search — grounding + hard reasoning.
         tools.AddRange(reasoning.AsTools());
+        // message_me: proactive WhatsApp message to Phil (outbound via the bridge).
+        tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
         return chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);
