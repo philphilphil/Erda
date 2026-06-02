@@ -1,5 +1,5 @@
 using Erda.Agents;
-using Erda.Components;
+using Erda.Api;
 using Erda.Configuration;
 using Erda.Data;
 using Erda.Scheduling;
@@ -141,11 +141,12 @@ builder.Services.AddSingleton<ReminderStateStore>();
 builder.Services.AddSingleton<ReminderTools>();
 builder.Services.AddHostedService<ReminderScheduler>();
 
-// --- Control panel (Blazor Server, LAN-only) -------------------------------
-// A single-user web UI hosted inside this app at /panel: manage reminders, edit the system prompt,
-// watch live activity, and tweak config. Interactive Server render mode (SignalR circuit) so the
-// activity feed pushes updates and components call the DB-backed services in-process.
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+// --- Control panel (Vue SPA + JSON API, LAN-only) --------------------------
+// A single-user web UI: a Vue SPA (built by Vite, served as static files) talking to the JSON API
+// below over cookie auth. Replaces the former Blazor Server panel. Cookie auth is off by default
+// (open on the LAN) and turns on when Panel:Password is set.
+builder.Services.Configure<PanelOptions>(builder.Configuration.GetSection(PanelOptions.SectionName));
+builder.Services.AddPanelApi();
 
 // --- Agents & workflows (discovered by DevUI) ------------------------------
 // Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). Its tools are
@@ -177,13 +178,20 @@ app.MapOpenAIConversations();
 if (app.Environment.IsDevelopment())
     app.MapDevUI(); // dashboard at /devui
 
-// Control panel: serve the Blazor framework assets (_framework/blazor.web.js), then antiforgery
-// (required by Razor Components), then the panel itself at /panel.
+// Control panel: serve the Vue SPA's static assets (wwwroot, populated by the Vite build in the
+// Docker image), then cookie auth, then the JSON API. The SPA owns client-side routing, so unmatched
+// non-file paths fall back to index.html in Production. In Development the SPA runs on the Vite dev
+// server (which proxies /api here), so the backend serves no built SPA and "/" lands on DevUI.
 app.UseStaticFiles();
-app.UseAntiforgery();
-app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+app.UseAuthentication();
+app.UseAuthorization();
 
-app.MapGet("/", () => Results.Redirect("/panel"));
+app.MapPanelApi();
+
+if (app.Environment.IsDevelopment())
+    app.MapGet("/", () => Results.Redirect("/devui"));
+else
+    app.MapFallbackToFile("index.html");
 
 // Inbound WhatsApp bridge endpoint (only mapped when WhatsApp:Enabled).
 app.MapWhatsAppChannel();
