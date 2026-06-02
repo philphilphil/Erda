@@ -1,7 +1,7 @@
-using Erda.Data;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// Backs the Config screen: owns the allowlist of editable runtime keys and the read/write rules for

@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the WhatsApp channel (bound from the "WhatsApp" config section).

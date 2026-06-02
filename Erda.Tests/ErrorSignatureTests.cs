@@ -1,5 +1,5 @@
-using Erda.Scheduling;
-using Erda.Services.Seq;
+using Erda.Core.Scheduling;
+using Erda.Core.Services.Seq;
 using Xunit;
 
 namespace Erda.Tests;

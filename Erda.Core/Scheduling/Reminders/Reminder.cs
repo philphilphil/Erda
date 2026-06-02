@@ -1,4 +1,4 @@
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>Whether a reminder is sent verbatim or run through the agent.</summary>
 public enum ReminderKind

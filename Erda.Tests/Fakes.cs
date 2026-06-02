@@ -1,10 +1,9 @@
-using Erda.Agents;
-using Erda.Data;
-using Erda.Scheduling;
-using Erda.Services;
-using Erda.Services.Seq;
-using Erda.WhatsApp;
-using Erda.Workflows;
+using Erda.Core.Abstractions;
+using Erda.Core.Data;
+using Erda.Core.Scheduling;
+using Erda.Core.Services;
+using Erda.Core.Services.Seq;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;

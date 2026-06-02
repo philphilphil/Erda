@@ -1,6 +1,6 @@
 using Microsoft.Extensions.AI;
 
-namespace Erda.Agents;
+namespace Erda.Core.Abstractions;
 
 /// <summary>The result of an agent turn: the reply text plus telemetry for logging.</summary>
 public sealed record AgentReply(

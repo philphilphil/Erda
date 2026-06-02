@@ -1,6 +1,6 @@
-using Erda.Scheduling;
+using Erda.Core.Scheduling;
 
-namespace Erda.Data;
+namespace Erda.Core.Data;
 
 /// <summary>
 /// A saved version of the system prompt. Exactly one row has <see cref="IsActive"/> = true; that

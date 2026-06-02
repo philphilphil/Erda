@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Strongly-typed settings bound from the "Erda" section of configuration.

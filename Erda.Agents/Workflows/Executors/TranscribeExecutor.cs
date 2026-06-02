@@ -1,7 +1,7 @@
-using Erda.Services;
+using Erda.Core.Services;
 using Microsoft.Agents.AI.Workflows;
 
-namespace Erda.Workflows.Executors;
+namespace Erda.Agents.Workflows.Executors;
 
 /// <summary>Step 1: absolute .m4a path -> transcript text (OpenAI platform key).</summary>
 internal sealed class TranscribeExecutor(Transcriber transcriber)

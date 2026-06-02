@@ -1,4 +1,4 @@
-namespace Erda.WhatsApp;
+namespace Erda.Core.WhatsApp;
 
 /// <summary>
 /// Drains <see cref="WhatsAppInboundQueue"/> and processes each message with

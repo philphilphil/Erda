@@ -1,6 +1,6 @@
 using System.Net;
-using Erda.Configuration;
-using Erda.WhatsApp;
+using Erda.Core.Configuration;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;

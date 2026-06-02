@@ -1,7 +1,7 @@
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>
 /// Path-safe file IO confined to the configured Obsidian vault root.

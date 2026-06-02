@@ -1,7 +1,7 @@
 using System.Text;
-using Erda.Services.Seq;
+using Erda.Core.Services.Seq;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>Formats a Seq error (plus optional Codex analysis) into a WhatsApp-friendly message.</summary>
 public static class ErrorAlert

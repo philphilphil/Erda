@@ -1,8 +1,8 @@
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>
 /// Produces a small system message stating the current local time, prepended to agent turns so the

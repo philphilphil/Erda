@@ -1,12 +1,12 @@
 using System.ComponentModel;
 using System.Text;
-using Erda.Configuration;
-using Erda.Scheduling;
-using Erda.Services;
+using Erda.Core.Configuration;
+using Erda.Core.Scheduling;
+using Erda.Core.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Tools;
+namespace Erda.Agents.Tools;
 
 /// <summary>
 /// Agent tools for scheduling: <c>schedule_message</c> (sent verbatim at the time),

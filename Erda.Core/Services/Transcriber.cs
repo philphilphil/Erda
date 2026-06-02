@@ -1,10 +1,10 @@
 using System.ClientModel;
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Audio;
 
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>Speech-to-text abstraction (so callers can be unit-tested without the OpenAI client).</summary>
 public interface ITranscriber

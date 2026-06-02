@@ -1,8 +1,8 @@
 using System.ComponentModel;
-using Erda.Services;
+using Erda.Core.Services;
 using Microsoft.Extensions.AI;
 
-namespace Erda.Tools;
+namespace Erda.Agents.Tools;
 
 /// <summary>
 /// Exposes Codex (gpt-5.5 on the ChatGPT subscription, per-call reasoning effort) WITH web search

@@ -1,7 +1,7 @@
-using Erda.Configuration;
-using Erda.Scheduling;
-using Erda.Services;
-using Erda.Tools;
+using Erda.Core.Configuration;
+using Erda.Core.Scheduling;
+using Erda.Core.Services;
+using Erda.Agents.Tools;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;

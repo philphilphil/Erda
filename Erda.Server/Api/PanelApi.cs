@@ -1,8 +1,8 @@
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// Wires the control-panel JSON API: cookie authentication, the <see cref="ConfigPanelService"/>, and

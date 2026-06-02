@@ -1,7 +1,7 @@
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 
-namespace Erda.Workflows.Executors;
+namespace Erda.Agents.Workflows.Executors;
 
 /// <summary>
 /// Entry adapter for the voice-memo workflow.

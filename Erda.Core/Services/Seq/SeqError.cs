@@ -1,4 +1,4 @@
-namespace Erda.Services.Seq;
+namespace Erda.Core.Services.Seq;
 
 /// <summary>
 /// A normalized error event read from Seq — decoupled from the Seq.Api <c>EventEntity</c> so the

@@ -1,9 +1,9 @@
 using System.ComponentModel;
 using System.Text;
-using Erda.Services;
+using Erda.Core.Services;
 using Microsoft.Extensions.AI;
 
-namespace Erda.Tools;
+namespace Erda.Agents.Tools;
 
 /// <summary>
 /// The five Obsidian vault function tools exposed to the Erda agent.

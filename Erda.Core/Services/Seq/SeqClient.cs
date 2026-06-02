@@ -1,10 +1,10 @@
 using System.Text;
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.Extensions.Options;
 using global::Seq.Api;                 // fully qualified: our namespace ends in ".Seq", which would shadow it
 using global::Seq.Api.Model.Events;
 
-namespace Erda.Services.Seq;
+namespace Erda.Core.Services.Seq;
 
 /// <summary>Queries Seq for error events.</summary>
 public interface ISeqClient

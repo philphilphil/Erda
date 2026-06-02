@@ -1,12 +1,12 @@
-using Erda.Configuration;
-using Erda.Services;
-using Erda.Workflows.Executors;
+using Erda.Core.Configuration;
+using Erda.Core.Services;
+using Erda.Agents.Workflows.Executors;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Workflows;
+namespace Erda.Agents.Workflows;
 
 /// <summary>
 /// The "voice-memo" MAF workflow: a chat-protocol input adapter plus a three-step chain.

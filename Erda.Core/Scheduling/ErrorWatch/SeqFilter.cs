@@ -1,4 +1,4 @@
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// Builds Seq strict-filter expressions. The level filter expands a minimum level to the set of

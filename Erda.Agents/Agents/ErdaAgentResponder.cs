@@ -1,6 +1,7 @@
-using Erda.Services;
+using Erda.Core.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Erda.Core.Abstractions;
 
 namespace Erda.Agents;
 

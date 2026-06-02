@@ -1,4 +1,4 @@
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>Abstracts "now" so time-dependent code (scheduler, current-time context) is testable.</summary>
 public interface IClock

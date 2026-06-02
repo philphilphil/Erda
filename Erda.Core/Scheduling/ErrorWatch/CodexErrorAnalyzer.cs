@@ -1,8 +1,8 @@
 using System.Text;
-using Erda.Services;
-using Erda.Services.Seq;
+using Erda.Core.Services;
+using Erda.Core.Services.Seq;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>Produces a short, practical analysis of an error.</summary>
 public interface IErrorAnalyzer

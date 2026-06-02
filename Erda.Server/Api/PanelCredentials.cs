@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
-using Erda.Configuration;
+using Erda.Core.Configuration;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// Pure credential check for the panel login, split out of the auth endpoint so it can be unit-tested

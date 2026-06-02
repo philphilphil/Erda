@@ -1,13 +1,14 @@
 using System.ClientModel;
 using Azure.AI.OpenAI;
-using Erda.Configuration;
-using Erda.Data;
-using Erda.Tools;
-using Erda.Workflows;
+using Erda.Core.Configuration;
+using Erda.Core.Data;
+using Erda.Agents.Tools;
+using Erda.Core.Abstractions;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
+using Erda.Agents.Workflows;
 
 namespace Erda.Agents;
 
@@ -101,7 +102,7 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<ObsidianTools>().AsTools());
         tools.Add(VoiceMemoWorkflow.CreateTool(services));
         tools.AddRange(services.GetRequiredService<ReasoningTools>().AsTools());
-        tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
+        tools.AddRange(services.GetRequiredService<Erda.Core.WhatsApp.NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
 
         // The active system prompt lives in the SQLite DB (editable in the control panel). The

@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the (remote) Seq log server (bound from the "Seq" config section). Used two ways:

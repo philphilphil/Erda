@@ -1,7 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Configuration source that layers a SQLite-backed override table on top of the rest of the

@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace Erda.WhatsApp;
+namespace Erda.Core.WhatsApp;
 
 /// <summary>
 /// A simple in-process queue between the inbound HTTP endpoint (which returns 202 immediately) and

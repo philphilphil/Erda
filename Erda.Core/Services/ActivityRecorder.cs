@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Erda.Data;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>
 /// Records discrete activity events (agent runs, tool calls, scheduled fires, error alerts)

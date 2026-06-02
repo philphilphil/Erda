@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the error-watch scheduler (bound from the "ErrorWatch" config section). On an

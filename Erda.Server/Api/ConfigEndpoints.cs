@@ -1,4 +1,4 @@
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// JSON endpoints over <see cref="ConfigPanelService"/> for the panel's Config screen, plus the

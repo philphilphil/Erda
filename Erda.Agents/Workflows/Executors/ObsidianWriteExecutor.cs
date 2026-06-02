@@ -1,9 +1,9 @@
-using Erda.Configuration;
-using Erda.Services;
+using Erda.Core.Configuration;
+using Erda.Core.Services;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 
-namespace Erda.Workflows.Executors;
+namespace Erda.Agents.Workflows.Executors;
 
 /// <summary>
 /// Step 3 (terminal): Markdown note -> written into the vault; returns a confirmation.

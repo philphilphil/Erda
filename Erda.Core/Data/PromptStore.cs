@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Erda.Data;
+namespace Erda.Core.Data;
 
 /// <summary>
 /// Versioned store for the orchestrator's system prompt. Every saved edit becomes a new

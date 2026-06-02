@@ -1,6 +1,6 @@
-using Erda.Services.Seq;
+using Erda.Core.Services.Seq;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// Computes a stable signature for an error so recurrences are recognized and not re-alerted every

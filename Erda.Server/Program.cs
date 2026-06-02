@@ -1,13 +1,12 @@
-using Erda.Agents;
-using Erda.Api;
-using Erda.Configuration;
-using Erda.Data;
-using Erda.Scheduling;
-using Erda.Services;
-using Erda.Services.Seq;
-using Erda.Tools;
-using Erda.WhatsApp;
-using Erda.Workflows;
+using Erda.Core.Abstractions;
+using Erda.Server.Api;
+using Erda.Core.Configuration;
+using Erda.Core.Data;
+using Erda.Core.Scheduling;
+using Erda.Core.Services;
+using Erda.Core.Services.Seq;
+using Erda.Agents.Tools;
+using Erda.Core.WhatsApp;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +16,9 @@ using OpenTelemetry.Exporter;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
+using Erda.Agents;
+using Erda.Agents.Workflows;
+using Erda.Server.WhatsApp;
 
 var builder = WebApplication.CreateBuilder(args);
 

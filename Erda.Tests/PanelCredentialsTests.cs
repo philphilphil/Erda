@@ -1,5 +1,5 @@
-using Erda.Api;
-using Erda.Configuration;
+using Erda.Server.Api;
+using Erda.Core.Configuration;
 using Xunit;
 
 namespace Erda.Tests;

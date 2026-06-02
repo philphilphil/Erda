@@ -1,7 +1,7 @@
-using Erda.Data;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>Result of reading the reminders: valid reminders plus any rows whose <c>when</c> failed to parse.</summary>
 public sealed record ReminderLoad(IReadOnlyList<Reminder> Reminders, IReadOnlyList<string> Malformed);

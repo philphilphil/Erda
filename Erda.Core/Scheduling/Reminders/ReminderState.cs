@@ -1,7 +1,7 @@
-using Erda.Data;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// Machine-only run state for the reminder scheduler. Drives recurring cadence and guarantees a

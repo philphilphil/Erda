@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace Erda.Data;
+namespace Erda.Core.Data;
 
 /// <summary>
 /// The single SQLite database for all of Erda's runtime/machine state: prompt versions, reminders

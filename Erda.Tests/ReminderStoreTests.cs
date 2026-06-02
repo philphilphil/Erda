@@ -1,4 +1,4 @@
-using Erda.Scheduling;
+using Erda.Core.Scheduling;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 

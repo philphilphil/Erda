@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the web control panel (bound from the "Panel" config section). Single-user, LAN-only.

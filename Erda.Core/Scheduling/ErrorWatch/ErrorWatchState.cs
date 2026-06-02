@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Erda.Data;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>Persisted watermark + dedup memory for the error-watch scheduler.</summary>
 public sealed class ErrorWatchState

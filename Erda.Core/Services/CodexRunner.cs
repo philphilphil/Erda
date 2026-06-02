@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Text;
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>
 /// Shells out to the <c>codex</c> CLI in non-interactive <c>exec</c> mode.

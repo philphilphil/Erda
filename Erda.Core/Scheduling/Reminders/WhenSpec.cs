@@ -1,7 +1,7 @@
 using System.Globalization;
 using Cronos;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// A parsed reminder schedule from the note's <c>when</c> column. Either:

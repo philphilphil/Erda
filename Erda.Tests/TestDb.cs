@@ -1,4 +1,4 @@
-using Erda.Data;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace Erda.Tests;

@@ -1,6 +1,6 @@
-using Erda.Configuration;
-using Erda.Scheduling;
-using Erda.Services.Seq;
+using Erda.Core.Configuration;
+using Erda.Core.Scheduling;
+using Erda.Core.Services.Seq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;

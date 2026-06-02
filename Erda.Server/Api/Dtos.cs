@@ -1,4 +1,4 @@
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 // Small DTO records returned by / accepted by the JSON API. Deliberately decoupled from the EF
 // entities so the persistence shape can change without breaking the wire contract, and so we never

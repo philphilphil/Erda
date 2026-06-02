@@ -1,9 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
-using Erda.Configuration;
+using Erda.Core.Configuration;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.Options;
 
-namespace Erda.WhatsApp;
+namespace Erda.Server.WhatsApp;
 
 /// <summary>
 /// Maps the inbound bridge endpoint <c>POST /channel/whatsapp/in</c>. The endpoint authenticates

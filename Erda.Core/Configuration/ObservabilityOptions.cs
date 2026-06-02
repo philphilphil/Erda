@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings bound from the "Observability" section. Controls the OpenTelemetry tracing that

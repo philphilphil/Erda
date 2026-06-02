@@ -1,6 +1,6 @@
-using Erda.Data;
+using Erda.Core.Data;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// JSON endpoints over <see cref="IPromptStore"/> for the panel's System Prompt screen. Saving a new

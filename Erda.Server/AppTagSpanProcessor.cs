@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using OpenTelemetry;
 
-namespace Erda.Services;
+namespace Erda.Core.Services;
 
 /// <summary>
 /// Tags every exported span with a top-level <c>app</c> attribute.

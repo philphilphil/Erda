@@ -1,5 +1,5 @@
-using Erda.Api;
-using Erda.Scheduling;
+using Erda.Server.Api;
+using Erda.Core.Scheduling;
 using Xunit;
 
 namespace Erda.Tests;

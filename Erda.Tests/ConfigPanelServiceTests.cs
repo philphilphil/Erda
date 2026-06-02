@@ -1,5 +1,5 @@
-using Erda.Api;
-using Erda.Data;
+using Erda.Server.Api;
+using Erda.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Xunit;

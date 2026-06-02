@@ -1,4 +1,4 @@
-namespace Erda.Configuration;
+namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the reminder scheduler (bound from the "Reminders" config section). Every minute

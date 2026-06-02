@@ -1,10 +1,10 @@
 using System.Security.Claims;
-using Erda.Configuration;
+using Erda.Core.Configuration;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// Cookie-auth endpoints for the panel. Auth is off by default: when <see cref="PanelOptions.Password"/>

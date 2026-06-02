@@ -1,6 +1,6 @@
-using Erda.Scheduling;
+using Erda.Core.Scheduling;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// Pure presentation helpers for reminders, lifted verbatim from the old <c>Reminders.razor</c> so

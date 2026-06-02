@@ -1,5 +1,5 @@
-using Erda.Configuration;
-using Erda.Services;
+using Erda.Core.Configuration;
+using Erda.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;

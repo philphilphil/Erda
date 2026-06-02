@@ -1,10 +1,10 @@
-using Erda.Configuration;
-using Erda.Services;
-using Erda.Services.Seq;
-using Erda.WhatsApp;
+using Erda.Core.Configuration;
+using Erda.Core.Services;
+using Erda.Core.Services.Seq;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// Background loop: every <c>ErrorWatch:PollInterval</c>, query Seq for new errors (≥ MinLevel),

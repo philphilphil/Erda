@@ -1,4 +1,4 @@
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// Pragmatic CSRF guard for the cookie-authenticated panel API on a plain-HTTP LAN. Cookies are

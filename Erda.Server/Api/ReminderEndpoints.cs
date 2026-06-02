@@ -1,9 +1,9 @@
-using Erda.Configuration;
-using Erda.Scheduling;
-using Erda.Services;
+using Erda.Core.Configuration;
+using Erda.Core.Scheduling;
+using Erda.Core.Services;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// JSON endpoints over <see cref="ReminderStore"/> for the panel's Reminders screen. The scheduler

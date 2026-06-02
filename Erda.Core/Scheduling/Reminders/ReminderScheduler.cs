@@ -1,11 +1,11 @@
-using Erda.Agents;
-using Erda.Configuration;
-using Erda.Services;
-using Erda.WhatsApp;
+using Erda.Core.Abstractions;
+using Erda.Core.Configuration;
+using Erda.Core.Services;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
-namespace Erda.Scheduling;
+namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// Background loop: every <c>Reminders:PollInterval</c>, read the reminder note and fire anything

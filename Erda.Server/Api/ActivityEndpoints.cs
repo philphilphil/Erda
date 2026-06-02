@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Threading.Channels;
-using Erda.Data;
-using Erda.Services;
+using Erda.Core.Data;
+using Erda.Core.Services;
 
-namespace Erda.Api;
+namespace Erda.Server.Api;
 
 /// <summary>
 /// JSON + Server-Sent-Events endpoints over <see cref="IActivityRecorder"/> for the panel's Activity

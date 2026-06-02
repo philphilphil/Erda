@@ -1,6 +1,7 @@
-using Erda.Services;
+using Erda.Core.Services;
+using Erda.Core.Abstractions;
 
-namespace Erda.Workflows;
+namespace Erda.Agents.Workflows;
 
 /// <summary>
 /// Processes a text transcript (already transcribed) as a Voice Memo:
