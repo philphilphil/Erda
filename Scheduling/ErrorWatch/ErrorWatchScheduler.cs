@@ -1,4 +1,5 @@
 using Erda.Configuration;
+using Erda.Services;
 using Erda.Services.Seq;
 using Erda.WhatsApp;
 using Microsoft.Extensions.Options;
@@ -17,6 +18,8 @@ public sealed class ErrorWatchScheduler(
     ISeqClient seq,
     IErrorAnalyzer analyzer,
     IWhatsAppSender sender,
+    ErrorWatchStateStore store,
+    IActivityRecorder recorder,
     ILogger<ErrorWatchScheduler> logger) : BackgroundService
 {
     private const int QueryCount = 200;
@@ -39,7 +42,6 @@ public sealed class ErrorWatchScheduler(
         if (string.IsNullOrEmpty(ownerJid))
             logger.LogWarning("Error-watch scheduler: WhatsApp owner number not configured; alerts can't be delivered.");
 
-        var store = new ErrorWatchStateStore(ResolveStatePath(opts), logger);
         var state = store.Load();
         if (state.LastTimestampUtc is null)
         {
@@ -105,10 +107,12 @@ public sealed class ErrorWatchScheduler(
             if (string.IsNullOrEmpty(ownerJid))
             {
                 logger.LogInformation("Error alert (not delivered — no owner configured):\n{Text}", text);
+                recorder.Record("error_alert", $"New error type {e.Id} (not delivered — no owner)", new { e.Id });
                 alertsSent++;
             }
             else if (await sender.SendAsync(ownerJid, text, ct))
             {
+                recorder.Record("error_alert", $"Alerted on new error type {e.Id}", new { e.Id });
                 alertsSent++;
             }
             else
@@ -139,13 +143,5 @@ public sealed class ErrorWatchScheduler(
     {
         try { return await timer.WaitForNextTickAsync(ct); }
         catch (OperationCanceledException) { return false; }
-    }
-
-    private static string ResolveStatePath(ErrorWatchOptions opts)
-    {
-        if (!string.IsNullOrWhiteSpace(opts.StateFile))
-            return opts.StateFile!;
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "erda");
-        return Path.Combine(dir, "errorwatch-state.json");
     }
 }

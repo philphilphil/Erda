@@ -17,11 +17,13 @@ public sealed class ReminderScheduler(
     IOptions<ReminderOptions> options,
     IOptions<WhatsAppOptions> whatsAppOptions,
     ReminderStore store,
+    ReminderStateStore stateStore,
     VaultService vault,
     IAgentResponder responder,
     IWhatsAppSender sender,
     IClock clock,
     CurrentTimeContext timeContext,
+    IActivityRecorder recorder,
     ILogger<ReminderScheduler> logger) : BackgroundService
 {
     // Malformed rows already surfaced to Phil this process lifetime (so we don't re-nag every minute).
@@ -51,7 +53,6 @@ public sealed class ReminderScheduler(
         if (string.IsNullOrEmpty(ownerJid))
             logger.LogWarning("Reminder scheduler: WhatsApp owner number not configured; reminders can't be delivered.");
 
-        var stateStore = new ReminderStateStore(ResolveStatePath(opts), logger);
         var state = stateStore.Load();
 
         logger.LogInformation("Reminder scheduler started: every {Interval}, zone {Tz}, note {Note}.",
@@ -188,7 +189,12 @@ public sealed class ReminderScheduler(
         }
 
         if (r.Kind == ReminderKind.Reminder)
-            return await sender.SendAsync(ownerJid, r.Text, ct);
+        {
+            var delivered = await sender.SendAsync(ownerJid, r.Text, ct);
+            if (delivered)
+                recorder.Record("scheduled_fire", $"Reminder '{r.Id}' sent", new { r.Id, r.When });
+            return delivered;
+        }
 
         // Scheduled prompt: "@vault/path.md" uses that note's contents as the prompt; plain text
         // is used as-is. Lets a long prompt be maintained as a note rather than inline in the table.
@@ -205,7 +211,10 @@ public sealed class ReminderScheduler(
 
         var reply = await responder.RunOnceAsync([timeContext.Message(), new ChatMessage(ChatRole.User, promptText)], ct);
         var text = string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text;
-        return await sender.SendAsync(ownerJid, $"⏰ {text}", ct);
+        var sent = await sender.SendAsync(ownerJid, $"⏰ {text}", ct);
+        if (sent)
+            recorder.Record("scheduled_fire", $"Prompt '{r.Id}' ran", new { r.Id, r.When, reply.ToolsUsed });
+        return sent;
     }
 
     /// <summary>
@@ -239,13 +248,5 @@ public sealed class ReminderScheduler(
     {
         try { return await timer.WaitForNextTickAsync(ct); }
         catch (OperationCanceledException) { return false; }
-    }
-
-    private static string ResolveStatePath(ReminderOptions opts)
-    {
-        if (!string.IsNullOrWhiteSpace(opts.StateFile))
-            return opts.StateFile!;
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "erda");
-        return Path.Combine(dir, "reminder-state.json");
     }
 }

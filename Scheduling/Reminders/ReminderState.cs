@@ -1,10 +1,12 @@
-using System.Text.Json;
+using Erda.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace Erda.Scheduling;
 
 /// <summary>
-/// Machine-only run state for the reminder scheduler (kept out of the vault note). Drives recurring
-/// cadence and guarantees a one-shot is sent at most once even if the note's status write fails.
+/// Machine-only run state for the reminder scheduler. Drives recurring cadence and guarantees a
+/// one-shot is sent at most once even if the status write fails. Held in memory during a poll and
+/// persisted by <see cref="ReminderStateStore"/> onto the reminder rows themselves.
 /// </summary>
 public sealed class ReminderState
 {
@@ -22,43 +24,54 @@ public sealed class ReminderState
     }
 }
 
-/// <summary>Loads/saves <see cref="ReminderState"/> as a JSON file (best-effort), like the error-watch store.</summary>
-public sealed class ReminderStateStore(string path, ILogger? logger = null)
+/// <summary>
+/// Loads/saves <see cref="ReminderState"/> against the reminder rows' run-state columns
+/// (<c>LastFiredUtc</c>, <c>Fired</c>) in SQLite. Replaces the old JSON sidecar — so run-state now
+/// survives container redeploys. Best-effort: a failure logs and leaves state unchanged rather than
+/// breaking a poll.
+/// </summary>
+public sealed class ReminderStateStore(IDbContextFactory<ErdaDbContext> dbFactory, ILogger? logger = null)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
-    public string Path => path;
-
     public ReminderState Load()
     {
         try
         {
-            if (File.Exists(path))
+            using var db = dbFactory.CreateDbContext();
+            var state = new ReminderState();
+            foreach (var r in db.Reminders.AsNoTracking())
             {
-                var state = JsonSerializer.Deserialize<ReminderState>(File.ReadAllText(path));
-                if (state is not null)
-                    return state;
+                if (r.LastFiredUtc is { } lastFired)
+                    state.LastFiredUtc[r.Id] = lastFired;
+                if (r.Fired)
+                    state.FiredOneShotIds.Add(r.Id);
             }
+            return state;
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "Could not load reminder state from {Path}; starting fresh.", path);
+            logger?.LogWarning(ex, "Could not load reminder state; starting fresh.");
+            return new ReminderState();
         }
-        return new ReminderState();
     }
 
     public void Save(ReminderState state)
     {
         try
         {
-            var dir = System.IO.Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-            File.WriteAllText(path, JsonSerializer.Serialize(state, JsonOptions));
+            using var db = dbFactory.CreateDbContext();
+            var fired = new HashSet<string>(state.FiredOneShotIds);
+            foreach (var row in db.Reminders)
+            {
+                if (state.LastFiredUtc.TryGetValue(row.Id, out var lastFired))
+                    row.LastFiredUtc = lastFired;
+                if (fired.Contains(row.Id))
+                    row.Fired = true;
+            }
+            db.SaveChanges();
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "Could not save reminder state to {Path}.", path);
+            logger?.LogWarning(ex, "Could not save reminder state.");
         }
     }
 }

@@ -61,6 +61,10 @@ if (string.IsNullOrWhiteSpace(dbPath))
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dbPath))!);
 builder.Services.AddDbContextFactory<ErdaDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
 
+// Config overrides edited in the control panel live in the DB and are layered over appsettings/env
+// here (read once at startup — they apply on restart). Safe before the DB exists: returns empty.
+builder.Configuration.AddSqliteOverrides(dbPath);
+
 // --- OpenTelemetry tracing -------------------------------------------------
 // MAF emits spans per turn: agent run -> model call (token usage) -> each tool/function call.
 // Exported to Seq over OTLP when Seq:ServerUrl is set; console exporter in Development for a
@@ -100,6 +104,8 @@ builder.Services.AddSingleton<MemoProcessor>();
 builder.Services.AddSingleton<IMemoProcessor>(sp => sp.GetRequiredService<MemoProcessor>());
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<CurrentTimeContext>();
+builder.Services.AddSingleton<IPromptStore, PromptStore>();
+builder.Services.AddSingleton<IActivityRecorder, ActivityRecorder>();
 
 // --- WhatsApp channel -------------------------------------------------------
 // A whatsmeow "bridge" sidecar holds the WhatsApp socket; Erda exposes an inbound endpoint it
@@ -120,6 +126,7 @@ builder.Services.Configure<SeqOptions>(builder.Configuration.GetSection(SeqOptio
 builder.Services.Configure<ErrorWatchOptions>(builder.Configuration.GetSection(ErrorWatchOptions.SectionName));
 builder.Services.AddSingleton<ISeqClient, SeqClient>();
 builder.Services.AddSingleton<IErrorAnalyzer, CodexErrorAnalyzer>();
+builder.Services.AddSingleton<ErrorWatchStateStore>();
 builder.Services.AddHostedService<ErrorWatchScheduler>();
 
 // --- Reminder scheduler (vault note -> WhatsApp / agent prompt) -------------
@@ -129,6 +136,7 @@ builder.Services.AddHostedService<ErrorWatchScheduler>();
 // JSON sidecar. The schedule_* agent tools write to the same note.
 builder.Services.Configure<ReminderOptions>(builder.Configuration.GetSection(ReminderOptions.SectionName));
 builder.Services.AddSingleton<ReminderStore>();
+builder.Services.AddSingleton<ReminderStateStore>();
 builder.Services.AddSingleton<ReminderTools>();
 builder.Services.AddHostedService<ReminderScheduler>();
 

@@ -1,3 +1,4 @@
+using Erda.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
@@ -34,7 +35,8 @@ public interface IAgentResponder
 /// single owner, so this is also the natural ordering).
 /// </summary>
 public sealed class ErdaAgentResponder(
-    [FromKeyedServices(ErdaAgent.Name)] AIAgent agent) : IAgentResponder
+    [FromKeyedServices(ErdaAgent.Name)] AIAgent agent,
+    IActivityRecorder recorder) : IAgentResponder
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private AgentSession? _session;
@@ -46,12 +48,23 @@ public sealed class ErdaAgentResponder(
         {
             _session ??= await agent.CreateSessionAsync(cancellationToken);
             var response = await agent.RunAsync(messages, _session, cancellationToken: cancellationToken);
-            return ToReply(response);
+            var reply = ToReply(response);
+            recorder.Record("agent_run", Summarize(reply), new { reply.InputTokens, reply.OutputTokens, reply.ToolsUsed });
+            return reply;
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>A short, single-line description of a reply for the activity feed.</summary>
+    private static string Summarize(AgentReply reply)
+    {
+        var text = reply.Text.ReplaceLineEndings(" ").Trim();
+        if (text.Length > 100)
+            text = text[..100] + "…";
+        return string.IsNullOrEmpty(text) ? "(no text reply)" : text;
     }
 
     public async Task<AgentReply> RunOnceAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)

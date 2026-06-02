@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Erda.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace Erda.Scheduling;
 
@@ -24,43 +26,56 @@ public sealed class ErrorWatchState
     }
 }
 
-/// <summary>Loads/saves <see cref="ErrorWatchState"/> as a JSON file (best-effort).</summary>
-public sealed class ErrorWatchStateStore(string path, ILogger? logger = null)
+/// <summary>
+/// Loads/saves <see cref="ErrorWatchState"/> in SQLite as a single row (Id = 1), with the two
+/// bounded lists stored as JSON columns. Replaces the old JSON sidecar — so the watermark + dedup
+/// memory now survive container redeploys. Best-effort: a failure logs and returns fresh state.
+/// </summary>
+public sealed class ErrorWatchStateStore(IDbContextFactory<ErdaDbContext> dbFactory, ILogger? logger = null)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
-    public string Path => path;
+    private const int RowId = 1;
 
     public ErrorWatchState Load()
     {
         try
         {
-            if (File.Exists(path))
+            using var db = dbFactory.CreateDbContext();
+            var row = db.ErrorWatchState.AsNoTracking().FirstOrDefault(r => r.Id == RowId);
+            if (row is null)
+                return new ErrorWatchState();
+            return new ErrorWatchState
             {
-                var state = JsonSerializer.Deserialize<ErrorWatchState>(File.ReadAllText(path));
-                if (state is not null)
-                    return state;
-            }
+                LastTimestampUtc = row.LastTimestampUtc,
+                SeenSignatures = JsonSerializer.Deserialize<List<string>>(row.SeenSignaturesJson) ?? [],
+                SeenEventIds = JsonSerializer.Deserialize<List<string>>(row.SeenEventIdsJson) ?? [],
+            };
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "Could not load error-watch state from {Path}; starting fresh.", path);
+            logger?.LogWarning(ex, "Could not load error-watch state; starting fresh.");
+            return new ErrorWatchState();
         }
-        return new ErrorWatchState();
     }
 
     public void Save(ErrorWatchState state)
     {
         try
         {
-            var dir = System.IO.Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-            File.WriteAllText(path, JsonSerializer.Serialize(state, JsonOptions));
+            using var db = dbFactory.CreateDbContext();
+            var row = db.ErrorWatchState.FirstOrDefault(r => r.Id == RowId);
+            if (row is null)
+            {
+                row = new ErrorWatchRow { Id = RowId };
+                db.ErrorWatchState.Add(row);
+            }
+            row.LastTimestampUtc = state.LastTimestampUtc;
+            row.SeenSignaturesJson = JsonSerializer.Serialize(state.SeenSignatures);
+            row.SeenEventIdsJson = JsonSerializer.Serialize(state.SeenEventIds);
+            db.SaveChanges();
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "Could not save error-watch state to {Path}.", path);
+            logger?.LogWarning(ex, "Could not save error-watch state.");
         }
     }
 }

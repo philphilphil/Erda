@@ -25,33 +25,25 @@ public class ErrorWatchStateTests
     [Fact]
     public void Store_round_trips_state()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
-        try
+        var store = new ErrorWatchStateStore(TestDb.NewFactory());
+        store.Save(new ErrorWatchState
         {
-            var store = new ErrorWatchStateStore(path);
-            store.Save(new ErrorWatchState
-            {
-                LastTimestampUtc = DateTimeOffset.UnixEpoch,
-                SeenSignatures = { "a" },
-                SeenEventIds = { "e1" },
-            });
+            LastTimestampUtc = DateTimeOffset.UnixEpoch,
+            SeenSignatures = { "a" },
+            SeenEventIds = { "e1" },
+        });
 
-            var loaded = store.Load();
+        var loaded = store.Load();
 
-            Assert.Equal(DateTimeOffset.UnixEpoch, loaded.LastTimestampUtc);
-            Assert.Contains("a", loaded.SeenSignatures);
-            Assert.Contains("e1", loaded.SeenEventIds);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.Equal(DateTimeOffset.UnixEpoch, loaded.LastTimestampUtc);
+        Assert.Contains("a", loaded.SeenSignatures);
+        Assert.Contains("e1", loaded.SeenEventIds);
     }
 
     [Fact]
     public void Load_returns_fresh_state_when_missing()
     {
-        var store = new ErrorWatchStateStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json"));
+        var store = new ErrorWatchStateStore(TestDb.NewFactory());
         var s = store.Load();
         Assert.Null(s.LastTimestampUtc);
         Assert.Empty(s.SeenSignatures);

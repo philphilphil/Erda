@@ -1,6 +1,7 @@
 using System.ClientModel;
 using Azure.AI.OpenAI;
 using Erda.Configuration;
+using Erda.Data;
 using Erda.Tools;
 using Erda.Workflows;
 using Microsoft.Agents.AI;
@@ -21,7 +22,7 @@ public static class ErdaAgent
 {
     public const string Name = "erda";
 
-    private const string Instructions = """
+    private const string DefaultInstructions = """
         You are Erda, Phil's concise personal assistant and orchestrator. You run on a small, fast
         model with limited and possibly outdated knowledge, so your job is to route work — not to
         answer factual questions from your own memory.
@@ -103,8 +104,13 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
 
+        // The active system prompt lives in the SQLite DB (editable in the control panel). The
+        // in-code DefaultInstructions constant is the seed/fallback used on first run or whenever
+        // the prompt table is empty. Read once at agent-build time; a panel edit applies on restart.
+        var instructions = services.GetRequiredService<IPromptStore>().GetActiveContent(DefaultInstructions);
+
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
-        var agent = chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);
+        var agent = chatClient.AsAIAgent(instructions: instructions, name: Name, tools: tools);
 
         // Instrument with OpenTelemetry (MAF builder): spans for the agent run, the model call
         // (token usage), and each tool/function invocation, emitted on ActivitySourceName.

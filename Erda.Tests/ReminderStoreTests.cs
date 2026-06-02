@@ -1,48 +1,29 @@
-using Erda.Configuration;
 using Erda.Scheduling;
-using Erda.Services;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Erda.Tests;
 
 public class ReminderStoreTests
 {
-    private const string Seed = """
-        # Erda Reminders
+    private static ReminderStore MakeStore() => new(TestDb.NewFactory(), NullLogger<ReminderStore>.Instance);
 
-        ## Reminders
-        Sent verbatim.
-
-        | id       | when             | message            | status |
-        |----------|------------------|--------------------|--------|
-        | call-mom | 2026-06-15 09:00 | Call mom           | active |
-        | trash    | 0 19 * * 0       | Take out the trash | paused |
-
-        ## Scheduled prompts
-        Run through Erda.
-
-        | id      | when      | prompt   | status |
-        |---------|-----------|----------|--------|
-        | weather | 0 6 * * * | Weather? | active |
-        """;
-
-    private static ReminderStore MakeStore(string? seed = null)
+    /// <summary>Seed the equivalent of the old sample note: an active one-shot reminder, a paused
+    /// recurring reminder, and an active recurring prompt.</summary>
+    private static ReminderStore Seeded()
     {
-        var vaultDir = Path.Combine(Path.GetTempPath(), "erda-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(vaultDir);
-        var vault = new VaultService(Options.Create(new ErdaOptions { VaultPath = vaultDir }));
-        if (seed is not null)
-            vault.WriteNote("Reminders.md", seed);
-        var opts = Options.Create(new ReminderOptions { NotePath = "Reminders.md" });
-        return new ReminderStore(vault, opts, NullLogger<ReminderStore>.Instance);
+        var store = MakeStore();
+        store.Append(ReminderKind.Reminder, "call-mom", "2026-06-15 09:00", "Call mom");
+        store.Append(ReminderKind.Reminder, "trash", "0 19 * * 0", "Take out the trash");
+        store.SetStatus("trash", ReminderStatus.Paused);
+        store.Append(ReminderKind.Prompt, "weather", "0 6 * * *", "Weather?");
+        return store;
     }
 
     [Fact]
     public void Loads_reminders_and_prompts_with_kinds_and_status()
     {
-        var load = MakeStore(Seed).LoadAll();
+        var load = Seeded().LoadAll();
 
         Assert.Empty(load.Malformed);
         Assert.Equal(3, load.Reminders.Count);
@@ -62,8 +43,12 @@ public class ReminderStoreTests
     [Fact]
     public void Skips_and_reports_malformed_when()
     {
-        var seed = Seed.Replace("| 0 6 * * * |", "| not-a-time |");
-        var load = MakeStore(seed).LoadAll();
+        var store = MakeStore();
+        store.Append(ReminderKind.Reminder, "call-mom", "2026-06-15 09:00", "Call mom");
+        store.Append(ReminderKind.Reminder, "trash", "0 19 * * 0", "Take out the trash");
+        store.Append(ReminderKind.Prompt, "weather", "not-a-time", "Weather?");
+
+        var load = store.LoadAll();
 
         Assert.DoesNotContain(load.Reminders, r => r.Id == "weather");
         Assert.Equal(2, load.Reminders.Count); // call-mom + trash still parse
@@ -72,28 +57,9 @@ public class ReminderStoreTests
     }
 
     [Fact]
-    public void Derives_stable_id_for_blank_id_cell()
+    public void Append_adds_a_prompt_row()
     {
-        var seed = """
-            ## Reminders
-
-            | id | when             | message  | status |
-            |----|------------------|----------|--------|
-            |    | 2026-06-15 09:00 | Call mom | active |
-            """;
-        var store = MakeStore(seed);
-
-        var id1 = store.LoadAll().Reminders.Single().Id;
-        var id2 = store.LoadAll().Reminders.Single().Id;
-
-        Assert.False(string.IsNullOrWhiteSpace(id1));
-        Assert.Equal(id1, id2); // deterministic across loads
-    }
-
-    [Fact]
-    public void Append_adds_row_under_correct_section()
-    {
-        var store = MakeStore(Seed);
+        var store = Seeded();
         store.Append(ReminderKind.Prompt, "news", "@daily", "Top headlines?");
 
         var prompt = store.LoadAll().Reminders.Single(r => r.Id == "news");
@@ -102,9 +68,9 @@ public class ReminderStoreTests
     }
 
     [Fact]
-    public void Append_scaffolds_a_missing_note()
+    public void Append_works_on_an_empty_store()
     {
-        var store = MakeStore(seed: null);
+        var store = MakeStore();
         store.Append(ReminderKind.Reminder, "water", "0 10 * * *", "Drink water");
 
         var r = store.LoadAll().Reminders.Single();
@@ -113,9 +79,22 @@ public class ReminderStoreTests
     }
 
     [Fact]
+    public void Append_updates_an_existing_id_in_place()
+    {
+        var store = MakeStore();
+        store.Append(ReminderKind.Reminder, "x", "0 8 * * *", "first");
+        store.Append(ReminderKind.Prompt, "x", "0 9 * * *", "second");
+
+        var r = store.LoadAll().Reminders.Single();
+        Assert.Equal(ReminderKind.Prompt, r.Kind);
+        Assert.Equal("second", r.Text);
+        Assert.Equal("0 9 * * *", r.When);
+    }
+
+    [Fact]
     public void SetStatus_marks_done()
     {
-        var store = MakeStore(Seed);
+        var store = Seeded();
         Assert.True(store.SetStatus("call-mom", ReminderStatus.Done));
 
         Assert.Equal(ReminderStatus.Done, store.LoadAll().Reminders.Single(r => r.Id == "call-mom").Status);
@@ -124,13 +103,13 @@ public class ReminderStoreTests
     [Fact]
     public void SetStatus_returns_false_for_unknown_id()
     {
-        Assert.False(MakeStore(Seed).SetStatus("nope", ReminderStatus.Done));
+        Assert.False(Seeded().SetStatus("nope", ReminderStatus.Done));
     }
 
     [Fact]
     public void Remove_deletes_the_row()
     {
-        var store = MakeStore(Seed);
+        var store = Seeded();
         Assert.True(store.Remove("trash"));
 
         var load = store.LoadAll();
@@ -141,7 +120,7 @@ public class ReminderStoreTests
     [Fact]
     public void Pipe_in_message_round_trips()
     {
-        var store = MakeStore(Seed);
+        var store = MakeStore();
         store.Append(ReminderKind.Reminder, "piped", "0 8 * * *", "buy milk | eggs | bread");
 
         Assert.Equal("buy milk | eggs | bread", store.LoadAll().Reminders.Single(r => r.Id == "piped").Text);

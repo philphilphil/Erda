@@ -19,18 +19,20 @@ public class ReminderSchedulerTests
 
     private static (ReminderScheduler Scheduler, ReminderStore Store, FakeWhatsAppSender Sender, FakeAgentResponder Responder, ReminderStateStore StateStore, VaultService Vault) Make()
     {
+        var dbf = TestDb.NewFactory();
         var vaultDir = Path.Combine(Path.GetTempPath(), "erda-sched-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(vaultDir);
         var vault = new VaultService(Options.Create(new ErdaOptions { VaultPath = vaultDir }));
         var rOpts = Options.Create(Opts());
-        var store = new ReminderStore(vault, rOpts, NullLogger<ReminderStore>.Instance);
+        var store = new ReminderStore(dbf, NullLogger<ReminderStore>.Instance);
+        var stateStore = new ReminderStateStore(dbf);
         var sender = new FakeWhatsAppSender();
         var responder = new FakeAgentResponder();
         var timeContext = new CurrentTimeContext(new FakeClock(), rOpts);
         var scheduler = new ReminderScheduler(
             rOpts, Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            store, vault, responder, sender, new FakeClock(), timeContext, NullLogger<ReminderScheduler>.Instance);
-        var stateStore = new ReminderStateStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json"));
+            store, stateStore, vault, responder, sender, new FakeClock(), timeContext,
+            new FakeActivityRecorder(), NullLogger<ReminderScheduler>.Instance);
         return (scheduler, store, sender, responder, stateStore, vault);
     }
 

@@ -1,4 +1,5 @@
 using Erda.Agents;
+using Erda.Data;
 using Erda.Scheduling;
 using Erda.Services;
 using Erda.Services.Seq;
@@ -107,4 +108,15 @@ public sealed class FakeAnalyzer : IErrorAnalyzer
         Calls++;
         return Task.FromResult("analysis");
     }
+}
+
+public sealed class FakeActivityRecorder : IActivityRecorder
+{
+    public List<(string Kind, string Summary)> Records { get; } = [];
+
+    public void Record(string kind, string summary, object? detail = null) => Records.Add((kind, summary));
+
+    public IReadOnlyList<ActivityEntry> Recent(int max = 100) => [];
+
+    public event Action<ActivityEntry>? Recorded { add { } remove { } }
 }
