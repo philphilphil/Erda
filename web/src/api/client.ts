@@ -13,6 +13,7 @@ import type {
   VoicePromptResponse,
   SaveVoicePromptBody,
   StatusResponse,
+  ChatSession,
 } from './types'
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -185,7 +186,7 @@ export function restart(): Promise<void> {
 export async function streamChat(
   text: string,
   onDelta: (s: string) => void,
-  onDone: () => void,
+  onDone: (sessionId: string | null) => void,
   onError: (msg: string) => void,
 ): Promise<void> {
   const res = await fetch('/api/chat', {
@@ -230,13 +231,18 @@ export async function streamChat(
     if (!dataLine) return false
     const raw = dataLine.slice('data:'.length).trim()
     try {
-      const parsed = JSON.parse(raw) as { delta?: string; done?: boolean; error?: string }
+      const parsed = JSON.parse(raw) as {
+        delta?: string
+        done?: boolean
+        error?: string
+        sessionId?: string | null
+      }
       if (parsed.error !== undefined) {
         onError(parsed.error)
         return true
       }
       if (parsed.done) {
-        onDone()
+        onDone(parsed.sessionId ?? null)
         return true
       }
       if (parsed.delta !== undefined) {
@@ -284,4 +290,8 @@ export async function streamChat(
 
 export function resetChat(): Promise<void> {
   return post<void>('/api/chat/reset')
+}
+
+export function getChatSession(): Promise<ChatSession> {
+  return get<ChatSession>('/api/chat/session')
 }

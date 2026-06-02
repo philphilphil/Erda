@@ -111,7 +111,7 @@ public class ChatEndpointsTests
         Assert.Equal("{\"delta\":\"Hello\"}", payloads[0]);
         Assert.Equal("{\"delta\":\", \"}", payloads[1]);
         Assert.Equal("{\"delta\":\"world\"}", payloads[2]);
-        Assert.Equal("{\"done\":true}", payloads[3]);
+        Assert.Equal("{\"done\":true,\"sessionId\":\"sess-test\"}", payloads[3]);
     }
 
     [Fact]
@@ -175,6 +175,8 @@ public sealed class FakeWebChat : IWebChat
     public FakeWebChat(Exception exception) => _exception = exception;
 
     public int Resets { get; private set; }
+
+    public string? SessionId { get; set; } = "sess-test";
 
     public async IAsyncEnumerable<string> StreamReplyAsync(
         string text,

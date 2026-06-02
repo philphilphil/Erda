@@ -111,6 +111,49 @@ public class WebChatServiceTests
     }
 
     [Fact]
+    public async Task SessionId_is_null_before_first_turn_and_set_after()
+    {
+        var (svc, _, _) = MakeService("A");
+
+        Assert.Null(svc.SessionId);
+
+        await foreach (var _ in svc.StreamReplyAsync("hi", CancellationToken.None)) { }
+
+        Assert.NotNull(svc.SessionId);
+    }
+
+    [Fact]
+    public async Task SessionId_is_stable_across_reused_turns()
+    {
+        var (svc, _, _) = MakeService("A");
+
+        await foreach (var _ in svc.StreamReplyAsync("turn1", CancellationToken.None)) { }
+        var first = svc.SessionId;
+
+        await foreach (var _ in svc.StreamReplyAsync("turn2", CancellationToken.None)) { }
+
+        Assert.Equal(first, svc.SessionId);   // same session => same id
+    }
+
+    [Fact]
+    public async Task Reset_clears_session_id_and_next_turn_mints_a_new_one()
+    {
+        var (svc, _, _) = MakeService("A");
+
+        await foreach (var _ in svc.StreamReplyAsync("before", CancellationToken.None)) { }
+        var first = svc.SessionId;
+        Assert.NotNull(first);
+
+        svc.Reset();
+        Assert.Null(svc.SessionId);
+
+        await foreach (var _ in svc.StreamReplyAsync("after", CancellationToken.None)) { }
+
+        Assert.NotNull(svc.SessionId);
+        Assert.NotEqual(first, svc.SessionId);
+    }
+
+    [Fact]
     public async Task Reset_starts_a_fresh_session_on_next_turn()
     {
         var (svc, _, client) = MakeService("A");

@@ -96,3 +96,9 @@ export interface ChatMessage {
   text: string
   error?: boolean
 }
+
+export interface ChatSession {
+  // Id of the live agent session, or null when the agent has no current session
+  // (fresh start or after a restart).
+  sessionId: string | null
+}

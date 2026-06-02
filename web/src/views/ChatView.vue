@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { streamChat, resetChat } from '../api/client'
-import type { ChatMessage } from '../api/types'
+import { useChat } from '../composables/useChat'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
 import EmptyState from '../components/EmptyState.vue'
 
 // ── state ─────────────────────────────────────────────────────────────────────
-const messages = ref<ChatMessage[]>([])
+// messages + sessionId + stale live in a shared composable so the conversation survives
+// switching sidebar sections (the view unmounts) and a page refresh (persisted to localStorage).
+const { messages, sessionId, stale, reconcile, clear } = useChat()
 const streaming = ref(false)
 const inputText = ref('')
 const inputEl = ref<HTMLTextAreaElement | null>(null)
@@ -34,6 +36,8 @@ async function send() {
   if (!text || streaming.value) return
 
   inputText.value = ''
+  // The user is starting a new turn — any "agent forgot the history above" notice no longer applies.
+  stale.value = false
 
   // Push user message and an empty pending assistant message.
   messages.value.push({ role: 'user', text })
@@ -52,8 +56,10 @@ async function send() {
           scrollToBottom()
         }
       },
-      () => {
-        // done
+      (sid) => {
+        // done — record the (possibly new) live session id so a later reload can verify the
+        // persisted history still belongs to a session the agent remembers.
+        if (sid) sessionId.value = sid
         streaming.value = false
         nextTick(() => inputEl.value?.focus())
       },
@@ -92,7 +98,7 @@ function handleKeydown(e: KeyboardEvent) {
 async function newChat() {
   try {
     await resetChat()
-    messages.value = []
+    clear()
     nextTick(() => inputEl.value?.focus())
   } catch (err) {
     // Don't clear messages if the reset failed; leave UI usable.
@@ -102,6 +108,8 @@ async function newChat() {
 
 onMounted(() => {
   inputEl.value?.focus()
+  // One-time liveness check: does the agent still remember our persisted history?
+  reconcile()
 })
 </script>
 
@@ -121,6 +129,15 @@ onMounted(() => {
     </header>
 
     <Card flush class="chat-card">
+      <!-- agent-restarted notice: the persisted history is older than the agent's memory -->
+      <div v-if="stale" class="chat-stale-banner">
+        <Icon name="info" :size="15" />
+        <span
+          >Erda restarted and no longer remembers the messages above. Your next message starts a
+          fresh conversation.</span
+        >
+      </div>
+
       <!-- message list -->
       <div ref="feedEl" class="chat-feed">
         <EmptyState
@@ -201,6 +218,23 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   padding: 0;
+}
+
+/* ── agent-restarted notice ───────────────────────────────────── */
+.chat-stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px var(--pad-card);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  background: var(--amber-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-stale-banner :deep(svg) {
+  flex: 0 0 auto;
+  color: var(--amber);
 }
 
 /* ── message feed ─────────────────────────────────────────────── */

@@ -16,6 +16,10 @@ public sealed class WebChatService(
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private AgentSession? _session;
+    private string? _sessionId;
+
+    /// <inheritdoc />
+    public string? SessionId => Volatile.Read(ref _sessionId);
 
     /// <inheritdoc />
     public async IAsyncEnumerable<string> StreamReplyAsync(string text, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
@@ -26,7 +30,13 @@ public sealed class WebChatService(
         var completed = false;
         try
         {
-            _session ??= await agent.CreateSessionAsync(ct);
+            if (_session is null)
+            {
+                _session = await agent.CreateSessionAsync(ct);
+                // Mint a fresh id for the new session so the browser can tell, on reload, whether
+                // its persisted history still belongs to a session the agent actually remembers.
+                Volatile.Write(ref _sessionId, Guid.NewGuid().ToString("N"));
+            }
 
             var turn = new List<ChatMessage>
             {
@@ -76,5 +86,6 @@ public sealed class WebChatService(
         // call will lazily create a new one. Volatile.Write ensures the null is visible to other
         // threads without a full memory fence.
         Volatile.Write(ref _session, null);
+        Volatile.Write(ref _sessionId, null);
     }
 }

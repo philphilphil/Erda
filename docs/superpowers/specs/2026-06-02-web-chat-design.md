@@ -1,8 +1,27 @@
 # Web chat for Erda — design
 
 **Date:** 2026-06-02
-**Status:** Approved (design)
+**Status:** Implemented (+ follow-up below)
 **Branch:** erda-panel-vue-migration
+
+> **Follow-up (2026-06-02): browser-persisted history + session-id liveness.**
+> The original v1 was fully ephemeral, so switching sidebar sections (the view
+> unmounts) cleared the visible chat. Added:
+> - **Server:** `WebChatService` mints a `SessionId` (GUID) per agent session —
+>   on first message, re-minted after `Reset()`, `null` when no session exists.
+>   The terminating SSE frame now carries it (`{"done":true,"sessionId":"…"}`),
+>   and `GET /api/chat/session` returns the live id.
+> - **Client:** chat state moved into a shared `useChat()` composable persisted to
+>   `localStorage` (survives section-switching *and* refresh). On load it calls
+>   `GET /api/chat/session` and compares the live id to the stored one; if the
+>   server has no session or a different id, it shows an amber "Erda restarted —
+>   it no longer remembers the messages above" banner (history kept, marked
+>   stale; cleared on the next turn). This keeps the *display* persistent while
+>   staying honest about when the agent's in-memory context is gone.
+>
+> Still out of scope: actually *restoring* the agent's memory across restarts
+> (MAF can serialize a session, but that means persisting conversation state to
+> disk/DB — a much larger change than display-persistence).
 
 ## Goal
 

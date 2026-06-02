@@ -27,6 +27,10 @@ public static class ChatEndpoints
             return Results.Ok();
         });
 
+        // Lets the browser check whether its locally persisted history still belongs to the live
+        // session. A null id means the agent has no current session (fresh start / after a restart).
+        g.MapGet("/session", (IWebChat webChat) => Results.Ok(new { sessionId = webChat.SessionId }));
+
         return group;
     }
 
@@ -50,7 +54,8 @@ public static class ChatEndpoints
                 await http.Response.Body.FlushAsync(ct);
             }
 
-            await http.Response.WriteAsync($"data: {JsonSerializer.Serialize(new { done = true }, StreamJson)}\n\n", ct);
+            var donePayload = JsonSerializer.Serialize(new { done = true, sessionId = webChat.SessionId }, StreamJson);
+            await http.Response.WriteAsync($"data: {donePayload}\n\n", ct);
             await http.Response.Body.FlushAsync(ct);
         }
         catch (OperationCanceledException)
