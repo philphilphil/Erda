@@ -16,11 +16,12 @@ Four areas:
 1. **Reminders** — view / add / edit / pause / cancel all reminders and scheduled prompts,
    with computed next-fire times.
 2. **Prompt** — edit the system prompt with validation, preview, and **version history**
-   (diff + rollback). Changes are hot-applied on the next agent turn.
+   (diff + rollback). Changes **apply on the next restart** (one-click restart button) — no
+   live hot-swap in v1.
 3. **Activity** — a live (SignalR-pushed) feed of recent agent runs, tool calls, scheduled
    fires, and error-watch alerts.
 4. **Config** — edit the runtime knobs (Codex effort, error-watch level, poll cadences, …);
-   most apply live, a few show "restart required" + a one-click restart.
+   changes **apply on restart** (one-click restart button). No live reload in v1.
 
 **All persistent state consolidates into a single SQLite database** (`/data/erda/erda.db`,
 on a new bind-mounted volume): prompt versions, reminders + their run-state, error-watch
@@ -38,10 +39,9 @@ source of truth for reminders.
 - A LAN-reachable panel to manage reminders, the system prompt, runtime config, and to watch
   activity — usable from any device on the home network.
 - One consolidated SQLite store for all machine/runtime state; survives redeploys.
-- Edit the system prompt safely (validation + preview + versioned rollback) and have it take
-  effect without a manual restart.
-- Edit runtime config and have it apply live where feasible; clearly flag what needs a restart
-  and offer a one-click restart.
+- Edit the system prompt safely (validation + preview + versioned rollback) and apply it with a
+  one-click restart.
+- Edit runtime config and apply it with a one-click restart.
 - Keep the existing surfaces working unchanged: WhatsApp (live + scheduled), the `schedule_*`
   tools, the error-watch scheduler. The panel is additive.
 
@@ -76,24 +76,22 @@ The panel is part of the existing app. New components, grouped by concern:
 | `IReminderRepository` / `ReminderRepository` | `Erda.Data` | Replaces the markdown `ReminderStore`. CRUD + run-state. |
 | `IErrorWatchStateStore` (DB-backed) | `Erda.Data` | Replaces the JSON `ErrorWatchStateStore`. |
 | `IActivityRecorder` / `ActivityRecorder` | `Erda.Services` | Append + bounded prune + live notify (`IObservable`/event). |
-| `ErdaAgentProvider` | `Erda.Agents` | Builds/holds the current `AIAgent` from the active prompt; rebuilds on change. |
-| `SqliteConfigurationSource`/`Provider` | `Erda.Configuration` | Layers `ConfigOverride` rows over `appsettings`; reloadable. |
+| `SqliteConfigurationSource`/`Provider` | `Erda.Configuration` | Read-once: layers `ConfigOverride` rows over `appsettings` at startup. |
 | Blazor components (`/Components/Panel/*.razor`) | `Erda.Panel` | Reminders / Prompt / Activity / Config pages + layout. |
 
-### Data flow (prompt + config hot-apply)
+### Data flow (prompt + config apply on restart)
 
 ```
-Panel (Blazor, LAN) ── edit prompt ──► PromptStore.SaveNewVersion ──► PromptVersions table
-                                              │ raises Changed
+Panel (Blazor, LAN) ── edit prompt  ──► PromptStore.SaveNewVersion ──► PromptVersions table
+Panel               ── edit config  ──► ConfigOverrides table
+Panel               ── Restart Erda ──► IHostApplicationLifetime.StopApplication()
+                                              │  Docker restart: unless-stopped
                                               ▼
-                                       ErdaAgentProvider rebuilds AIAgent
-                                              │
-WhatsApp turn ── ErdaAgentResponder.RespondAsync ──► provider.Current (new prompt; session reset)
+   startup: ErdaAgent.Create reads active PromptVersion; SqliteConfigurationProvider loads
+            ConfigOverrides into IConfiguration; IOptions<T> bind as today.
 
-Panel ── edit config ──► ConfigOverrides table ──► SqliteConfigurationProvider.Reload()
-                                              │ change token fires
-                                              ▼
-                             IOptionsMonitor<T>.CurrentValue (read per tick/call by consumers)
+Reminders are live without restart: ReminderScheduler reads the DB every tick, so panel edits
+take effect on the next poll. The Activity feed is pushed live over the Blazor Server circuit.
 ```
 
 ## Data model (SQLite)
@@ -179,50 +177,41 @@ lives in the stores/services above so it is unit-testable without rendering.
      prepends new entries. Filter by kind. "Open in Seq" deep-link for full traces.
 
 4. **Config** (`Config.razor`)
-   - Form over the editable knobs (see *Config reload*). Each field tagged **live** or
-     **restart required**. Writes a `ConfigOverrides` row and triggers reload.
+   - Form over the editable knobs (see *Config application*). Writes a `ConfigOverrides` row;
+     a banner notes changes apply on restart.
    - **Restart Erda** button → `IHostApplicationLifetime.StopApplication()`; Docker
-     `restart: unless-stopped` brings it back in ~seconds. Clean, no shell access needed.
+     `restart: unless-stopped` brings it back in ~seconds. Clean, no shell access needed. This
+     is also how a saved prompt edit is applied.
 
-## Prompt hot-reload mechanism (primary implementation risk)
+## Prompt application (v1: restart-to-apply)
 
 Today the agent is a **keyed singleton** built once at startup
 (`builder.AddAIAgent(ErdaAgent.Name, (sp,_) => ErdaAgent.Create(sp))`) with the system prompt
-baked in via `chatClient.AsAIAgent(instructions: …)`; `ErdaAgentResponder` captures it in its
-constructor and drives one long-lived `AgentSession`.
+baked in via `chatClient.AsAIAgent(instructions: …)`.
 
-**Plan:** introduce `ErdaAgentProvider` (singleton) that builds the `AIAgent` from
-`PromptStore.Active` and rebuilds it when `PromptStore.Changed` fires (swap the held reference).
-`ErdaAgentResponder` resolves `provider.Current` **per turn** (instead of a ctor field) and
-tracks the prompt version its `_session` was built against; when the version changes it resets
-`_session` before the next turn (a fresh context is the correct behaviour when the agent's
-contract changes). `RunOnceAsync` (scheduled prompts) always uses `provider.Current`.
+**v1 plan (minimal edits, no live hot-swap):** `ErdaAgent.Create` reads the **active**
+`PromptVersion` from `IPromptStore` and uses its content as the instructions (falling back to
+the in-code default constant if the table is empty — which also seeds it). The agent is still
+built once at startup; `ErdaAgentResponder` is **unchanged**. Saving a new prompt version in the
+panel writes the DB row and surfaces "restart to apply"; the **Restart Erda** button (Docker
+`restart: unless-stopped`) rebuilds the agent from the new active version on the way back up.
 
-**Spike first:** confirm in a throwaway test that (a) building a new `AIAgent` from the same
-chat client at runtime works and (b) resetting the session picks up the new instructions.
-**Fallback** if mid-run swap is awkward in MAF 1.8: rebuild agent + fresh session on save only
-(live conversation context resets on a prompt change — infrequent, acceptable). The OpenAI/DevUI
-endpoints (`AddAIAgent`) are dev-only-meaningful and may keep the startup instance in v1.
+Live hot-swap (rebuild-on-save, session reset) is an explicit **out-of-scope follow-up** — it is
+the riskiest part (MAF instruction-swap behaviour) and is deferred so v1 stays small.
 
-## Config reload mechanism
+## Config application (v1: restart-to-apply)
 
-Two parts:
+**v1 plan (minimal edits, no `IOptionsMonitor` refactor):** add a read-once
+`SqliteConfigurationSource`/`Provider` to `builder.Configuration`, loading `ConfigOverrides` rows
+(keys already in `Section:Key` form) layered **after** appsettings/env so they win. All existing
+consumers keep `IOptions<T>` exactly as today — they bind these values at startup. The panel
+writes a `ConfigOverrides` row; the **Restart Erda** button applies it.
 
-1. **Source:** `SqliteConfigurationSource`/`Provider` added to `builder.Configuration`, loading
-   `ConfigOverrides` rows (keys already `Section:Key`). Layered after appsettings/env so it wins.
-   After the panel writes a row it calls the provider's reload to fire the change token.
-2. **Consumers:** refactor the knob-readers from `IOptions<T>` to **`IOptionsMonitor<T>`** and
-   read `.CurrentValue` at point of use (per tick / per call):
-   - `ErrorWatchScheduler`, `ReminderScheduler` — read `CurrentValue` each tick (today they
-     snapshot `.Value` once at loop start; change that).
-   - `CodexRunner` — read `CurrentValue` per call (Codex effort default, model).
+Live reload (`IOptionsMonitor.CurrentValue` per tick/call, change tokens) is an explicit
+**out-of-scope follow-up** — it is the cross-cutting, edit-heavy part and is deferred for v1.
 
-**Live vs restart-required:**
-- **Live:** Codex effort default, `ErrorWatch:MinLevel` / `MaxAlertsPerPoll`, `Reminders`/
-  `ErrorWatch` `NotifyOnError`, and (with a per-tick re-read + timer recreate) poll intervals.
-- **Restart required:** chat **model/deployment** (baked into the chat client at startup), the
-  **LAN bind port**, and anything read only at construction. The Config screen flags these and
-  the Restart button handles them.
+Some keys can never be hot-applied anyway (chat **model/deployment** baked into the chat client,
+the **LAN bind port**), so restart-to-apply is the uniform, predictable v1 behaviour.
 
 ## Access & security
 
@@ -282,17 +271,19 @@ the `Reminders:NotePath` write paths; `ReminderTools` and both schedulers point 
   (the scheduler logic/tests are unchanged; only the store seam swaps).
 - **ErrorWatchState (DB)** — load/save/trim parity with the old JSON store; scheduler tests
   re-pointed.
-- **SqliteConfigurationProvider** — overrides win over appsettings; reload fires the change
-  token; `IOptionsMonitor.CurrentValue` reflects an edit.
+- **SqliteConfigurationProvider** — overrides win over appsettings at the startup load.
 - **ActivityRecorder** — append + bounded prune; subscribers notified.
-- **ErdaAgentProvider** — rebuilds on `PromptStore.Changed`; responder resets session on version
-  change (the prompt hot-reload spike graduates into a test).
+- **ErdaAgent prompt seed** — `ErdaAgent.Create` uses the active prompt version; falls back to
+  the in-code default constant (and seeds it) when the table is empty.
 - **Migration** — one-time import from a sample legacy note + sidecar seeds the DB correctly.
 - Blazor components kept thin; logic tested via the services above (no component-render tests in
   v1).
 
 ## Out-of-scope follow-ups (noted, not built)
 
+- **Live hot-reload of prompt + config** (apply without a restart): rebuild-on-save + session
+  reset for the prompt, and `IOptionsMonitor`/change-token reload for config. Deliberately
+  deferred from v1 — these are the edit-heavy, riskiest parts; v1 is uniformly restart-to-apply.
 - **Tailscale exposure** of the panel for remote management (the natural answer if the LAN-only
   trade-off bites).
 - Persisting full conversation history / a transcript browser in the panel.
