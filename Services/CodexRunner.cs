@@ -56,7 +56,8 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "codex",
+                FileName = opts.CodexExecutable,
+                RedirectStandardInput = true,  // so we can close it → EOF (codex exec reads stdin)
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -129,7 +130,24 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
 
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
-            await proc.WaitForExitAsync(cancellationToken);
+
+            // codex exec reads stdin for piped input ("Reading additional input from stdin..."). We
+            // pipe nothing, so close it immediately to send EOF. Without this, codex inherits Erda's
+            // stdin (e.g. a never-closing socket under `make dev-wa`) and blocks in read() forever.
+            proc.StandardInput.Close();
+
+            // Bound the run so a stuck codex can't wedge the caller (e.g. the reminder poll loop).
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(opts.CodexTimeout);
+            try
+            {
+                await proc.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+                throw new TimeoutException($"codex exec exceeded {opts.CodexTimeout} and was killed.");
+            }
 
             if (proc.ExitCode != 0)
                 throw new InvalidOperationException($"codex exec failed (exit {proc.ExitCode}): {stderr.ToString().Trim()}");

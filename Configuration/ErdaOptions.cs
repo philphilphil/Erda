@@ -25,6 +25,12 @@ public sealed class ErdaOptions
     /// <summary>Reasoning effort passed to <c>codex exec -c model_reasoning_effort</c>.</summary>
     public string CodexReasoningEffort { get; set; } = "high";
 
+    /// <summary>Max wall-clock time for a single <c>codex exec</c> before it is killed (guards against hangs).</summary>
+    public TimeSpan CodexTimeout { get; set; } = TimeSpan.FromMinutes(3);
+
+    /// <summary>The codex CLI executable (path or name on PATH). Overridable mainly for tests.</summary>
+    public string CodexExecutable { get; set; } = "codex";
+
     /// <summary>Absolute path to the Obsidian vault root that Erda may read/write.</summary>
     public string VaultPath { get; set; } = "/Users/phil/TestingNotes";
 
