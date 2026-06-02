@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Erda.Agents;
 using Erda.Configuration;
 using Erda.Services;
+using Erda.Workflows;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
@@ -11,17 +12,32 @@ namespace Erda.WhatsApp;
 /// Turns an inbound WhatsApp message into an agent turn and sends the reply back via the bridge.
 /// Enforces the owner whitelist, dispatches by message type (text / voice / image), and cleans up
 /// downloaded media afterwards.
+///
+/// Audio dispatch: Apple Voice Memos shared from iOS arrive as .m4a (audio/mp4) and are routed
+/// directly to <see cref="MemoProcessor"/> (structured memo → 1 Inbox/), bypassing the agent.
+/// WhatsApp-native voice notes (audio/ogg) go to the agent as a transcript for conversational handling.
 /// </summary>
 public sealed class WhatsAppChannelService(
     IOptions<WhatsAppOptions> options,
     IAgentResponder responder,
     ITranscriber transcriber,
+    MemoProcessor memoProcessor,
     IWhatsAppSender sender,
     ILogger<WhatsAppChannelService> logger)
 {
+    // Drop any message the bridge replays from before this process started.
+    private readonly long _startedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
     public async Task ProcessAsync(InboundMessage message, CancellationToken cancellationToken = default)
     {
         var o = options.Value;
+
+        if (message.Timestamp > 0 && message.Timestamp < _startedAtUnix)
+        {
+            logger.LogDebug("Dropping replayed message {Id} (ts={Ts}, started={Start}).",
+                message.MessageId, message.Timestamp, _startedAtUnix);
+            return;
+        }
 
         if (!WhatsAppJid.IsOwner(o.OwnerNumber, message.From) || WhatsAppJid.IsGroup(message.Chat))
         {
@@ -35,6 +51,27 @@ public sealed class WhatsAppChannelService(
         {
             await responder.ResetAsync(cancellationToken);
             await sender.SendAsync(replyTarget, "🧹 Cleared — starting a fresh conversation.", cancellationToken);
+            return;
+        }
+
+        // Apple Voice Memos shared from iOS (.m4a / audio/mp4) → structured memo pipeline,
+        // bypassing the agent. WhatsApp-native voice notes (.ogg/opus) go to the agent instead.
+        if (message.Kind == InboundKind.Audio && IsSharedVoiceMemo(message))
+        {
+            try
+            {
+                var reply = await ProcessAsMemoAsync(message, cancellationToken);
+                await sender.SendAsync(replyTarget, reply, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing Apple Voice Memo.");
+                await sender.SendAsync(replyTarget, $"⚠️ Something went wrong: {ex.Message}", cancellationToken);
+            }
+            finally
+            {
+                CleanupMedia(message, o.MediaTempDir);
+            }
             return;
         }
 
@@ -67,6 +104,32 @@ public sealed class WhatsAppChannelService(
         {
             CleanupMedia(message, o.MediaTempDir);
         }
+    }
+
+    /// <summary>
+    /// Apple Voice Memos shared from iOS arrive as .m4a (audio/mp4 or audio/x-m4a).
+    /// WhatsApp-native voice notes use audio/ogg with Opus codec.
+    /// </summary>
+    private static bool IsSharedVoiceMemo(InboundMessage message)
+    {
+        var mime = message.MimeType?.Split(';')[0].Trim() ?? "";
+        if (mime.Equals("audio/mp4", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("audio/x-m4a", StringComparison.OrdinalIgnoreCase) ||
+            mime.Equals("audio/m4a", StringComparison.OrdinalIgnoreCase))
+            return true;
+        // Fall back to file extension if MIME is absent or unexpected.
+        return Path.GetExtension(message.MediaPath ?? "").Equals(".m4a", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Transcribe the audio and run it through the memo pipeline (Codex → 1 Inbox/).</summary>
+    private async Task<string> ProcessAsMemoAsync(InboundMessage message, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(message.MediaPath) || !File.Exists(message.MediaPath))
+            return "⚠️ Could not find the audio file.";
+        var transcript = await transcriber.TranscribeAsync(message.MediaPath, cancellationToken);
+        if (string.IsNullOrWhiteSpace(transcript))
+            return "⚠️ Transcription returned no text.";
+        return await memoProcessor.ProcessAsync(transcript, cancellationToken);
     }
 
     /// <summary>True for a "clear"/"reset" command (optionally slash-prefixed) that wipes context.</summary>

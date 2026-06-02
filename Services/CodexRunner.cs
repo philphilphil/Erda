@@ -19,7 +19,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// then runs Codex. Kept for the voice-memo workflow's CodexExecutor.
     /// </summary>
     public Task<string> RunAsync(string developerInstruction, string transcript, CancellationToken cancellationToken = default)
-        => RunPromptAsync($"{developerInstruction}\n\nTranscript:\n{transcript}", enableWebSearch: false, cancellationToken, logLabel: "voice-memo cleanup");
+        => RunPromptAsync($"{developerInstruction}\n\nTranscript:\n{transcript}", enableWebSearch: true, cancellationToken, logLabel: "voice-memo processing");
 
     /// <summary>
     /// Runs <c>codex exec</c> on an already-built prompt and returns Codex's final message.

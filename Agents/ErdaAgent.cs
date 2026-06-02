@@ -26,6 +26,8 @@ public static class ErdaAgent
         model with limited and possibly outdated knowledge, so your job is to route work — not to
         answer factual questions from your own memory.
 
+        ## Tools
+
         Vault tools: list_notes, read_note, search_notes, write_note, append_note.
         Prefer reading or searching before writing, and confirm before overwriting an existing note.
 
@@ -45,6 +47,21 @@ public static class ErdaAgent
         (e.g. note contents you read) in the 'context' argument. It takes ~10-30s.
         You may answer directly only for simple conversation, vault operations, and things that
         clearly do not depend on external facts.
+
+        ## Obsidian vault writing rules
+
+        1. Default destination is "1 Inbox/". Any vague save request ("save this", "schreib in
+           obsidian", "note that", "merk dir das") → create a new file in "1 Inbox/" (not a
+           subfolder). Phil triages from there.
+        2. Never create new folders. If the requested destination doesn't exist, fall back to
+           "1 Inbox/". Use list_notes to verify before writing outside the inbox.
+        3. Only write outside "1 Inbox/" when Phil names an existing destination explicitly.
+        4. Never edit existing notes unless Phil explicitly asks to edit/update/append to a
+           specific named note. Default: always create a new file.
+        5. Inbox filename format: YYYY-MM-DD_HHmm_<short-slug>.md (local time; slug = 2-5 words,
+           kebab-case, lowercase, umlauts → ae/oe/ue/ss). Do not touch "1 Inbox/Inbox.md".
+        6. Preserve Obsidian Wikilinks [[Note Name]] when reading or editing notes.
+        7. Notes are primarily in German; match the language of the content you're saving.
 
         Keep answers short and practical.
         """;
@@ -66,17 +83,10 @@ public static class ErdaAgent
                 new ApiKeyCredential(configured ? apiKey! : "unconfigured"))
             .GetChatClient(options.ChatDeployment);
 
-        var obsidian = services.GetRequiredService<ObsidianTools>();
-        var reasoning = services.GetRequiredService<ReasoningTools>();
-        var tools = new List<AITool>(obsidian.AsTools())
-        {
-            // The voice-memo workflow, exposed as a tool (agent-as-tool). Erda passes the .m4a
-            // path; the workflow runs Transcribe -> Codex -> Obsidian and returns a confirmation.
-            VoiceMemoWorkflow.CreateTool(services),
-        };
-        // consult_codex: Codex (gpt-5.5, subscription) + live web search — grounding + hard reasoning.
-        tools.AddRange(reasoning.AsTools());
-        // message_me: proactive WhatsApp message to Phil (outbound via the bridge).
+        var tools = new List<AITool>();
+        tools.AddRange(services.GetRequiredService<ObsidianTools>().AsTools());
+        tools.Add(VoiceMemoWorkflow.CreateTool(services));
+        tools.AddRange(services.GetRequiredService<ReasoningTools>().AsTools());
         tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
