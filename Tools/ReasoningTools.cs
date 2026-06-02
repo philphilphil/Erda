@@ -5,8 +5,8 @@ using Microsoft.Extensions.AI;
 namespace Erda.Tools;
 
 /// <summary>
-/// Exposes Codex (gpt-5.5, high reasoning, on the ChatGPT subscription) WITH web search as a
-/// single delegation tool: consult_codex.
+/// Exposes Codex (gpt-5.5 on the ChatGPT subscription, per-call reasoning effort) WITH web search
+/// as a single delegation tool: consult_codex.
 ///
 /// Erda runs on a small/fast model (gpt-5-mini) whose knowledge is limited and can be stale, so
 /// it delegates two kinds of work here: (1) factual/current questions — Codex grounds the answer
@@ -29,21 +29,23 @@ public sealed class ReasoningTools(CodexRunner codex)
     ];
 
     [Description(
-        "Consult a stronger model (Codex, gpt-5.5, high effort) WITH live web search. Use this " +
+        "Consult a stronger model (Codex, gpt-5.5) WITH live web search. Use this " +
         "whenever the answer depends on facts about a topic, technology, product, person, or event " +
         "— especially anything recent or niche where your own knowledge may be wrong or stale — and " +
         "for genuinely hard analysis, planning, or math. It grounds answers in current sources and " +
         "cites them. The model cannot see the vault and has no memory between calls, so include any " +
-        "needed context in 'context'. Returns Markdown (with a Sources list when web search was used). " +
-        "Note: takes ~10-30s.")]
+        "needed context in 'context'. Returns Markdown (with a Sources list when web search was used).")]
     private async Task<string> ConsultCodex(
         [Description("The question or task, stated clearly and self-contained.")] string question,
-        [Description("Optional supporting context (e.g. note contents you already fetched) to reason over.")] string? context = null)
+        [Description("Optional supporting context (e.g. note contents you already fetched) to reason over.")] string? context = null,
+        [Description("Reasoning depth: 'low' for quick factual/current lookups (weather, prices, definitions, news, " +
+                     "\"what is X\") — fast, ~10s. 'high' for genuinely hard analysis, planning, math, or code — slow, " +
+                     "30s+. 'medium' in between. Default 'low'; only raise it when the task is actually hard.")] string effort = "low")
     {
         var prompt = string.IsNullOrWhiteSpace(context)
             ? $"{DeveloperInstruction}\n\nQuestion:\n{question}"
             : $"{DeveloperInstruction}\n\nQuestion:\n{question}\n\nContext:\n{context}";
 
-        return await codex.RunPromptAsync(prompt, enableWebSearch: true, logLabel: question);
+        return await codex.RunPromptAsync(prompt, enableWebSearch: true, logLabel: question, reasoningEffort: effort);
     }
 }

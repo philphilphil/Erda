@@ -1,6 +1,8 @@
 using Erda.Configuration;
+using Erda.Services;
 using Erda.WhatsApp;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -13,7 +15,8 @@ public class WhatsAppChannelServiceTests
     private const string OwnerJid = "4915123456789@s.whatsapp.net";
 
     private static WhatsAppChannelService Make(
-        out FakeAgentResponder responder, out FakeWhatsAppSender sender, out FakeTranscriber transcriber)
+        out FakeAgentResponder responder, out FakeWhatsAppSender sender, out FakeTranscriber transcriber,
+        string environment = "Production", string devPrefix = "@dev")
     {
         responder = new FakeAgentResponder();
         sender = new FakeWhatsAppSender();
@@ -23,8 +26,11 @@ public class WhatsAppChannelServiceTests
             Enabled = true,
             OwnerNumber = OwnerNumber,
             MediaTempDir = Path.GetTempPath(),
+            DevPrefix = devPrefix,
         });
-        return new WhatsAppChannelService(opts, responder, transcriber, sender, NullLogger<WhatsAppChannelService>.Instance);
+        var timeContext = new CurrentTimeContext(new FakeClock(), Options.Create(new ReminderOptions()));
+        var env = new FakeHostEnvironment { EnvironmentName = environment };
+        return new WhatsAppChannelService(opts, responder, transcriber, new FakeMemoProcessor(), sender, env, timeContext, NullLogger<WhatsAppChannelService>.Instance);
     }
 
     private static string TempMedia(string ext, byte[] bytes)
@@ -46,6 +52,18 @@ public class WhatsAppChannelServiceTests
         Assert.Equal("ok", sender.Sent[0].Text);
     }
 
+    [Fact]
+    public async Task Agent_turn_is_prefixed_with_current_time_context()
+    {
+        var svc = Make(out var responder, out _, out _);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi" });
+
+        var messages = responder.Calls.Single();
+        Assert.Equal(ChatRole.System, messages[0].Role);
+        Assert.Contains("2026-06-15", messages[0].Text); // FakeClock's date
+        Assert.Contains("hi", messages[^1].Text);         // the user's message still present
+    }
+
     [Theory]
     [InlineData("clear")]
     [InlineData("/clear")]
@@ -59,6 +77,46 @@ public class WhatsAppChannelServiceTests
         Assert.Equal(1, responder.Resets);
         Assert.Single(sender.Sent);
         Assert.Contains("Cleared", sender.Sent[0].Text);
+    }
+
+    [Fact]
+    public async Task Dev_instance_answers_only_prefixed_messages_and_strips_the_prefix()
+    {
+        var svc = Make(out var responder, out var sender, out _, environment: Environments.Development);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "@dev hi there" });
+
+        Assert.Single(responder.Calls);
+        Assert.Single(sender.Sent);
+        Assert.Equal("hi there", responder.Calls[0][^1].Text); // prefix stripped before the agent sees it
+    }
+
+    [Fact]
+    public async Task Dev_instance_ignores_unprefixed_messages()
+    {
+        var svc = Make(out var responder, out var sender, out _, environment: Environments.Development);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi there" });
+
+        Assert.Empty(responder.Calls);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Prod_instance_ignores_prefixed_messages()
+    {
+        var svc = Make(out var responder, out var sender, out _, environment: Environments.Production);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "@dev hi there" });
+
+        Assert.Empty(responder.Calls);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Empty_dev_prefix_disables_gating_so_dev_answers_everything()
+    {
+        var svc = Make(out var responder, out _, out _, environment: Environments.Development, devPrefix: "");
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi there" });
+
+        Assert.Single(responder.Calls);
     }
 
     [Fact]
@@ -92,7 +150,7 @@ public class WhatsAppChannelServiceTests
 
         Assert.Equal(1, transcriber.Calls);
         Assert.Single(responder.Calls);
-        Assert.Contains(responder.Calls[0][0].Contents.OfType<TextContent>(), t => t.Text.Contains("buy milk"));
+        Assert.Contains(responder.Calls[0][^1].Contents.OfType<TextContent>(), t => t.Text.Contains("buy milk"));
         Assert.Single(sender.Sent);
         Assert.False(File.Exists(media)); // cleaned up (inside MediaTempDir)
     }
@@ -106,7 +164,7 @@ public class WhatsAppChannelServiceTests
         await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "image", Text = "what is this?", MediaPath = media, MimeType = "image/jpeg" });
 
         Assert.Single(responder.Calls);
-        var contents = responder.Calls[0][0].Contents;
+        var contents = responder.Calls[0][^1].Contents;
         Assert.Contains(contents.OfType<TextContent>(), t => t.Text.Contains("what is this?"));
         Assert.Contains(contents, c => c is DataContent);
         Assert.Single(sender.Sent);

@@ -83,6 +83,9 @@ builder.Services.AddSingleton<Transcriber>();
 builder.Services.AddSingleton<ITranscriber>(sp => sp.GetRequiredService<Transcriber>());
 builder.Services.AddSingleton<CodexRunner>();
 builder.Services.AddSingleton<MemoProcessor>();
+builder.Services.AddSingleton<IMemoProcessor>(sp => sp.GetRequiredService<MemoProcessor>());
+builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton<CurrentTimeContext>();
 
 // --- WhatsApp channel -------------------------------------------------------
 // A whatsmeow "bridge" sidecar holds the WhatsApp socket; Erda exposes an inbound endpoint it
@@ -104,6 +107,16 @@ builder.Services.Configure<ErrorWatchOptions>(builder.Configuration.GetSection(E
 builder.Services.AddSingleton<ISeqClient, SeqClient>();
 builder.Services.AddSingleton<IErrorAnalyzer, CodexErrorAnalyzer>();
 builder.Services.AddHostedService<ErrorWatchScheduler>();
+
+// --- Reminder scheduler (vault note -> WhatsApp / agent prompt) -------------
+// Every minute, read the reminders note and fire what's due: verbatim messages straight to Phil,
+// or scheduled prompts run through the agent (fresh session) with the reply sent. Cron via Cronos,
+// times in Reminders:TimeZone. Definitions live in the vault (Phil can hand-edit); run-state in a
+// JSON sidecar. The schedule_* agent tools write to the same note.
+builder.Services.Configure<ReminderOptions>(builder.Configuration.GetSection(ReminderOptions.SectionName));
+builder.Services.AddSingleton<ReminderStore>();
+builder.Services.AddSingleton<ReminderTools>();
+builder.Services.AddHostedService<ReminderScheduler>();
 
 // --- Agents & workflows (discovered by DevUI) ------------------------------
 // Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). Its tools are

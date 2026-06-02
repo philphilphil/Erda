@@ -3,13 +3,37 @@ using Erda.Scheduling;
 using Erda.Services;
 using Erda.Services.Seq;
 using Erda.WhatsApp;
+using Erda.Workflows;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace Erda.Tests;
+
+public sealed class FakeHostEnvironment : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = Environments.Production;
+    public string ApplicationName { get; set; } = "Erda.Tests";
+    public string ContentRootPath { get; set; } = "";
+    public IFileProvider ContentRootFileProvider { get; set; } = null!;
+}
+
+public sealed class FakeMemoProcessor : IMemoProcessor
+{
+    public List<string> Transcripts { get; } = [];
+    public string Reply { get; set; } = "Saved voice memo to 1 Inbox/memo.md (10 chars).";
+
+    public Task<string> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
+    {
+        Transcripts.Add(transcript);
+        return Task.FromResult(Reply);
+    }
+}
 
 public sealed class FakeAgentResponder : IAgentResponder
 {
     public List<IReadOnlyList<ChatMessage>> Calls { get; } = [];
+    public List<IReadOnlyList<ChatMessage>> RunOnceCalls { get; } = [];
     public int Resets { get; private set; }
     public AgentReply Reply { get; set; } = new("ok", 10, 5, 15, ["consult_codex"]);
 
@@ -19,11 +43,22 @@ public sealed class FakeAgentResponder : IAgentResponder
         return Task.FromResult(Reply);
     }
 
+    public Task<AgentReply> RunOnceAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
+    {
+        RunOnceCalls.Add(messages);
+        return Task.FromResult(Reply);
+    }
+
     public Task ResetAsync(CancellationToken cancellationToken = default)
     {
         Resets++;
         return Task.CompletedTask;
     }
+}
+
+public sealed class FakeClock : IClock
+{
+    public DateTimeOffset UtcNow { get; set; } = new(2026, 6, 15, 8, 0, 0, TimeSpan.Zero);
 }
 
 public sealed class FakeWhatsAppSender : IWhatsAppSender

@@ -36,6 +36,18 @@ public static class ErdaAgent
         message_me: send Phil a WhatsApp message proactively (reminder, confirmation, or anything
         worth surfacing now). Use sparingly and only when it adds value.
 
+        schedule_message / schedule_prompt / list_scheduled / cancel_scheduled: set up things for
+        later. Use schedule_message when Phil should get his own text back verbatim at a time
+        ("remind me to call mom tomorrow at 9"). Use schedule_prompt when something must be worked
+        out at that time and the result sent ("every morning at 6, what's the weather?") — the
+        prompt runs through you (a fresh turn) and the reply is sent to Phil. A scheduled prompt may
+        also be "@path/to/note.md" (from the vault root) to run the contents of a saved vault note
+        as the prompt — handy for long or frequently-tweaked prompts. The 'when' argument is
+        either a date-time like 2026-06-15 09:00 (fires once) or a cron expression like 0 6 * * *
+        (recurring; @daily/@weekly also work). Times are Europe/Berlin. Convert relative times
+        ("tomorrow", "in 2 hours", "every morning") into a concrete 'when' using the current time
+        given to you in context. Use list_scheduled / cancel_scheduled to review or remove.
+
         consult_codex: a stronger model WITH live web search. This is your source of truth for
         facts and your tool for hard thinking.
         GROUND FIRST: whenever a request asks you to explain, summarize, describe, or write a note
@@ -44,7 +56,8 @@ public static class ErdaAgent
         answer, THEN write the note from what it returns. Do not write factual notes from memory.
         Also use consult_codex for complex analysis, planning, multi-step logic, math, or non-trivial
         code. It cannot see the vault and has no memory between calls, so include any needed context
-        (e.g. note contents you read) in the 'context' argument. It takes ~10-30s.
+        (e.g. note contents you read) in the 'context' argument. Set its 'effort' to 'low' for quick
+        factual lookups (much faster, ~10s) and reserve 'high' for genuinely hard reasoning (~30s+).
         You may answer directly only for simple conversation, vault operations, and things that
         clearly do not depend on external facts.
 
@@ -88,6 +101,7 @@ public static class ErdaAgent
         tools.Add(VoiceMemoWorkflow.CreateTool(services));
         tools.AddRange(services.GetRequiredService<ReasoningTools>().AsTools());
         tools.AddRange(services.GetRequiredService<Erda.WhatsApp.NotifyTools>().AsTools());
+        tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
         var agent = chatClient.AsAIAgent(instructions: Instructions, name: Name, tools: tools);
