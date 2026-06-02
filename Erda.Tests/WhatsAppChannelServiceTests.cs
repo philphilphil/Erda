@@ -2,6 +2,7 @@ using Erda.Configuration;
 using Erda.Services;
 using Erda.WhatsApp;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -14,7 +15,8 @@ public class WhatsAppChannelServiceTests
     private const string OwnerJid = "4915123456789@s.whatsapp.net";
 
     private static WhatsAppChannelService Make(
-        out FakeAgentResponder responder, out FakeWhatsAppSender sender, out FakeTranscriber transcriber)
+        out FakeAgentResponder responder, out FakeWhatsAppSender sender, out FakeTranscriber transcriber,
+        string environment = "Production", string devPrefix = "@dev")
     {
         responder = new FakeAgentResponder();
         sender = new FakeWhatsAppSender();
@@ -24,9 +26,11 @@ public class WhatsAppChannelServiceTests
             Enabled = true,
             OwnerNumber = OwnerNumber,
             MediaTempDir = Path.GetTempPath(),
+            DevPrefix = devPrefix,
         });
         var timeContext = new CurrentTimeContext(new FakeClock(), Options.Create(new ReminderOptions()));
-        return new WhatsAppChannelService(opts, responder, transcriber, new FakeMemoProcessor(), sender, timeContext, NullLogger<WhatsAppChannelService>.Instance);
+        var env = new FakeHostEnvironment { EnvironmentName = environment };
+        return new WhatsAppChannelService(opts, responder, transcriber, new FakeMemoProcessor(), sender, env, timeContext, NullLogger<WhatsAppChannelService>.Instance);
     }
 
     private static string TempMedia(string ext, byte[] bytes)
@@ -73,6 +77,46 @@ public class WhatsAppChannelServiceTests
         Assert.Equal(1, responder.Resets);
         Assert.Single(sender.Sent);
         Assert.Contains("Cleared", sender.Sent[0].Text);
+    }
+
+    [Fact]
+    public async Task Dev_instance_answers_only_prefixed_messages_and_strips_the_prefix()
+    {
+        var svc = Make(out var responder, out var sender, out _, environment: Environments.Development);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "@dev hi there" });
+
+        Assert.Single(responder.Calls);
+        Assert.Single(sender.Sent);
+        Assert.Equal("hi there", responder.Calls[0][^1].Text); // prefix stripped before the agent sees it
+    }
+
+    [Fact]
+    public async Task Dev_instance_ignores_unprefixed_messages()
+    {
+        var svc = Make(out var responder, out var sender, out _, environment: Environments.Development);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi there" });
+
+        Assert.Empty(responder.Calls);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Prod_instance_ignores_prefixed_messages()
+    {
+        var svc = Make(out var responder, out var sender, out _, environment: Environments.Production);
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "@dev hi there" });
+
+        Assert.Empty(responder.Calls);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Empty_dev_prefix_disables_gating_so_dev_answers_everything()
+    {
+        var svc = Make(out var responder, out _, out _, environment: Environments.Development, devPrefix: "");
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi there" });
+
+        Assert.Single(responder.Calls);
     }
 
     [Fact]

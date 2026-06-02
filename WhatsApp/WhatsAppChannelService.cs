@@ -23,6 +23,7 @@ public sealed class WhatsAppChannelService(
     ITranscriber transcriber,
     IMemoProcessor memoProcessor,
     IWhatsAppSender sender,
+    IHostEnvironment hostEnvironment,
     CurrentTimeContext timeContext,
     ILogger<WhatsAppChannelService> logger)
 {
@@ -47,6 +48,31 @@ public sealed class WhatsAppChannelService(
         }
 
         var replyTarget = string.IsNullOrEmpty(message.Chat) ? message.From : message.Chat;
+
+        // Dev/prod routing so a Development instance can run alongside Production on the same
+        // WhatsApp account without double-replying. A Development instance handles ONLY messages
+        // whose text starts with the dev prefix (stripped before processing); Production ignores
+        // those. An empty prefix disables the gating (the instance answers everything).
+        var prefix = o.DevPrefix?.Trim();
+        if (!string.IsNullOrEmpty(prefix))
+        {
+            var body = message.Text?.TrimStart();
+            var targeted = body is not null && body.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+            if (hostEnvironment.IsDevelopment())
+            {
+                if (!targeted)
+                {
+                    logger.LogDebug("Dev instance: ignoring message without the '{Prefix}' prefix.", prefix);
+                    return;
+                }
+                message = message with { Text = body![prefix.Length..].TrimStart() };
+            }
+            else if (targeted)
+            {
+                logger.LogDebug("Prod instance: ignoring '{Prefix}'-targeted message; a dev instance will take it.", prefix);
+                return;
+            }
+        }
 
         if (IsClearCommand(message))
         {

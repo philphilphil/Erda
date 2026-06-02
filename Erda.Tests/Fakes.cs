@@ -5,8 +5,18 @@ using Erda.Services.Seq;
 using Erda.WhatsApp;
 using Erda.Workflows;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace Erda.Tests;
+
+public sealed class FakeHostEnvironment : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = Environments.Production;
+    public string ApplicationName { get; set; } = "Erda.Tests";
+    public string ContentRootPath { get; set; } = "";
+    public IFileProvider ContentRootFileProvider { get; set; } = null!;
+}
 
 public sealed class FakeMemoProcessor : IMemoProcessor
 {
