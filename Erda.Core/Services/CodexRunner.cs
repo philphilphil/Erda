@@ -37,6 +37,26 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     }
 
     /// <summary>
+    /// Stderr substrings that mean Codex's ChatGPT session is expired/invalidated (re-login needed),
+    /// as opposed to any other failure (bad model, sandbox, etc.). Kept specific to avoid false
+    /// positives on unrelated errors.
+    /// </summary>
+    private static readonly string[] AuthFailureMarkers =
+    {
+        "token_invalidated",
+        "refresh_token_reused",
+        "invalid_grant",
+        "sign in again",
+        "log out and sign in",
+        "not logged in",
+        "could not be refreshed",
+    };
+
+    /// <summary>True when <paramref name="stderr"/> indicates a Codex authentication failure.</summary>
+    private static bool IsAuthFailure(string stderr) =>
+        AuthFailureMarkers.Any(m => stderr.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Runs <c>codex exec</c> on an already-built prompt and returns Codex's final message.
     /// General-purpose entry point. <paramref name="enableWebSearch"/> turns on Codex's native
     /// web_search tool (for grounding answers in current sources); when searching we use a
@@ -150,7 +170,22 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             }
 
             if (proc.ExitCode != 0)
-                throw new InvalidOperationException($"codex exec failed (exit {proc.ExitCode}): {stderr.ToString().Trim()}");
+            {
+                var err = stderr.ToString().Trim();
+                if (IsAuthFailure(err))
+                {
+                    // Keep the raw stderr in the logs for debugging, but hand the agent (and thus
+                    // the user) a short, actionable message instead of a wall of 401 traces.
+                    logger.LogWarning(
+                        "Codex auth failure (exit {Exit}) — run `codex login` to re-authenticate. stderr: {Stderr}",
+                        proc.ExitCode, err);
+                    throw new InvalidOperationException(
+                        "Codex isn't logged in — its ChatGPT session has expired or been invalidated. " +
+                        "Run `codex login` on the host to re-authenticate, then try again.");
+                }
+
+                throw new InvalidOperationException($"codex exec failed (exit {proc.ExitCode}): {err}");
+            }
 
             var fromFile = File.Exists(outputFile)
                 ? (await File.ReadAllTextAsync(outputFile, cancellationToken)).Trim()
