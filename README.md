@@ -53,8 +53,7 @@ with a clear message until the key is present. The startup log prints which are 
 ## Run
 
 ```bash
-cd Erda
-dotnet run
+dotnet run --project Erda.Server   # bare backend; `make dev` also starts the SPA
 ```
 
 Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/devui`**
@@ -62,6 +61,29 @@ Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/de
 
 DevUI is only mounted in the **Development** environment (it exposes system prompts), guarded by
 `app.Environment.IsDevelopment()`.
+
+## Control panel (Vue SPA + JSON API)
+
+Erda hosts a single-user, **LAN-only** web control panel for managing reminders + scheduled
+prompts, editing the system prompt (with versioned rollback), watching a live activity feed, and
+tweaking runtime config — all over a JSON API under `/api`, with a Vue 3 SPA front end in `web/`.
+
+- **Reminders are live** (the scheduler reads the DB each tick); **prompt + config edits apply on
+  restart** (a one-click *Restart Erda* button). The activity feed is pushed live over
+  Server-Sent Events.
+- **Auth is off by default** — the panel is open on the LAN. Set `Panel:Password` (env
+  `PANEL_PASSWORD`) to require a single-user cookie login.
+- **Local dev:** run the backend and the Vite dev server together:
+
+  ```bash
+  make dev            # backend (:5167) + Vite (:5173); open http://localhost:5173
+  # add the WhatsApp bridge with `make dev-all`; SPA on its own with `make web`
+  ```
+
+  Vite proxies `/api` to the backend, so cookies work same-origin. Build the SPA with
+  `cd web && npm ci && npm run build`.
+- **Production:** the Dockerfile builds the SPA and serves it from the app's `wwwroot` at the root
+  URL; the API is at `/api`. (DevUI remains Development-only.)
 
 ## Architecture: Erda is the single orchestrator
 
@@ -110,7 +132,7 @@ answering from memory. This is what keeps notes accurate instead of hallucinated
 Edit `Erda:VaultPath` in `appsettings.json`, or override without editing files:
 
 ```bash
-Erda__VaultPath="/Users/you/MyVault" dotnet run
+Erda__VaultPath="/Users/you/MyVault" dotnet run --project Erda.Server
 ```
 
 (The double underscore is the .NET convention for nesting config sections in env vars.)
@@ -163,7 +185,7 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 `Microsoft.Agents.AI` / `.OpenAI` / `.Workflows` `1.8.0` (stable);
 `Microsoft.Agents.AI.Hosting` `1.8.0-preview`, `.Hosting.OpenAI` `1.8.0-alpha`,
 `.DevUI` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
-`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See `Erda.csproj`.
+`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See the `Erda.*/*.csproj` project files (MAF hosting/DevUI live in `Erda.Server`, the MAF agent/Azure packages in `Erda.Agents`, EF/OpenAI in `Erda.Core`).
 
 ## Observability
 
@@ -200,8 +222,8 @@ in [`Program.cs`](Program.cs).
 Erda runs on an always-on ARM64 Linux box (e.g. an NVIDIA Jetson) as a two-container Compose
 stack: **`erda`** + **`whatsapp-bridge`**. Nothing here uses the GPU — every model call is cloud
 — so no `nvidia-docker` runtime is needed. In production Erda runs
-`ASPNETCORE_ENVIRONMENT=Production`, so **DevUI is not mounted and no web port is published**;
-you talk to Erda over WhatsApp.
+`ASPNETCORE_ENVIRONMENT=Production`, so **DevUI is not mounted**; you interact with Erda over
+WhatsApp and through the **LAN control panel** (published on port 5167 — see below).
 
 ### Files
 

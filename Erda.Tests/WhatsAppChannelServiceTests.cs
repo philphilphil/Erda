@@ -1,6 +1,6 @@
-using Erda.Configuration;
-using Erda.Services;
-using Erda.WhatsApp;
+using Erda.Core.Configuration;
+using Erda.Core.Services;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;

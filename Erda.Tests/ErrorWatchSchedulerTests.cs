@@ -1,6 +1,6 @@
-using Erda.Configuration;
-using Erda.Scheduling;
-using Erda.Services.Seq;
+using Erda.Core.Configuration;
+using Erda.Core.Scheduling;
+using Erda.Core.Services.Seq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -30,12 +30,11 @@ public class ErrorWatchSchedulerTests
             Options.Create(new ErrorWatchOptions()),
             Options.Create(new SeqOptions { ServerUrl = "http://seq" }),
             Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            seq, analyzer, sender, NullLogger<ErrorWatchScheduler>.Instance);
+            seq, analyzer, sender, TempStore(), new FakeActivityRecorder(), NullLogger<ErrorWatchScheduler>.Instance);
         return (scheduler, seq, analyzer, sender);
     }
 
-    private static ErrorWatchStateStore TempStore() =>
-        new(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json"));
+    private static ErrorWatchStateStore TempStore() => new(TestDb.NewFactory());
 
     private static ErrorWatchState StateFrom(int minutesAgo = 10) =>
         new() { LastTimestampUtc = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo) };
@@ -71,7 +70,7 @@ public class ErrorWatchSchedulerTests
             Options.Create(new ErrorWatchOptions()),
             Options.Create(new SeqOptions { ServerUrl = "http://seq" }),
             Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            seq, analyzer, sender, NullLogger<ErrorWatchScheduler>.Instance);
+            seq, analyzer, sender, TempStore(), new FakeActivityRecorder(), NullLogger<ErrorWatchScheduler>.Instance);
 
         var opts = new ErrorWatchOptions { AnalyzeWithCodex = false, MaxAlertsPerPoll = 2 };
         seq.Responses.Enqueue([Err("e1", "A"), Err("e2", "B"), Err("e3", "C"), Err("e4", "D")]);

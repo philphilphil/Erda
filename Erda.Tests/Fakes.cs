@@ -1,9 +1,9 @@
-using Erda.Agents;
-using Erda.Scheduling;
-using Erda.Services;
-using Erda.Services.Seq;
-using Erda.WhatsApp;
-using Erda.Workflows;
+using Erda.Core.Abstractions;
+using Erda.Core.Data;
+using Erda.Core.Scheduling;
+using Erda.Core.Services;
+using Erda.Core.Services.Seq;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -107,4 +107,15 @@ public sealed class FakeAnalyzer : IErrorAnalyzer
         Calls++;
         return Task.FromResult("analysis");
     }
+}
+
+public sealed class FakeActivityRecorder : IActivityRecorder
+{
+    public List<(string Kind, string Summary)> Records { get; } = [];
+
+    public void Record(string kind, string summary, object? detail = null) => Records.Add((kind, summary));
+
+    public IReadOnlyList<ActivityEntry> Recent(int max = 100) => [];
+
+    public event Action<ActivityEntry>? Recorded { add { } remove { } }
 }

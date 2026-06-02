@@ -26,3 +26,11 @@ errorwatch-state.json
 # Go build artifacts
 *.test
 docs/notes.md
+
+# Control-panel SPA (web/): dependencies + Vite build output (built in the Docker image)
+web/node_modules/
+web/dist/
+web/*.local
+# Playwright MCP verification artifacts
+.playwright-mcp/
+panel-*.png

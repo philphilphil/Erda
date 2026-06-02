@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/web/">
+    <File Path="web/package.json" />
+    <File Path="web/vite.config.ts" />
+    <File Path="web/index.html" />
+  </Folder>
+  <Project Path="Erda.Core/Erda.Core.csproj" />
+  <Project Path="Erda.Agents/Erda.Agents.csproj" />
+  <Project Path="Erda.Server/Erda.Server.csproj" />
+  <Project Path="Erda.Tests/Erda.Tests.csproj" />
+</Solution>

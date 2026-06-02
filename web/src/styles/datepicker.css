@@ -1,0 +1,53 @@
+/* ============================================================
+   @vuepic/vue-datepicker — themed to Erda's design tokens.
+   The vars are mapped on BOTH theme classes so the picker follows
+   our `data-theme` (driven by tokens.css) without a `dark` prop.
+   The menu is teleported to <body>, so these must be global.
+   ============================================================ */
+.dp__theme_light,
+.dp__theme_dark {
+  --dp-font-family: var(--sans);
+  --dp-border-radius: var(--r);
+  --dp-cell-border-radius: var(--r-sm);
+
+  --dp-background-color: var(--surface-2);
+  --dp-text-color: var(--text);
+  --dp-secondary-color: var(--text-faint);
+  --dp-icon-color: var(--text-muted);
+
+  --dp-border-color: var(--border-strong);
+  --dp-menu-border-color: var(--border-strong);
+  --dp-border-color-hover: #353b44;
+  --dp-border-color-focus: color-mix(in oklch, var(--accent) 55%, var(--border-strong));
+
+  --dp-hover-color: var(--surface-3);
+  --dp-hover-text-color: var(--text);
+  --dp-hover-icon-color: var(--text);
+
+  --dp-primary-color: var(--accent);
+  --dp-primary-text-color: var(--accent-fg);
+  --dp-primary-disabled-color: var(--surface-3);
+
+  --dp-disabled-color: var(--surface);
+  --dp-disabled-color-text: var(--text-faint);
+  --dp-scroll-bar-background: transparent;
+  --dp-scroll-bar-color: var(--border-strong);
+  --dp-danger-color: var(--red);
+  --dp-highlight-color: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+
+/* the trigger input: match Erda's .input look */
+.dp__input {
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  min-height: var(--ctrl-h);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.dp__input::placeholder { color: var(--text-faint); }
+.dp__input_focus {
+  border-color: color-mix(in oklch, var(--accent) 55%, var(--border-strong));
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 12%, transparent);
+}
+.dp__input_icon { color: var(--text-muted); }

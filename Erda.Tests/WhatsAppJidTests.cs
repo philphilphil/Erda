@@ -1,4 +1,4 @@
-using Erda.WhatsApp;
+using Erda.Core.WhatsApp;
 using Xunit;
 
 namespace Erda.Tests;
