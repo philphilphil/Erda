@@ -53,7 +53,7 @@ with a clear message until the key is present. The startup log prints which are 
 ## Run
 
 ```bash
-dotnet run --project Erda.Server   # or: make dev
+dotnet run --project Erda.Server   # bare backend; `make dev` also starts the SPA
 ```
 
 Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/devui`**
@@ -76,8 +76,8 @@ tweaking runtime config — all over a JSON API under `/api`, with a Vue 3 SPA f
 - **Local dev:** run the backend and the Vite dev server together:
 
   ```bash
-  make dev-web        # backend (:5167) + Vite (:5173); open http://localhost:5173
-  # or, in two terminals: `make dev` and `make web`
+  make dev            # backend (:5167) + Vite (:5173); open http://localhost:5173
+  # add the WhatsApp bridge with `make dev-all`; SPA on its own with `make web`
   ```
 
   Vite proxies `/api` to the backend, so cookies work same-origin. Build the SPA with

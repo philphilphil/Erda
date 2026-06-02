@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-make dev          # run everything: backend + SPA + WhatsApp bridge (one Ctrl-C kills all); needs node/npx + go
-make dev-web      # backend + SPA only, no bridge (Ctrl-C kills both); needs node/npx
+make dev          # backend + SPA only, no bridge (Ctrl-C kills both); needs node/npx
+make dev-all      # run everything: backend + SPA + WhatsApp bridge (one Ctrl-C kills all); needs node/npx + go
 make web          # control-panel SPA dev server only (Vite at :5173, proxies /api -> :5167)
 make deploy       # git pull && docker compose up -d --build (server only)
 
