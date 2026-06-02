@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Host-agnostic business logic: configuration, persistence, services, scheduling, messaging.
+       No ASP.NET and no Microsoft.Agents.AI (MAF) host — only the lightweight Microsoft.Extensions.AI
+       abstractions (ChatMessage) needed by the IAgentResponder seam. -->
+
+  <!-- The Web SDK exposes these as implicit usings; replicate the non-ASP.NET subset so the moved
+       files compile unchanged (ILogger, IConfiguration, BackgroundService, IHostEnvironment, …). -->
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cronos" Version="0.13.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.6.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.8" />
+    <PackageReference Include="OpenAI" Version="2.10.0" />
+    <PackageReference Include="Seq.Api" Version="2025.2.2" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Microsoft Agent Framework (MAF) layer: the erda orchestrator agent, its tools, and the
+       voice-memo workflow. Implements the IAgentResponder / IMemoProcessor abstractions declared in
+       Erda.Core. -->
+
+  <!-- Match the implicit usings the moved files relied on under the Web SDK (non-ASP.NET subset). -->
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.8.0" />
+    <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.8.0" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.8.0" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.9.0-beta.1" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Erda.Core\Erda.Core.csproj" />
+  </ItemGroup>
+
+</Project>

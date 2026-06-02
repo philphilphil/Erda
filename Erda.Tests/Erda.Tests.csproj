@@ -21,7 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Erda.csproj" />
+    <ProjectReference Include="..\Erda.Core\Erda.Core.csproj" />
+    <ProjectReference Include="..\Erda.Agents\Erda.Agents.csproj" />
+    <ProjectReference Include="..\Erda.Server\Erda.Server.csproj" />
   </ItemGroup>
 
 </Project>
