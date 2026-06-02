@@ -34,6 +34,9 @@ builder.Host.UseSerilog((context, configuration) =>
     configuration
         .MinimumLevel.Information()
         .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+        // EF Core logs every executed SQL statement at Information under this category — far too
+        // noisy for the console and Seq. Keep its warnings/errors, drop the per-command spam.
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", Serilog.Events.LogEventLevel.Warning)
         .Enrich.FromLogContext()
         .Enrich.WithProperty("app", "Erda") // tag every event so Erda's logs are filterable in Seq
         .WriteTo.Console();
