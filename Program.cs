@@ -5,6 +5,7 @@ using Erda.Services;
 using Erda.Services.Seq;
 using Erda.Tools;
 using Erda.WhatsApp;
+using Erda.Workflows;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.Options;
@@ -81,6 +82,7 @@ builder.Services.AddSingleton<ReasoningTools>();
 builder.Services.AddSingleton<Transcriber>();
 builder.Services.AddSingleton<ITranscriber>(sp => sp.GetRequiredService<Transcriber>());
 builder.Services.AddSingleton<CodexRunner>();
+builder.Services.AddSingleton<MemoProcessor>();
 
 // --- WhatsApp channel -------------------------------------------------------
 // A whatsmeow "bridge" sidecar holds the WhatsApp socket; Erda exposes an inbound endpoint it
