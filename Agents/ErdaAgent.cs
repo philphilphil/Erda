@@ -56,7 +56,8 @@ public static class ErdaAgent
         answer, THEN write the note from what it returns. Do not write factual notes from memory.
         Also use consult_codex for complex analysis, planning, multi-step logic, math, or non-trivial
         code. It cannot see the vault and has no memory between calls, so include any needed context
-        (e.g. note contents you read) in the 'context' argument. It takes ~10-30s.
+        (e.g. note contents you read) in the 'context' argument. Set its 'effort' to 'low' for quick
+        factual lookups (much faster, ~10s) and reserve 'high' for genuinely hard reasoning (~30s+).
         You may answer directly only for simple conversation, vault operations, and things that
         clearly do not depend on external facts.
 

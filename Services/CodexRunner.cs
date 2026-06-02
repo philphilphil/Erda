@@ -21,6 +21,21 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     public Task<string> RunAsync(string developerInstruction, string transcript, CancellationToken cancellationToken = default)
         => RunPromptAsync($"{developerInstruction}\n\nTranscript:\n{transcript}", enableWebSearch: true, cancellationToken, logLabel: "voice-memo processing");
 
+    /// <summary>The reasoning-effort levels Codex (gpt-5.x) accepts.</summary>
+    private static readonly HashSet<string> ValidEfforts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "minimal", "low", "medium", "high",
+    };
+
+    /// <summary>Normalize a requested reasoning effort to a known level, or fall back to the default.</summary>
+    public static string NormalizeReasoningEffort(string? requested, string fallback)
+    {
+        var trimmed = requested?.Trim();
+        return !string.IsNullOrEmpty(trimmed) && ValidEfforts.Contains(trimmed)
+            ? trimmed.ToLowerInvariant()
+            : fallback;
+    }
+
     /// <summary>
     /// Runs <c>codex exec</c> on an already-built prompt and returns Codex's final message.
     /// General-purpose entry point. <paramref name="enableWebSearch"/> turns on Codex's native
@@ -28,9 +43,11 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// read-only sandbox since no files need writing.
     /// </summary>
     public async Task<string> RunPromptAsync(
-        string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default, string? logLabel = null)
+        string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default,
+        string? logLabel = null, string? reasoningEffort = null)
     {
         var opts = options.Value;
+        var effort = NormalizeReasoningEffort(reasoningEffort, opts.CodexReasoningEffort);
         var workDir = Directory.CreateTempSubdirectory("erda-codex-").FullName;
         var outputFile = Path.Combine(workDir, "codex-final.txt");
         var sandbox = enableWebSearch ? "read-only" : "workspace-write";
@@ -52,7 +69,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             psi.ArgumentList.Add("-m");
             psi.ArgumentList.Add(opts.CodexModel);
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add($"model_reasoning_effort=\"{opts.CodexReasoningEffort}\"");
+            psi.ArgumentList.Add($"model_reasoning_effort=\"{effort}\"");
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add("preferred_auth_method=\"chatgpt\"");
             if (enableWebSearch)
@@ -90,7 +107,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
 
             logger.LogInformation(
                 "Codex exec: model={Model} effort={Effort} webSearch={Web} sandbox={Sandbox} promptChars={Chars} | task={Task} | OPENAI_API_KEY absent from child: {Absent}",
-                opts.CodexModel, opts.CodexReasoningEffort, enableWebSearch, sandbox, prompt.Length, task, keyAbsentFromChild);
+                opts.CodexModel, effort, enableWebSearch, sandbox, prompt.Length, task, keyAbsentFromChild);
 
             var sw = Stopwatch.StartNew();
 
