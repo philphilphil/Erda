@@ -10,6 +10,9 @@ import type {
   ActivityDto,
   ConfigItemDto,
   PutConfigBody,
+  VoicePromptResponse,
+  SaveVoicePromptBody,
+  StatusResponse,
 } from './types'
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -141,6 +144,20 @@ export function savePrompt(body: SavePromptBody): Promise<PromptVersionDto> {
 
 export function activateVersion(id: number): Promise<void> {
   return post<void>(`/api/prompt/versions/${id}/activate`)
+}
+
+export function getVoicePrompt(): Promise<VoicePromptResponse> {
+  return get<VoicePromptResponse>('/api/prompt/voice')
+}
+
+export function saveVoicePrompt(body: SaveVoicePromptBody): Promise<void> {
+  return put<void>('/api/prompt/voice', body)
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+
+export function getStatus(): Promise<StatusResponse> {
+  return get<StatusResponse>('/api/status')
 }
 
 // ── Activity ──────────────────────────────────────────────────────────────────

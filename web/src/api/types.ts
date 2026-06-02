@@ -52,6 +52,21 @@ export interface SavePromptBody {
   note?: string | null
 }
 
+// Voice-memo prompt
+export interface VoicePromptResponse {
+  content: string
+}
+
+export interface SaveVoicePromptBody {
+  content: string
+}
+
+// Agent status
+export interface StatusResponse {
+  online: boolean
+  startedAtUtc: string
+}
+
 // Activity
 export interface ActivityDto {
   id: number
@@ -65,6 +80,7 @@ export interface ConfigItemDto {
   key: string
   label: string
   hint: string
+  group: string
   value: string | null
   effective: string | null
   overridden: boolean

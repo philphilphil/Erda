@@ -23,7 +23,10 @@ public sealed class ErdaDbContext(DbContextOptions<ErdaDbContext> options) : DbC
         b.Entity<PromptVersion>(e =>
         {
             e.HasKey(p => p.Id);
-            e.HasIndex(p => p.IsActive);
+            // SQL default backfills any pre-existing rows to the system prompt when the Kind column
+            // is added, so an already-saved system prompt is not orphaned (and re-seeded) on upgrade.
+            e.Property(p => p.Kind).HasDefaultValue(PromptKind.System);
+            e.HasIndex(p => new { p.Kind, p.IsActive }); // active-per-kind lookup
         });
         b.Entity<ReminderRow>().HasKey(r => r.Id);
         b.Entity<ErrorWatchRow>().HasKey(e => e.Id);

@@ -81,6 +81,24 @@ public class ConfigPanelServiceTests
     }
 
     [Fact]
+    public void GetItems_assigns_every_item_a_nonempty_group()
+    {
+        var (svc, _) = New();
+        Assert.All(svc.GetItems(), i => Assert.False(string.IsNullOrWhiteSpace(i.Group)));
+    }
+
+    [Fact]
+    public void GetItems_groups_reasoning_error_watch_and_reminders_keys()
+    {
+        var (svc, _) = New();
+        var items = svc.GetItems();
+
+        Assert.Equal("Model & reasoning", items.Single(i => i.Key == "Erda:CodexReasoningEffort").Group);
+        Assert.Equal("Error watch", items.Single(i => i.Key == "ErrorWatch:MinLevel").Group);
+        Assert.Equal("Reminders", items.Single(i => i.Key == "Reminders:TimeZone").Group);
+    }
+
+    [Fact]
     public void Apply_only_touches_keys_present_in_the_request()
     {
         var (svc, _) = New();

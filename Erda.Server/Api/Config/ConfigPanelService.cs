@@ -11,24 +11,26 @@ namespace Erda.Server.Api;
 /// </summary>
 public sealed class ConfigPanelService(IConfiguration config, IDbContextFactory<ErdaDbContext> dbFactory)
 {
-    /// <summary>One editable knob: a config <see cref="Key"/> in <c>Section:Key</c> form, plus UI labels.</summary>
-    public sealed record AllowlistItem(string Label, string Key, string Hint);
+    /// <summary>One editable knob: a config <see cref="Key"/> in <c>Section:Key</c> form, plus UI
+    /// labels and the <see cref="Group"/> the panel renders it under.</summary>
+    public sealed record AllowlistItem(string Group, string Label, string Key, string Hint);
 
     /// <summary>
-    /// The keys the panel may edit. Anything not here is ignored by <see cref="Apply"/> and never
-    /// returned by <see cref="GetItems"/> — a deliberate guard so the UI can't write arbitrary config.
+    /// The keys the panel may edit, in render order, each tagged with its panel group. Anything not
+    /// here is ignored by <see cref="Apply"/> and never returned by <see cref="GetItems"/> — a
+    /// deliberate guard so the UI can't write arbitrary config.
     /// </summary>
     public static readonly IReadOnlyList<AllowlistItem> Allowlist =
     [
-        new("Codex reasoning effort", "Erda:CodexReasoningEffort", "low / medium / high"),
-        new("Chat model deployment", "Erda:ChatDeployment", ""),
-        new("Error-watch enabled", "ErrorWatch:Enabled", "true / false"),
-        new("Error-watch min level", "ErrorWatch:MinLevel", "Error / Warning / …"),
-        new("Error-watch max alerts/poll", "ErrorWatch:MaxAlertsPerPoll", "numeric"),
-        new("Error-watch poll interval", "ErrorWatch:PollInterval", "00:05:00"),
-        new("Reminders enabled", "Reminders:Enabled", "true / false"),
-        new("Reminders poll interval", "Reminders:PollInterval", "00:01:00"),
-        new("Reminders timezone", "Reminders:TimeZone", "Europe/Berlin"),
+        new("Model & reasoning", "Codex reasoning effort", "Erda:CodexReasoningEffort", "low / medium / high"),
+        new("Model & reasoning", "Chat model deployment", "Erda:ChatDeployment", ""),
+        new("Error watch", "Error-watch enabled", "ErrorWatch:Enabled", "true / false"),
+        new("Error watch", "Error-watch min level", "ErrorWatch:MinLevel", "Error / Warning / …"),
+        new("Error watch", "Error-watch max alerts/poll", "ErrorWatch:MaxAlertsPerPoll", "numeric"),
+        new("Error watch", "Error-watch poll interval", "ErrorWatch:PollInterval", "00:05:00"),
+        new("Reminders", "Reminders enabled", "Reminders:Enabled", "true / false"),
+        new("Reminders", "Reminders poll interval", "Reminders:PollInterval", "00:01:00"),
+        new("Reminders", "Reminders timezone", "Reminders:TimeZone", "Europe/Berlin"),
     ];
 
     /// <summary>
@@ -45,7 +47,7 @@ public sealed class ConfigPanelService(IConfiguration config, IDbContextFactory<
             var effective = config[item.Key];
             var hasOverride = overrides.TryGetValue(item.Key, out var ov);
             var value = hasOverride ? ov : effective;
-            return new ConfigItemDto(item.Key, item.Label, item.Hint, value, effective, hasOverride);
+            return new ConfigItemDto(item.Key, item.Label, item.Hint, value, effective, hasOverride, item.Group);
         }).ToList();
     }
 

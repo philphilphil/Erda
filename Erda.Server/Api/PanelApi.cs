@@ -64,5 +64,6 @@ public static class PanelApi
         data.MapPromptEndpoints();
         data.MapActivityEndpoints();
         data.MapConfigEndpoints();
+        data.MapStatusEndpoints();
     }
 }

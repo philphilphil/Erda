@@ -1,17 +1,21 @@
 using Erda.Core.Services;
 using Erda.Core.Abstractions;
+using Erda.Core.Data;
 
 namespace Erda.Agents.Workflows;
 
 /// <summary>
 /// Processes a text transcript (already transcribed) as a Voice Memo:
-/// Codex with the voice-memo system prompt → write to "1 Inbox/" in the vault.
+/// Codex with the voice-memo prompt → write to "1 Inbox/" in the vault.
 /// Used by the WhatsApp channel when an Apple Voice Memo (.m4a) is shared, so the audio is
 /// transcribed once and the memo pipeline runs on the text — no double-transcription.
+/// The voice-memo prompt is read from the store (editable in the control panel), with
+/// <see cref="VoiceMemoWorkflow.DeveloperInstruction"/> as the code-baked seed/default.
 /// </summary>
 public sealed class MemoProcessor(
     CodexRunner codex,
     VaultService vault,
+    IPromptStore prompts,
     ILogger<MemoProcessor> logger) : IMemoProcessor
 {
     private const string InboxFolder = "1 Inbox";
@@ -19,7 +23,8 @@ public sealed class MemoProcessor(
     public async Task<string> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("MemoProcessor: processing {Chars}-char transcript.", transcript.Length);
-        var note = await codex.RunAsync(VoiceMemoWorkflow.DeveloperInstruction, transcript, cancellationToken);
+        var instruction = prompts.GetActiveContent(PromptKind.Voice, VoiceMemoWorkflow.DeveloperInstruction);
+        var note = await codex.RunAsync(instruction, transcript, cancellationToken);
         var relative = WriteToInbox(note);
         logger.LogInformation("MemoProcessor: saved {Chars} chars to {Path}.", note.Length, relative);
         return $"Saved voice memo to {relative} ({note.Length} chars).";

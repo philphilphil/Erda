@@ -108,7 +108,7 @@ public static class ErdaAgent
         // The active system prompt lives in the SQLite DB (editable in the control panel). The
         // in-code DefaultInstructions constant is the seed/fallback used on first run or whenever
         // the prompt table is empty. Read once at agent-build time; a panel edit applies on restart.
-        var instructions = services.GetRequiredService<IPromptStore>().GetActiveContent(DefaultInstructions);
+        var instructions = services.GetRequiredService<IPromptStore>().GetActiveContent(PromptKind.System, DefaultInstructions);
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent).
         var agent = chatClient.AsAIAgent(instructions: instructions, name: Name, tools: tools);

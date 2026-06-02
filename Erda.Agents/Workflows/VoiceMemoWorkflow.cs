@@ -1,4 +1,5 @@
 using Erda.Core.Configuration;
+using Erda.Core.Data;
 using Erda.Core.Services;
 using Erda.Agents.Workflows.Executors;
 using Microsoft.Agents.AI;
@@ -81,7 +82,9 @@ public static class VoiceMemoWorkflow
     {
         var input = new VoiceMemoInputExecutor();
         var transcribe = new TranscribeExecutor(services.GetRequiredService<Transcriber>());
-        var codex = new CodexExecutor(services.GetRequiredService<CodexRunner>());
+        var codex = new CodexExecutor(
+            services.GetRequiredService<CodexRunner>(),
+            services.GetRequiredService<IPromptStore>());
         var write = new ObsidianWriteExecutor(
             services.GetRequiredService<VaultService>(),
             services.GetRequiredService<IOptions<ErdaOptions>>().Value);

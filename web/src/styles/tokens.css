@@ -1,0 +1,177 @@
+/* ============================================================
+   Erda — design tokens
+   Dark, cool-neutral. Engineered, not themed.
+   ============================================================ */
+
+:root {
+  /* native form controls (datetime picker, etc.) follow the theme */
+  color-scheme: dark;
+
+  /* --- base surfaces (cool near-black, layered) --- */
+  --bg:            #08090b;   /* app background, deepest */
+  --bg-1:          #0b0d10;   /* sidebar */
+  --surface:       #101216;   /* cards / panels */
+  --surface-2:     #15181d;   /* inputs, raised rows */
+  --surface-3:     #1b1f25;   /* hover on raised */
+  --border:        #1c2026;   /* hairlines */
+  --border-strong: #2a2f37;   /* emphasised borders */
+
+  /* --- text --- */
+  --text:       #e8eaed;
+  --text-muted: #9aa1ab;
+  --text-faint: #5f656e;
+
+  /* --- accent (near-white monochrome) --- */
+  --accent:     #ededf0;
+  --accent-hov: #ffffff;
+  --accent-fg:  #0a0b0d;
+
+  /* --- semantic status --- */
+  --green:  #3ecf8e;   /* active / online / fired ok */
+  --amber:  #e3b341;   /* paused / warn */
+  --red:    #f0616d;   /* error / danger */
+  --blue:   #5b9dff;   /* tool call / info */
+  --violet: #b69dff;   /* agent run */
+  --cyan:   #4fd3d9;   /* schedule */
+
+  /* tinted backgrounds for badges/dots (12% over surface) */
+  --green-bg:  color-mix(in oklch, var(--green) 16%, transparent);
+  --amber-bg:  color-mix(in oklch, var(--amber) 16%, transparent);
+  --red-bg:    color-mix(in oklch, var(--red) 16%, transparent);
+  --blue-bg:   color-mix(in oklch, var(--blue) 16%, transparent);
+  --violet-bg: color-mix(in oklch, var(--violet) 16%, transparent);
+  --cyan-bg:   color-mix(in oklch, var(--cyan) 16%, transparent);
+
+  /* --- type --- */
+  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* --- radii --- */
+  --r-sm: 4px;
+  --r:    6px;
+  --r-lg: 9px;
+
+  --ring: 0 0 0 1px var(--accent-hov), 0 0 0 4px color-mix(in oklch, var(--accent) 18%, transparent);
+}
+
+/* ============================================================
+   light theme — cool-neutral, engineered (not "inverted dark")
+   ============================================================ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg:            #fbfbfc;
+  --bg-1:          #f4f5f7;
+  --surface:       #ffffff;
+  --surface-2:     #f5f6f8;
+  --surface-3:     #ebedf1;
+  --border:        #e7e9ed;
+  --border-strong: #d4d8df;
+
+  --text:       #16181d;
+  --text-muted: #5a626d;
+  --text-faint: #969da8;
+
+  /* ink accent inverts to near-black */
+  --accent:     #16181d;
+  --accent-hov: #000000;
+  --accent-fg:  #f6f7f9;
+
+  /* darker, higher-contrast status hues for light surfaces */
+  --green:  #0f9d63;
+  --amber:  #9a6a00;
+  --red:    #d4313f;
+  --blue:   #2f6fe0;
+  --violet: #6d4fe0;
+  --cyan:   #0a8fa1;
+
+  --green-bg:  color-mix(in oklch, var(--green) 12%, white);
+  --amber-bg:  color-mix(in oklch, var(--amber) 12%, white);
+  --red-bg:    color-mix(in oklch, var(--red) 12%, white);
+  --blue-bg:   color-mix(in oklch, var(--blue) 12%, white);
+  --violet-bg: color-mix(in oklch, var(--violet) 12%, white);
+  --cyan-bg:   color-mix(in oklch, var(--cyan) 12%, white);
+}
+:root[data-theme="light"] .select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23969da8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* ---------- density: compact (default) ---------- */
+:root, :root[data-density="compact"] {
+  --fs-xs:  11px;
+  --fs-sm:  12px;
+  --fs:     13px;
+  --fs-md:  14px;
+  --fs-lg:  16px;
+  --fs-xl:  20px;
+  --fs-2xl: 26px;
+
+  --row-h:    34px;
+  --ctrl-h:   30px;
+  --pad-card: 16px;
+  --pad-x:    28px;   /* page horizontal padding */
+  --gap:      10px;
+  --sidebar-w: 236px;
+}
+
+/* ---------- density: balanced ---------- */
+:root[data-density="balanced"] {
+  --fs-xs:  12px;
+  --fs-sm:  13px;
+  --fs:     14px;
+  --fs-md:  15px;
+  --fs-lg:  17px;
+  --fs-xl:  22px;
+  --fs-2xl: 30px;
+
+  --row-h:    44px;
+  --ctrl-h:   36px;
+  --pad-card: 22px;
+  --pad-x:    40px;
+  --gap:      14px;
+  --sidebar-w: 264px;
+}
+
+/* ============================================================
+   reset / base
+   ============================================================ */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: var(--fs);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv05" 1, "ss01" 1;
+}
+
+#app { height: 100%; }
+
+::selection { background: color-mix(in oklch, var(--accent) 30%, transparent); }
+
+/* scrollbars — thin, infra-style */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #3a404a; background-clip: padding-box; }
+
+/* monospace data convenience */
+.mono { font-family: var(--mono); font-feature-settings: "zero" 1; }
+.tnum { font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-muted); }
+.faint { color: var(--text-faint); }
+
+/* keyboard focus */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--r-sm);
+}
