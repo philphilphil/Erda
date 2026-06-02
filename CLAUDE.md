@@ -5,16 +5,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-make dev          # run Erda locally (dotnet run; DevUI at http://localhost:5167/devui)
+make dev          # run Erda backend locally (dotnet run; DevUI at http://localhost:5167/devui)
+make web          # run the control-panel SPA dev server (Vite at :5173, proxies /api -> :5167)
+make dev-web      # run backend + SPA dev server together (Ctrl-C kills both); needs node/npx
 make dev-wa       # run Erda + WhatsApp bridge together (Ctrl-C kills both); needs node/npx
 make deploy       # git pull && docker compose up -d --build (server only)
 
-dotnet test       # run all tests (from repo root)
-dotnet test --filter "ClassName=ErrorSignatureTests"  # run a single test class
-dotnet build      # build without running
+dotnet test Erda.Tests/Erda.Tests.csproj   # run all tests (point at the test project, not the repo root)
+dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=ErrorSignatureTests"  # one test class
+dotnet build      # build the backend without running
+
+cd web && npm ci && npm run build   # build the SPA (vue-tsc type-check + vite build)
 ```
 
 Tests live in `Erda.Tests/` (xUnit). The test project references the main `Erda.csproj`.
+NOTE: `dotnet test` from the repo root resolves to the web app `Erda.csproj` (which has no tests)
+and silently runs nothing — always pass `Erda.Tests/Erda.Tests.csproj`.
 
 ## Architecture
 
@@ -32,7 +38,9 @@ Erda is a **.NET 10 web app** built on the **Microsoft Agent Framework (MAF) 1.8
 
 ### Key source files
 
-- `Program.cs` — host/DI wiring: Serilog, OpenTelemetry, MAF, DevUI, WhatsApp endpoints, background services
+- `Program.cs` — host/DI wiring: Serilog, OpenTelemetry, MAF, DevUI, WhatsApp endpoints, background services, the panel JSON API + cookie auth + SPA static hosting
+- `Api/` — control-panel JSON API (minimal-API groups over the existing services): `ReminderEndpoints`, `PromptEndpoints`, `ActivityEndpoints` (incl. the `/api/activity/stream` SSE feed), `ConfigEndpoints`, `AuthEndpoints`; `PanelApi` wires them; `CsrfEndpointFilter` (requires `X-Requested-With: erda-panel` on mutations); `ReminderView` + `ConfigPanelService` + `PanelCredentials` hold logic extracted from the old Blazor pages
+- `web/` — Vue 3 + Vite + TS control-panel SPA (4 routes + login). Dev: `make web` (Vite proxies `/api` to the backend). Prod: `npm run build` → `web/dist`, copied into `wwwroot` by the Dockerfile and served with `MapFallbackToFile("index.html")`
 - `Agents/ErdaAgent.cs` — orchestrator: system prompt + tool registration (vault tools, `consult_codex`, `process_voice_memo`)
 - `Agents/ErdaAgentResponder.cs` — adapts agent turns for the WhatsApp channel
 - `Tools/ObsidianTools.cs` — 5 vault tools (list/read/search/write/append); paths confined to `VaultPath`
@@ -59,9 +67,13 @@ OpenTelemetry traces exported over OTLP to Seq (`{Seq:ServerUrl}/ingest/otlp/v1/
 
 The `whatsapp-bridge` (Go) handles the WhatsApp socket and posts inbound messages to `POST /whatsapp/inbound`. `WhatsAppInboundWorker` drains the queue and calls `WhatsAppChannelService`, which enforces the owner whitelist and dispatches by message type. The bridge and Erda share a `/media` Docker volume for downloaded audio/images.
 
+### Control panel (Vue SPA + JSON API)
+
+A single-user, LAN-only web UI replaces the former Blazor Server panel. The backend exposes a JSON API under `/api/*` (minimal-API groups in `Api/`) over the same DB-backed services; the frontend is a Vue 3 SPA in `web/`. v1 behavior is unchanged: **reminders are live** (the scheduler reads the DB each tick), while **prompt + config edits apply on restart** (`POST /api/config/restart` → `IHostApplicationLifetime.StopApplication()`; Docker `restart: unless-stopped` brings it back). Live activity is pushed over **SSE** (`GET /api/activity/stream`), bridging `IActivityRecorder.Recorded`. Auth is **cookie-based, off by default** — open on the LAN unless `Panel:Password` is set; CSRF is guarded by `SameSite=Lax` + a required `X-Requested-With: erda-panel` header on mutations (no `Secure` flag, since the panel is plain-HTTP on the LAN). Dev: Vite (`:5173`) proxies `/api` to the backend (`:5167`); prod: the Vite build is served from `wwwroot` with `MapFallbackToFile("index.html")`, and `/` serves the SPA (DevUI/`/devui` stays Development-only).
+
 ### Production deployment
 
-Docker Compose stack on an ARM64 Jetson: `erda` + `whatsapp-bridge` containers. Codex auth is a bind-mounted `~/.codex` session. In `Production`, `ASPNETCORE_ENVIRONMENT=Production` disables DevUI; WhatsApp is the only interaction surface. Managed by Komodo (webhook → `docker compose up -d --build`).
+Docker Compose stack on an ARM64 Jetson: `erda` + `whatsapp-bridge` containers. Codex auth is a bind-mounted `~/.codex` session. In `Production`, `ASPNETCORE_ENVIRONMENT=Production` disables DevUI; the interaction surfaces are WhatsApp and the LAN control panel (published on port 5167). The Dockerfile has a Node build stage that compiles the `web/` SPA and copies `dist` into `wwwroot`. Managed by Komodo (webhook → `docker compose up -d --build`).
 
 ## Configuration reference
 
@@ -73,3 +85,4 @@ Docker Compose stack on an ARM64 Jetson: `erda` + `whatsapp-bridge` containers. 
 | `ErrorWatch` | `Enabled`, `PollInterval`, `MinLevel`, `MaxAlertsPerPoll` | Error-watch scheduler behavior |
 | `Seq` | `ServerUrl`, `ApiKey`, `IngestToErda` | Seq sink for Serilog + OTLP target |
 | `Observability` | `Enabled`, `CaptureMessageContent` | OTel master switch; content capture gate |
+| `Panel` | `Username`, `Password` | Control-panel cookie login; blank `Password` = open (auth off) on the LAN |

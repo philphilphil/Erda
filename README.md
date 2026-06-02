@@ -63,6 +63,29 @@ Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/de
 DevUI is only mounted in the **Development** environment (it exposes system prompts), guarded by
 `app.Environment.IsDevelopment()`.
 
+## Control panel (Vue SPA + JSON API)
+
+Erda hosts a single-user, **LAN-only** web control panel for managing reminders + scheduled
+prompts, editing the system prompt (with versioned rollback), watching a live activity feed, and
+tweaking runtime config — all over a JSON API under `/api`, with a Vue 3 SPA front end in `web/`.
+
+- **Reminders are live** (the scheduler reads the DB each tick); **prompt + config edits apply on
+  restart** (a one-click *Restart Erda* button). The activity feed is pushed live over
+  Server-Sent Events.
+- **Auth is off by default** — the panel is open on the LAN. Set `Panel:Password` (env
+  `PANEL_PASSWORD`) to require a single-user cookie login.
+- **Local dev:** run the backend and the Vite dev server together:
+
+  ```bash
+  make dev-web        # backend (:5167) + Vite (:5173); open http://localhost:5173
+  # or, in two terminals: `make dev` and `make web`
+  ```
+
+  Vite proxies `/api` to the backend, so cookies work same-origin. Build the SPA with
+  `cd web && npm ci && npm run build`.
+- **Production:** the Dockerfile builds the SPA and serves it from the app's `wwwroot` at the root
+  URL; the API is at `/api`. (DevUI remains Development-only.)
+
 ## Architecture: Erda is the single orchestrator
 
 DevUI shows **one** entity, **`erda`** — a MAF `ChatClientAgent` on gpt-5-mini that owns the
@@ -200,8 +223,8 @@ in [`Program.cs`](Program.cs).
 Erda runs on an always-on ARM64 Linux box (e.g. an NVIDIA Jetson) as a two-container Compose
 stack: **`erda`** + **`whatsapp-bridge`**. Nothing here uses the GPU — every model call is cloud
 — so no `nvidia-docker` runtime is needed. In production Erda runs
-`ASPNETCORE_ENVIRONMENT=Production`, so **DevUI is not mounted and no web port is published**;
-you talk to Erda over WhatsApp.
+`ASPNETCORE_ENVIRONMENT=Production`, so **DevUI is not mounted**; you interact with Erda over
+WhatsApp and through the **LAN control panel** (published on port 5167 — see below).
 
 ### Files
 

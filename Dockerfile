@@ -36,17 +36,30 @@ RUN apk add --no-cache curl tar \
  && chmod +x /usr/local/bin/codex \
  && /usr/local/bin/codex --version
 
+# ---- web (Vue control-panel SPA) -------------------------------------------
+# Build the Vite SPA. `npm ci` uses the committed package-lock.json for a reproducible install.
+# Its dist/ is copied into the runtime image's wwwroot and served as static files with an
+# index.html SPA fallback (see Program.cs). Pure Node build — no .NET, no GPU.
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY web/package*.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 # ---- runtime ----------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
 COPY --from=build /app/publish ./
+# The control-panel SPA: served from wwwroot by UseStaticFiles + MapFallbackToFile("index.html").
+COPY --from=web /web/dist ./wwwroot
 
 # Codex reads its logged-in session from here; mounted from the host (RW for token refresh).
 ENV CODEX_HOME=/codex
 
-# Documentation only — the port is NOT published to the host (WhatsApp-only in production).
+# The control panel (Vue SPA + JSON API) is served here; docker-compose publishes it to the LAN.
 EXPOSE 5167
 
 ENTRYPOINT ["dotnet", "Erda.dll"]

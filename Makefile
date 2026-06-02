@@ -8,17 +8,32 @@
 # Ctrl-C tears both down without orphans on ports 5167/8088. `dev-wa` needs node/npx.
 
 BRIDGE_DIR := whatsapp-bridge
+WEB_DIR := web
 
-.PHONY: help dev dev-wa deploy
+.PHONY: help dev dev-wa dev-web web deploy
 
 help:
-	@echo "make dev     - run Erda locally (dotnet run)"
-	@echo "make dev-wa  - run Erda + the WhatsApp bridge together (Ctrl-C kills both)"
-	@echo "make deploy  - git pull && docker compose up -d --build"
+	@echo "make dev      - run Erda backend locally (dotnet run; DevUI at :5167/devui)"
+	@echo "make web      - run the control-panel SPA dev server (Vite at :5173, proxies /api to :5167)"
+	@echo "make dev-web  - run backend + SPA dev server together (Ctrl-C kills both)"
+	@echo "make dev-wa   - run Erda + the WhatsApp bridge together (Ctrl-C kills both)"
+	@echo "make deploy   - git pull && docker compose up -d --build"
 
 # Erda only. Development env, so it reads appsettings.Development.json and mounts DevUI.
 dev:
 	@dotnet run
+
+# Control-panel SPA dev server (Vite). Proxies /api (and the SSE stream) to the backend on :5167,
+# so run `make dev` alongside it (or use `make dev-web`). `npm install` is a fast no-op if current.
+web:
+	@cd $(WEB_DIR) && npm install && npm run dev
+
+# Backend + SPA dev server under `concurrently -k`: one Ctrl-C tears both down. Open the Vite URL
+# (http://localhost:5173) for the panel; the backend serves /api and /devui on :5167.
+dev-web:
+	@npx --yes concurrently -k -n erda,web -c blue,green \
+		"dotnet run" \
+		"cd $(WEB_DIR) && npm install && npm run dev"
 
 # Erda + bridge under `concurrently -k`. The bridge is built and exec'd so it is
 # concurrently's direct child and dies cleanly with -k (unlike `go run`, which would
