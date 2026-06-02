@@ -17,6 +17,7 @@ public sealed class ReminderScheduler(
     IOptions<ReminderOptions> options,
     IOptions<WhatsAppOptions> whatsAppOptions,
     ReminderStore store,
+    VaultService vault,
     IAgentResponder responder,
     IWhatsAppSender sender,
     IClock clock,
@@ -189,9 +190,43 @@ public sealed class ReminderScheduler(
         if (r.Kind == ReminderKind.Reminder)
             return await sender.SendAsync(ownerJid, r.Text, ct);
 
-        var reply = await responder.RunOnceAsync([timeContext.Message(), new ChatMessage(ChatRole.User, r.Text)], ct);
+        // Scheduled prompt: "@vault/path.md" uses that note's contents as the prompt; plain text
+        // is used as-is. Lets a long prompt be maintained as a note rather than inline in the table.
+        string promptText;
+        try
+        {
+            promptText = ResolvePromptText(r.Text);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Reminder {Id}: couldn't read prompt file for '{Text}'.", r.Id, r.Text);
+            return false;
+        }
+
+        var reply = await responder.RunOnceAsync([timeContext.Message(), new ChatMessage(ChatRole.User, promptText)], ct);
         var text = string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text;
         return await sender.SendAsync(ownerJid, $"⏰ {text}", ct);
+    }
+
+    /// <summary>
+    /// Resolve a scheduled prompt's text: "@path" → the contents of that vault file (relative to the
+    /// vault root; the ".md" extension may be omitted). Plain text is returned unchanged.
+    /// </summary>
+    private string ResolvePromptText(string raw)
+    {
+        var trimmed = raw.TrimStart();
+        if (!trimmed.StartsWith('@'))
+            return raw;
+
+        var path = trimmed[1..].Trim();
+        try
+        {
+            return vault.ReadNote(path);
+        }
+        catch (FileNotFoundException) when (path.Length > 0 && !path.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            return vault.ReadNote(path + ".md");
+        }
     }
 
     private async Task NotifyFailureAsync(Reminder r, string ownerJid, CancellationToken ct)

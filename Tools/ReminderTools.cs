@@ -15,7 +15,7 @@ namespace Erda.Tools;
 /// edit them by hand in Obsidian. <c>when</c> is a date-time (once) or a cron expression (recurring),
 /// interpreted in the configured timezone.
 /// </summary>
-public sealed class ReminderTools(ReminderStore store, IOptions<ReminderOptions> options, IClock clock)
+public sealed class ReminderTools(ReminderStore store, VaultService vault, IOptions<ReminderOptions> options, IClock clock)
 {
     private const string WhenHelp =
         "a date-time like '2026-06-15 09:00' (fires once) or a cron expression like '0 6 * * *' " +
@@ -41,7 +41,8 @@ public sealed class ReminderTools(ReminderStore store, IOptions<ReminderOptions>
                  "Use for things needing live work, e.g. 'every morning, what's the weather?'.")]
     public string SchedulePrompt(
         [Description("When to run it: " + WhenHelp)] string when,
-        [Description("The prompt Erda should run at that time.")] string prompt,
+        [Description("The prompt Erda should run at that time. May instead be '@path/to/note.md' " +
+                     "(from the vault root, .md optional) to run the contents of a vault note as the prompt.")] string prompt,
         [Description("Optional short id; generated from the text if omitted.")] string? id = null)
         => Create(ReminderKind.Prompt, when, prompt, id);
 
@@ -82,7 +83,19 @@ public sealed class ReminderTools(ReminderStore store, IOptions<ReminderOptions>
         store.Append(kind, finalId, when.Trim(), text.Trim());
 
         var what = kind == ReminderKind.Reminder ? "reminder" : "scheduled prompt";
-        return $"Scheduled {what} '{finalId}'. Next: {DescribeNext(spec!)}.";
+        return $"Scheduled {what} '{finalId}'. Next: {DescribeNext(spec!)}.{FilePromptWarning(kind, text)}";
+    }
+
+    /// <summary>If a prompt references a vault file (@path) that doesn't exist yet, note it (non-blocking).</summary>
+    private string FilePromptWarning(ReminderKind kind, string text)
+    {
+        var t = text.TrimStart();
+        if (kind != ReminderKind.Prompt || !t.StartsWith('@'))
+            return "";
+        var path = t[1..].Trim();
+        if (vault.Exists(path) || vault.Exists(path + ".md"))
+            return "";
+        return $" (note: I couldn't find '{path}' in the vault yet — create it before it runs.)";
     }
 
     private string DescribeNext(WhenSpec spec)

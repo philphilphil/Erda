@@ -59,6 +59,13 @@ public sealed class VaultService
         return File.ReadAllText(full);
     }
 
+    /// <summary>True if a note exists at the vault-relative path (false if the path escapes the root).</summary>
+    public bool Exists(string path)
+    {
+        try { return File.Exists(ResolveInside(path)); }
+        catch { return false; }
+    }
+
     public IReadOnlyList<(string Path, string Snippet)> Search(string query, int maxResults = 50)
     {
         if (string.IsNullOrWhiteSpace(query))

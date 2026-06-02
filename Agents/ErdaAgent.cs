@@ -40,7 +40,9 @@ public static class ErdaAgent
         later. Use schedule_message when Phil should get his own text back verbatim at a time
         ("remind me to call mom tomorrow at 9"). Use schedule_prompt when something must be worked
         out at that time and the result sent ("every morning at 6, what's the weather?") — the
-        prompt runs through you (a fresh turn) and the reply is sent to Phil. The 'when' argument is
+        prompt runs through you (a fresh turn) and the reply is sent to Phil. A scheduled prompt may
+        also be "@path/to/note.md" (from the vault root) to run the contents of a saved vault note
+        as the prompt — handy for long or frequently-tweaked prompts. The 'when' argument is
         either a date-time like 2026-06-15 09:00 (fires once) or a cron expression like 0 6 * * *
         (recurring; @daily/@weekly also work). Times are Europe/Berlin. Convert relative times
         ("tomorrow", "in 2 hours", "every morning") into a concrete 'when' using the current time
