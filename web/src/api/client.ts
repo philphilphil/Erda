@@ -179,3 +179,109 @@ export function putConfig(body: PutConfigBody): Promise<void> {
 export function restart(): Promise<void> {
   return post<void>('/api/config/restart')
 }
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+
+export async function streamChat(
+  text: string,
+  onDelta: (s: string) => void,
+  onDone: () => void,
+  onError: (msg: string) => void,
+): Promise<void> {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'X-Requested-With': 'erda-panel',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text }),
+  })
+
+  if (res.status === 401) {
+    _onUnauthorized?.()
+    throw new ApiError(401, 'Unauthorized')
+  }
+
+  if (!res.ok) {
+    let message = res.statusText
+    try {
+      const data = (await res.json()) as { error?: string }
+      if (data.error) message = data.error
+    } catch {
+      // ignore parse errors
+    }
+    throw new ApiError(res.status, message)
+  }
+
+  if (!res.body) {
+    onError('No response body')
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let terminated = false
+
+  function processFrame(frame: string): boolean {
+    // Find the data: line within the frame
+    const dataLine = frame.split('\n').find((l) => l.startsWith('data:'))
+    if (!dataLine) return false
+    const raw = dataLine.slice('data:'.length).trim()
+    try {
+      const parsed = JSON.parse(raw) as { delta?: string; done?: boolean; error?: string }
+      if (parsed.error !== undefined) {
+        onError(parsed.error)
+        return true
+      }
+      if (parsed.done) {
+        onDone()
+        return true
+      }
+      if (parsed.delta !== undefined) {
+        onDelta(parsed.delta)
+      }
+    } catch {
+      // ignore malformed frames
+    }
+    return false
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      // Flush any remaining bytes the decoder held in streaming mode.
+      buffer += decoder.decode()
+      break
+    }
+
+    buffer += decoder.decode(value, { stream: true })
+
+    // SSE frames are separated by \n\n
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+
+    for (const frame of frames) {
+      if (processFrame(frame)) {
+        terminated = true
+        return
+      }
+    }
+  }
+
+  // Process any leftover buffered frame after the connection closes.
+  if (!terminated && buffer.trim()) {
+    if (processFrame(buffer)) {
+      terminated = true
+    }
+  }
+
+  if (!terminated) {
+    onError('Connection closed unexpectedly.')
+  }
+}
+
+export function resetChat(): Promise<void> {
+  return post<void>('/api/chat/reset')
+}

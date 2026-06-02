@@ -89,3 +89,10 @@ export interface ConfigItemDto {
 export interface PutConfigBody {
   values: Record<string, string | null>
 }
+
+// Chat
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+  error?: boolean
+}

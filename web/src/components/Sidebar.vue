@@ -63,6 +63,10 @@ async function handleLogout() {
         <Icon name="code" />
         <span class="label">Prompts</span>
       </RouterLink>
+      <RouterLink to="/chat" class="nav-item" active-class="active">
+        <Icon name="chat" />
+        <span class="label">Chat</span>
+      </RouterLink>
       <RouterLink to="/activity" class="nav-item" active-class="active">
         <Icon name="activity" />
         <span class="label">Activity</span>

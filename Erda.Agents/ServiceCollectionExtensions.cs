@@ -1,4 +1,5 @@
 using Erda.Agents.Tools;
+using Erda.Agents.WebChat;
 using Erda.Agents.Workflows;
 using Erda.Core.Abstractions;
 
@@ -26,6 +27,9 @@ public static class ServiceCollectionExtensions
 
         // The long-lived session responder for the WhatsApp conversation.
         services.AddSingleton<IAgentResponder, ErdaAgentResponder>();
+
+        // Web-chat channel: own session + streaming, isolated from the WhatsApp conversation.
+        services.AddSingleton<IWebChat, WebChatService>();
 
         return services;
     }
