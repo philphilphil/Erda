@@ -2,6 +2,7 @@ using System.ClientModel;
 using Azure.AI.OpenAI;
 using Erda.Core.Configuration;
 using Erda.Core.Data;
+using Erda.Core.Services;
 using Erda.Agents.Tools;
 using Erda.Core.Abstractions;
 using Microsoft.Agents.AI;
@@ -86,6 +87,7 @@ public static class ErdaAgent
         var configuration = services.GetRequiredService<IConfiguration>();
         var options = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
+        var recorder = services.GetRequiredService<IActivityRecorder>();
 
         // Foundry endpoint + key. If unset we still construct the agent (so the app and DevUI
         // start) using a placeholder; the actual call fails clearly until the env vars are set.
@@ -122,6 +124,8 @@ public static class ErdaAgent
             .UseOpenTelemetry(
                 sourceName: ObservabilityOptions.ActivitySourceName,
                 configure: telemetry => telemetry.EnableSensitiveData = observability.CaptureMessageContent)
+            // Record each tool invocation to the activity feed (all channels), name only.
+            .Use(ToolCallActivity.Middleware(recorder))
             .Build();
     }
 }
