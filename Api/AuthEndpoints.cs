@@ -18,7 +18,12 @@ public static class AuthEndpoints
         var g = group.MapGroup("/auth");
 
         g.MapGet("/me", (HttpContext http, IOptions<PanelOptions> opts) =>
-            Results.Ok(new AuthState(opts.Value.AuthRequired, http.User.Identity?.IsAuthenticated ?? false)));
+        {
+            var authRequired = opts.Value.AuthRequired;
+            // When auth is off the panel is open to everyone, so report authenticated:true.
+            var authenticated = !authRequired || (http.User.Identity?.IsAuthenticated ?? false);
+            return Results.Ok(new AuthState(authRequired, authenticated));
+        });
 
         g.MapPost("/login", async (LoginRequest req, HttpContext http, IOptions<PanelOptions> opts) =>
         {

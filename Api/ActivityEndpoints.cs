@@ -54,6 +54,11 @@ public static class ActivityEndpoints
         var ct = http.RequestAborted;
         try
         {
+            // Flush the response start immediately so the client's EventSource fires `onopen` and any
+            // proxy in front stops buffering — otherwise headers wouldn't go out until the first event.
+            await http.Response.WriteAsync(": connected\n\n", ct);
+            await http.Response.Body.FlushAsync(ct);
+
             await foreach (var entry in channel.Reader.ReadAllAsync(ct))
             {
                 var dto = new ActivityDto(entry.Id, entry.TimestampUtc, entry.Kind, entry.Summary);
