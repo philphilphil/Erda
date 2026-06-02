@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <title>Erda — Control Panel</title>
+    <HeadOutlet @rendermode="InteractiveServer" />
+    <style>
+        :root {
+            --bg: #0e1014;
+            --surface: #161a21;
+            --surface-2: #1d222b;
+            --border: #283039;
+            --text: #e7eaee;
+            --muted: #8b94a3;
+            --accent: #e0a458;
+            --accent-soft: rgba(224, 164, 88, 0.14);
+            --green: #4ec9a8;
+            --red: #e06a6a;
+            --blue: #6aa7e0;
+            --radius: 12px;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { color: inherit; text-decoration: none; }
+        h1 { font-size: 1.4rem; margin: 0 0 .2rem; letter-spacing: -0.01em; }
+        h2 { font-size: 1.05rem; margin: 0 0 .75rem; }
+        .muted { color: var(--muted); }
+        .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+        /* Shell */
+        .panel-shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+        .panel-nav {
+            background: var(--surface); border-right: 1px solid var(--border);
+            padding: 22px 16px; display: flex; flex-direction: column; gap: 4px;
+        }
+        .brand { font-size: 1.15rem; font-weight: 650; margin: 4px 8px 22px; letter-spacing: .02em; }
+        .brand span { color: var(--accent); }
+        .panel-nav a {
+            padding: 9px 12px; border-radius: 9px; color: var(--muted); font-weight: 500;
+            display: flex; align-items: center; gap: 9px; transition: background .12s, color .12s;
+        }
+        .panel-nav a:hover { background: var(--surface-2); color: var(--text); }
+        .panel-nav a.active { background: var(--accent-soft); color: var(--accent); }
+        .panel-main { padding: 34px 40px; max-width: 1100px; }
+        .page-head { margin-bottom: 24px; }
+
+        /* Cards */
+        .card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 20px 22px; margin-bottom: 18px;
+        }
+        .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+        .spacer { flex: 1; }
+
+        /* Buttons */
+        .btn {
+            background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+            border-radius: 9px; padding: 8px 15px; font-size: .9rem; font-weight: 550; cursor: pointer;
+            transition: background .12s, border-color .12s, opacity .12s;
+        }
+        .btn:hover { background: #232a34; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-primary { background: var(--accent); color: #20160a; border-color: var(--accent); }
+        .btn-primary:hover { background: #e8b069; }
+        .btn-danger { color: var(--red); border-color: #3a2a2a; }
+        .btn-danger:hover { background: #2a1e1e; }
+        .btn-ghost { background: transparent; }
+        .btn-sm { padding: 5px 10px; font-size: .82rem; }
+
+        /* Forms */
+        .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+        .label { font-size: .82rem; color: var(--muted); font-weight: 550; }
+        .input, .textarea, .select {
+            background: var(--bg); color: var(--text); border: 1px solid var(--border);
+            border-radius: 9px; padding: 9px 12px; font-size: .92rem; font-family: inherit; width: 100%;
+        }
+        .input:focus, .textarea:focus, .select:focus { outline: none; border-color: var(--accent); }
+        .textarea { resize: vertical; min-height: 120px; }
+        .textarea.code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .86rem; line-height: 1.5; }
+
+        /* Tables */
+        .table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+        .table th {
+            text-align: left; color: var(--muted); font-weight: 600; font-size: .76rem;
+            text-transform: uppercase; letter-spacing: .05em; padding: 0 12px 9px; border-bottom: 1px solid var(--border);
+        }
+        .table td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .table tr:last-child td { border-bottom: none; }
+        .table tr:hover td { background: rgba(255,255,255,0.018); }
+
+        /* Badges */
+        .badge {
+            display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: .74rem;
+            font-weight: 600; text-transform: lowercase; border: 1px solid transparent;
+        }
+        .badge-active { color: var(--green); background: rgba(78,201,168,.12); }
+        .badge-paused { color: var(--accent); background: var(--accent-soft); }
+        .badge-done { color: var(--muted); background: var(--surface-2); }
+        .badge-kind { color: var(--blue); background: rgba(106,167,224,.12); }
+
+        /* Activity feed */
+        .feed { display: flex; flex-direction: column; gap: 2px; }
+        .feed-item { display: flex; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--border); align-items: baseline; }
+        .feed-item:last-child { border-bottom: none; }
+        .feed-time { color: var(--muted); font-size: .78rem; white-space: nowrap; min-width: 128px; }
+        .feed-kind { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; min-width: 110px; }
+        .kind-agent_run { color: var(--green); }
+        .kind-tool_call { color: var(--blue); }
+        .kind-scheduled_fire { color: var(--accent); }
+        .kind-error_alert { color: var(--red); }
+        .feed-summary { flex: 1; }
+
+        .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+        .banner { background: var(--accent-soft); color: var(--accent); border: 1px solid #3a2f1e;
+                  border-radius: 9px; padding: 10px 14px; font-size: .88rem; margin-bottom: 16px; }
+        .pill-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

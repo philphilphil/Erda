@@ -26,3 +26,6 @@ errorwatch-state.json
 # Go build artifacts
 *.test
 docs/notes.md
+# Playwright MCP verification artifacts
+.playwright-mcp/
+panel-*.png

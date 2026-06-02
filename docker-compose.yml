@@ -1,8 +1,8 @@
 # Erda stack for the Jetson (ARM64) deployment — built and deployed by Komodo.
 #
-# Two services on a private network, no published host ports (WhatsApp is the only surface;
-# Erda runs Production, so DevUI is not mounted). Copy .env.example to .env and fill it in;
-# docker compose reads .env automatically.
+# Erda publishes its control panel on the home LAN (port 5167, /panel); the WhatsApp bridge stays
+# unpublished. Erda runs Production, so DevUI is not mounted. Copy .env.example to .env and fill it
+# in; docker compose reads .env automatically.
 #
 #   First run only (link WhatsApp):  docker compose run --rm whatsapp-bridge   # scan the QR
 #   Normal:                          docker compose up -d --build
@@ -33,11 +33,14 @@ services:
     image: erda/erda:local
     restart: unless-stopped
     depends_on: [whatsapp-bridge]
+    ports:
+      - "${PANEL_BIND:-0.0.0.0}:5167:5167"                         # control panel at /panel (home LAN; set PANEL_BIND to a LAN IP to restrict)
     environment:
-      ASPNETCORE_ENVIRONMENT: Production                           # no DevUI, no web port
+      ASPNETCORE_ENVIRONMENT: Production                           # no DevUI; control panel served at /panel
       ASPNETCORE_URLS: http://0.0.0.0:5167
       CODEX_HOME: /codex
       Erda__VaultPath: /vault
+      Erda__DbPath: /data/erda/erda.db                             # SQLite for all runtime state, on a persistent volume
       WhatsApp__Enabled: "true"
       WhatsApp__BridgeUrl: http://whatsapp-bridge:8088
       WhatsApp__MediaTempDir: /media
@@ -53,6 +56,7 @@ services:
     volumes:
       - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
       - ${VAULT_DIR:?set VAULT_DIR (absolute) in .env}:/vault       # host-synced Obsidian vault, RW
+      - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity, config) — survives redeploys
       - media:/media                                                # SHARED with the bridge (same path)
     networks: [erdanet]
 
@@ -62,4 +66,5 @@ networks:
 
 volumes:
   bridge-data:
+  erda-data:
   media:

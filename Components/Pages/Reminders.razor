@@ -1,0 +1,241 @@
+@page "/panel"
+
+<div class="page-head">
+    <h1>Reminders</h1>
+    <div class="muted">Manage reminders and scheduled prompts. Edits take effect on the next poll (≈1 min).</div>
+</div>
+
+@if (error is not null)
+{
+    <div class="banner">@error</div>
+}
+
+@if (model.Malformed.Count > 0)
+{
+    <div class="banner">@model.Malformed.Count row(s) couldn't be parsed and were skipped.</div>
+}
+
+<div class="card">
+    <h2>Add</h2>
+    <div class="field">
+        <select class="select" @bind="newKind">
+            <option value="@ReminderKind.Reminder">Reminder</option>
+            <option value="@ReminderKind.Prompt">Scheduled prompt</option>
+        </select>
+    </div>
+    <div class="field">
+        <input class="input" placeholder="2026-06-15 09:00 or 0 6 * * *" @bind="newWhen" />
+    </div>
+    <div class="field">
+        <input class="input" placeholder="message or prompt" @bind="newText" />
+    </div>
+    <div class="toolbar">
+        <button class="btn btn-primary" @onclick="Add">Add</button>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Reminders</h2>
+    @{ var reminders = model.Reminders.Where(r => r.Kind == ReminderKind.Reminder).ToList(); }
+    @if (reminders.Count == 0)
+    {
+        <div class="empty">No reminders yet.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Text</th>
+                    <th>Status</th>
+                    <th>Next fire</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in reminders)
+                {
+                    <tr @key="r.Id">
+                        <td><span class="mono">@r.When</span></td>
+                        <td>@r.Text</td>
+                        <td><span class="badge @StatusClass(r.Status)">@r.Status.ToString().ToLowerInvariant()</span></td>
+                        <td class="muted">@NextFire(r.Spec)</td>
+                        <td>
+                            @if (r.Status == ReminderStatus.Active)
+                            {
+                                <button class="btn btn-sm" @onclick="() => SetStatus(r.Id, ReminderStatus.Paused)">Pause</button>
+                            }
+                            else if (r.Status == ReminderStatus.Paused)
+                            {
+                                <button class="btn btn-sm" @onclick="() => SetStatus(r.Id, ReminderStatus.Active)">Resume</button>
+                            }
+                            <button class="btn btn-sm btn-danger" @onclick="() => Remove(r.Id)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<div class="card">
+    <h2>Scheduled prompts</h2>
+    @{ var prompts = model.Reminders.Where(r => r.Kind == ReminderKind.Prompt).ToList(); }
+    @if (prompts.Count == 0)
+    {
+        <div class="empty">No scheduled prompts yet.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Text</th>
+                    <th>Status</th>
+                    <th>Next fire</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in prompts)
+                {
+                    <tr @key="r.Id">
+                        <td><span class="mono">@r.When</span></td>
+                        <td>@r.Text</td>
+                        <td><span class="badge @StatusClass(r.Status)">@r.Status.ToString().ToLowerInvariant()</span></td>
+                        <td class="muted">@NextFire(r.Spec)</td>
+                        <td>
+                            @if (r.Status == ReminderStatus.Active)
+                            {
+                                <button class="btn btn-sm" @onclick="() => SetStatus(r.Id, ReminderStatus.Paused)">Pause</button>
+                            }
+                            else if (r.Status == ReminderStatus.Paused)
+                            {
+                                <button class="btn btn-sm" @onclick="() => SetStatus(r.Id, ReminderStatus.Active)">Resume</button>
+                            }
+                            <button class="btn btn-sm btn-danger" @onclick="() => Remove(r.Id)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Inject] private ReminderStore Store { get; set; } = default!;
+    [Inject] private IClock Clock { get; set; } = default!;
+    [Inject] private IOptions<ReminderOptions> Options { get; set; } = default!;
+
+    private ReminderLoad model = new([], []);
+    private string? error;
+
+    private ReminderKind newKind = ReminderKind.Reminder;
+    private string newWhen = string.Empty;
+    private string newText = string.Empty;
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload() => model = Store.LoadAll();
+
+    private void Add()
+    {
+        try
+        {
+            error = null;
+            var text = newText?.Trim() ?? string.Empty;
+            var when = newWhen?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                error = "Text is required.";
+                return;
+            }
+            if (!WhenSpec.TryParse(when, out _))
+            {
+                error = "Couldn't parse that schedule.";
+                return;
+            }
+            var existing = model.Reminders.Select(r => r.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var id = UniqueId(Slugify(text), existing);
+            Store.Append(newKind, id, when, text);
+            newWhen = string.Empty;
+            newText = string.Empty;
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            error = $"Couldn't add reminder: {ex.Message}";
+        }
+    }
+
+    private void SetStatus(string id, ReminderStatus status)
+    {
+        try
+        {
+            error = null;
+            Store.SetStatus(id, status);
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            error = $"Couldn't update reminder: {ex.Message}";
+        }
+    }
+
+    private void Remove(string id)
+    {
+        try
+        {
+            error = null;
+            Store.Remove(id);
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            error = $"Couldn't delete reminder: {ex.Message}";
+        }
+    }
+
+    private static string StatusClass(ReminderStatus status) => status switch
+    {
+        ReminderStatus.Active => "badge-active",
+        ReminderStatus.Paused => "badge-paused",
+        ReminderStatus.Done => "badge-done",
+        _ => "badge-active",
+    };
+
+    private string NextFire(WhenSpec spec)
+    {
+        var zone = ResolveZone();
+        if (spec.IsRecurring)
+        {
+            var occ = spec.Cron!.GetNextOccurrence(Clock.UtcNow, zone);
+            return occ is { } next ? next.ToString("yyyy-MM-dd HH:mm") : "never";
+        }
+        return spec.OneShotLocal is { } local ? local.ToString("yyyy-MM-dd HH:mm") : "—";
+    }
+
+    private TimeZoneInfo ResolveZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById(Options.Value.TimeZone); }
+        catch { return TimeZoneInfo.Utc; }
+    }
+
+    private static string Slugify(string text)
+    {
+        var n = text.ToLowerInvariant().Replace("ä", "ae").Replace("ö", "oe").Replace("ü", "ue").Replace("ß", "ss");
+        var words = n.Split([' ', '-', '_', ',', '.', '!', '?', ':', ';', '(', ')', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Take(5).Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray())).Where(w => w.Length > 0);
+        var slug = string.Join("-", words);
+        if (slug.Length > 24) slug = slug[..24].TrimEnd('-');
+        return slug.Length > 0 ? slug : "reminder";
+    }
+
+    private string UniqueId(string baseSlug, HashSet<string> existing)
+    {
+        if (!existing.Contains(baseSlug)) return baseSlug;
+        for (var n = 2; ; n++) { var c = $"{baseSlug}-{n}"; if (!existing.Contains(c)) return c; }
+    }
+}

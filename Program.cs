@@ -1,4 +1,5 @@
 using Erda.Agents;
+using Erda.Components;
 using Erda.Configuration;
 using Erda.Data;
 using Erda.Scheduling;
@@ -140,6 +141,12 @@ builder.Services.AddSingleton<ReminderStateStore>();
 builder.Services.AddSingleton<ReminderTools>();
 builder.Services.AddHostedService<ReminderScheduler>();
 
+// --- Control panel (Blazor Server, LAN-only) -------------------------------
+// A single-user web UI hosted inside this app at /panel: manage reminders, edit the system prompt,
+// watch live activity, and tweak config. Interactive Server render mode (SignalR circuit) so the
+// activity feed pushes updates and components call the DB-backed services in-process.
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+
 // --- Agents & workflows (discovered by DevUI) ------------------------------
 // Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). Its tools are
 // the five Obsidian vault tools plus process_voice_memo, which is the voice-memo MAF workflow
@@ -170,7 +177,13 @@ app.MapOpenAIConversations();
 if (app.Environment.IsDevelopment())
     app.MapDevUI(); // dashboard at /devui
 
-app.MapGet("/", () => Results.Redirect("/devui"));
+// Control panel: serve the Blazor framework assets (_framework/blazor.web.js), then antiforgery
+// (required by Razor Components), then the panel itself at /panel.
+app.UseStaticFiles();
+app.UseAntiforgery();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+
+app.MapGet("/", () => Results.Redirect("/panel"));
 
 // Inbound WhatsApp bridge endpoint (only mapped when WhatsApp:Enabled).
 app.MapWhatsAppChannel();

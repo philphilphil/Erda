@@ -1,0 +1,68 @@
+@page "/panel/activity"
+@implements IDisposable
+@inject IActivityRecorder Recorder
+
+<div class="page-head">
+    <h1>Activity</h1>
+    <div class="muted">Live feed of agent runs, scheduled fires, and error alerts. Pushed in real time.</div>
+</div>
+
+<div class="toolbar">
+    <button class="btn btn-sm @(filterKind is null ? "btn-primary" : "")" @onclick="@(() => SetFilter(null))">All</button>
+    <button class="btn btn-sm @(filterKind == "agent_run" ? "btn-primary" : "")" @onclick="@(() => SetFilter("agent_run"))">agent_run</button>
+    <button class="btn btn-sm @(filterKind == "scheduled_fire" ? "btn-primary" : "")" @onclick="@(() => SetFilter("scheduled_fire"))">scheduled_fire</button>
+    <button class="btn btn-sm @(filterKind == "error_alert" ? "btn-primary" : "")" @onclick="@(() => SetFilter("error_alert"))">error_alert</button>
+</div>
+
+<div class="card">
+    @{
+        var visible = filterKind is null
+            ? entries
+            : entries.Where(e => e.Kind == filterKind).ToList();
+    }
+    @if (visible.Count == 0)
+    {
+        <div class="empty">No activity yet. Talk to Erda or wait for a scheduled task.</div>
+    }
+    else
+    {
+        <div class="feed">
+            @foreach (var e in visible)
+            {
+                <div class="feed-item" @key="e.Id">
+                    <span class="feed-time">@e.TimestampUtc.ToLocalTime().ToString("MMM d, HH:mm:ss")</span>
+                    <span class="feed-kind kind-@e.Kind">@e.Kind.Replace('_', ' ')</span>
+                    <span class="feed-summary">@e.Summary</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ActivityEntry> entries = new();
+    private string? filterKind;
+
+    protected override void OnInitialized()
+    {
+        entries = Recorder.Recent(100).ToList();
+        Recorder.Recorded += OnRecorded;
+    }
+
+    private async void OnRecorded(ActivityEntry e)
+    {
+        await InvokeAsync(() =>
+        {
+            entries.Insert(0, e);
+            if (entries.Count > 200) entries.RemoveRange(200, entries.Count - 200);
+            StateHasChanged();
+        });
+    }
+
+    private void SetFilter(string? kind) => filterKind = kind;
+
+    public void Dispose()
+    {
+        Recorder.Recorded -= OnRecorded;
+    }
+}

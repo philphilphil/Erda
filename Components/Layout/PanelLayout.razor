@@ -1,0 +1,14 @@
+@inherits LayoutComponentBase
+
+<div class="panel-shell">
+    <nav class="panel-nav">
+        <div class="brand">⌁ <span>Erda</span></div>
+        <NavLink href="/panel" Match="NavLinkMatch.All">Reminders</NavLink>
+        <NavLink href="/panel/prompt" Match="NavLinkMatch.Prefix">System Prompt</NavLink>
+        <NavLink href="/panel/activity" Match="NavLinkMatch.Prefix">Activity</NavLink>
+        <NavLink href="/panel/config" Match="NavLinkMatch.Prefix">Config</NavLink>
+    </nav>
+    <main class="panel-main">
+        @Body
+    </main>
+</div>
