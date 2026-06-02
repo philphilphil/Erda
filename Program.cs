@@ -1,5 +1,6 @@
 using Erda.Agents;
 using Erda.Configuration;
+using Erda.Data;
 using Erda.Scheduling;
 using Erda.Services;
 using Erda.Services.Seq;
@@ -8,6 +9,7 @@ using Erda.WhatsApp;
 using Erda.Workflows;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
@@ -46,6 +48,18 @@ builder.Host.UseSerilog((context, configuration) =>
 // --- Configuration ---------------------------------------------------------
 builder.Services.Configure<ErdaOptions>(builder.Configuration.GetSection(ErdaOptions.SectionName));
 builder.Services.Configure<ObservabilityOptions>(builder.Configuration.GetSection(ObservabilityOptions.SectionName));
+
+// --- SQLite database (all runtime state) -----------------------------------
+// One file holds prompt versions, reminders (+ run-state), error-watch state, the activity feed,
+// and config overrides. Consumers are singletons/background services, so they take an
+// IDbContextFactory and open a short-lived context per operation. Path is bind-mounted in the
+// container (Erda:DbPath) so it survives redeploys; otherwise LocalApplicationData/erda/erda.db.
+var dbPath = builder.Configuration[$"{ErdaOptions.SectionName}:{nameof(ErdaOptions.DbPath)}"];
+if (string.IsNullOrWhiteSpace(dbPath))
+    dbPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "erda", "erda.db");
+Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dbPath))!);
+builder.Services.AddDbContextFactory<ErdaDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
 
 // --- OpenTelemetry tracing -------------------------------------------------
 // MAF emits spans per turn: agent run -> model call (token usage) -> each tool/function call.
@@ -132,6 +146,14 @@ if (builder.Environment.IsDevelopment())
     builder.AddDevUI();
 
 var app = builder.Build();
+
+// Create/upgrade the SQLite schema before anything reads it (first run creates erda.db).
+using (var scope = app.Services.CreateScope())
+{
+    var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<ErdaDbContext>>();
+    using var db = dbFactory.CreateDbContext();
+    db.Database.Migrate();
+}
 
 LogStartupConfig(app);
 

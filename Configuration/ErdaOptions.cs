@@ -36,4 +36,12 @@ public sealed class ErdaOptions
 
     /// <summary>Vault-relative subfolder where processed voice memos are saved.</summary>
     public string VoiceMemoSubfolder { get; set; } = "VoiceMemos";
+
+    /// <summary>
+    /// SQLite database file for all runtime state (prompt versions, reminders, error-watch state,
+    /// activity, config overrides). When unset, defaults to
+    /// <c>LocalApplicationData/erda/erda.db</c>. In the container this is set to a bind-mounted
+    /// path (e.g. <c>/data/erda/erda.db</c>) so it survives redeploys.
+    /// </summary>
+    public string? DbPath { get; set; }
 }
