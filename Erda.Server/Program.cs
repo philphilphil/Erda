@@ -1,12 +1,10 @@
-using Erda.Core.Abstractions;
-using Erda.Server.Api;
+using Erda.Agents;
+using Erda.Core;
 using Erda.Core.Configuration;
 using Erda.Core.Data;
-using Erda.Core.Scheduling;
-using Erda.Core.Services;
-using Erda.Core.Services.Seq;
-using Erda.Agents.Tools;
-using Erda.Core.WhatsApp;
+using Erda.Server.Api;
+using Erda.Server.Hosting;
+using Erda.Server.WhatsApp;
 using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -16,9 +14,6 @@ using OpenTelemetry.Exporter;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
-using Erda.Agents;
-using Erda.Agents.Workflows;
-using Erda.Server.WhatsApp;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,21 +43,16 @@ builder.Host.UseSerilog((context, configuration) =>
         configuration.WriteTo.Seq(seq.ServerUrl, apiKey: string.IsNullOrWhiteSpace(seq.ApiKey) ? null : seq.ApiKey);
 });
 
-// --- Configuration ---------------------------------------------------------
-builder.Services.Configure<ErdaOptions>(builder.Configuration.GetSection(ErdaOptions.SectionName));
-builder.Services.Configure<ObservabilityOptions>(builder.Configuration.GetSection(ObservabilityOptions.SectionName));
-
-// --- SQLite database (all runtime state) -----------------------------------
+// --- SQLite database path --------------------------------------------------
 // One file holds prompt versions, reminders (+ run-state), error-watch state, the activity feed,
-// and config overrides. Consumers are singletons/background services, so they take an
-// IDbContextFactory and open a short-lived context per operation. Path is bind-mounted in the
-// container (Erda:DbPath) so it survives redeploys; otherwise LocalApplicationData/erda/erda.db.
+// and config overrides. Path is bind-mounted in the container (Erda:DbPath) so it survives
+// redeploys; otherwise LocalApplicationData/erda/erda.db. The path is needed here (before the DI
+// container) for the SQLite config-override provider, and is handed to AddErdaCore.
 var dbPath = builder.Configuration[$"{ErdaOptions.SectionName}:{nameof(ErdaOptions.DbPath)}"];
 if (string.IsNullOrWhiteSpace(dbPath))
     dbPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "erda", "erda.db");
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dbPath))!);
-builder.Services.AddDbContextFactory<ErdaDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
 
 // Config overrides edited in the control panel live in the DB and are layered over appsettings/env
 // here (read once at startup — they apply on restart). Safe before the DB exists: returns empty.
@@ -96,68 +86,23 @@ if (observability.Enabled)
         });
 }
 
-// --- Erda services ---------------------------------------------------------
-builder.Services.AddSingleton<VaultService>();
-builder.Services.AddSingleton<ObsidianTools>();
-builder.Services.AddSingleton<ReasoningTools>();
-builder.Services.AddSingleton<Transcriber>();
-builder.Services.AddSingleton<ITranscriber>(sp => sp.GetRequiredService<Transcriber>());
-builder.Services.AddSingleton<CodexRunner>();
-builder.Services.AddSingleton<MemoProcessor>();
-builder.Services.AddSingleton<IMemoProcessor>(sp => sp.GetRequiredService<MemoProcessor>());
-builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddSingleton<CurrentTimeContext>();
-builder.Services.AddSingleton<IPromptStore, PromptStore>();
-builder.Services.AddSingleton<IActivityRecorder, ActivityRecorder>();
-
-// --- WhatsApp channel -------------------------------------------------------
-// A whatsmeow "bridge" sidecar holds the WhatsApp socket; Erda exposes an inbound endpoint it
-// POSTs to, and calls the bridge's /send for replies + proactive messages. The owner whitelist
-// and all model/credential work stay here; the bridge is a dumb relay.
-builder.Services.Configure<WhatsAppOptions>(builder.Configuration.GetSection(WhatsAppOptions.SectionName));
-builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
-builder.Services.AddSingleton<NotifyTools>();
-builder.Services.AddSingleton<IAgentResponder, ErdaAgentResponder>();
-builder.Services.AddSingleton<WhatsAppInboundQueue>();
-builder.Services.AddSingleton<WhatsAppChannelService>();
-builder.Services.AddHostedService<WhatsAppInboundWorker>();
-
-// --- Error-watch scheduler (Seq -> Codex -> WhatsApp) -----------------------
-// Polls the (remote) Seq server for new Error/Fatal events, asks Codex to analyze each new one,
-// and pushes the analysis to Phil over WhatsApp. Gated by ErrorWatch:Enabled + Seq:ServerUrl.
-builder.Services.Configure<SeqOptions>(builder.Configuration.GetSection(SeqOptions.SectionName));
-builder.Services.Configure<ErrorWatchOptions>(builder.Configuration.GetSection(ErrorWatchOptions.SectionName));
-builder.Services.AddSingleton<ISeqClient, SeqClient>();
-builder.Services.AddSingleton<IErrorAnalyzer, CodexErrorAnalyzer>();
-builder.Services.AddSingleton<ErrorWatchStateStore>();
-builder.Services.AddHostedService<ErrorWatchScheduler>();
-
-// --- Reminder scheduler (vault note -> WhatsApp / agent prompt) -------------
-// Every minute, read the reminders note and fire what's due: verbatim messages straight to Phil,
-// or scheduled prompts run through the agent (fresh session) with the reply sent. Cron via Cronos,
-// times in Reminders:TimeZone. Definitions live in the vault (Phil can hand-edit); run-state in a
-// JSON sidecar. The schedule_* agent tools write to the same note.
-builder.Services.Configure<ReminderOptions>(builder.Configuration.GetSection(ReminderOptions.SectionName));
-builder.Services.AddSingleton<ReminderStore>();
-builder.Services.AddSingleton<ReminderStateStore>();
-builder.Services.AddSingleton<ReminderTools>();
-builder.Services.AddHostedService<ReminderScheduler>();
+// --- Application services ---------------------------------------------------
+// Core = config, DB, shared services, and the three background workers. Agents = the MAF tools,
+// voice-memo workflow, and the agent responder.
+builder.Services.AddErdaCore(builder.Configuration, dbPath);
+builder.Services.AddErdaAgents();
 
 // --- Control panel (Vue SPA + JSON API, LAN-only) --------------------------
 // A single-user web UI: a Vue SPA (built by Vite, served as static files) talking to the JSON API
-// below over cookie auth. Replaces the former Blazor Server panel. Cookie auth is off by default
-// (open on the LAN) and turns on when Panel:Password is set.
+// over cookie auth. Cookie auth is off by default (open on the LAN) and turns on when
+// Panel:Password is set.
 builder.Services.Configure<PanelOptions>(builder.Configuration.GetSection(PanelOptions.SectionName));
 builder.Services.AddPanelApi();
 
-// --- Agents & workflows (discovered by DevUI) ------------------------------
-// Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). Its tools are
-// the five Obsidian vault tools plus process_voice_memo, which is the voice-memo MAF workflow
-// exposed via AsAIFunction. So DevUI shows just "erda", and Erda routes voice memos into the
-// workflow rather than the workflow being a separate top-level agent.
+// --- Agent & DevUI transport (discovered by DevUI) -------------------------
+// Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). The agent's name
+// MUST equal the registration key. DevUI rides on the OpenAI-compatible endpoints below.
 builder.AddAIAgent(ErdaAgent.Name, (sp, _) => ErdaAgent.Create(sp));
-
-// --- DevUI transport: OpenAI-compatible endpoints DevUI rides on -----------
 builder.AddOpenAIResponses();
 builder.AddOpenAIConversations();
 if (builder.Environment.IsDevelopment())

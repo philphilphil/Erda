@@ -102,7 +102,7 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<ObsidianTools>().AsTools());
         tools.Add(VoiceMemoWorkflow.CreateTool(services));
         tools.AddRange(services.GetRequiredService<ReasoningTools>().AsTools());
-        tools.AddRange(services.GetRequiredService<Erda.Core.WhatsApp.NotifyTools>().AsTools());
+        tools.AddRange(services.GetRequiredService<NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
 
         // The active system prompt lives in the SQLite DB (editable in the control panel). The
