@@ -11,20 +11,33 @@ make dev-web      # run backend + SPA dev server together (Ctrl-C kills both); n
 make dev-wa       # run Erda + WhatsApp bridge together (Ctrl-C kills both); needs node/npx
 make deploy       # git pull && docker compose up -d --build (server only)
 
+dotnet build Erda.slnx                     # build the whole solution
 dotnet test Erda.Tests/Erda.Tests.csproj   # run all tests (point at the test project, not the repo root)
 dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=ErrorSignatureTests"  # one test class
-dotnet build      # build the backend without running
 
 cd web && npm ci && npm run build   # build the SPA (vue-tsc type-check + vite build)
 ```
 
-Tests live in `Erda.Tests/` (xUnit). The test project references the main `Erda.csproj`.
-NOTE: `dotnet test` from the repo root resolves to the web app `Erda.csproj` (which has no tests)
-and silently runs nothing — always pass `Erda.Tests/Erda.Tests.csproj`.
+Tests live in `Erda.Tests/` (xUnit) and reference all three code projects. Always pass the test
+project explicitly: `dotnet test Erda.Tests/Erda.Tests.csproj` (or `dotnet test Erda.slnx`) — a bare
+`dotnet test`/`dotnet run` at the repo root is ambiguous across the solution's projects.
+
+EF migrations: `dotnet ef migrations add <Name> --project Erda.Core --startup-project Erda.Server`
+(the `ErdaDbContext` + migrations live in `Erda.Core/Data`).
 
 ## Architecture
 
-Erda is a **.NET 10 web app** built on the **Microsoft Agent Framework (MAF) 1.8.0**. It runs as a single orchestrator agent (`erda`) that routes to tools and a workflow.
+Erda is a **.NET 10 solution** built on the **Microsoft Agent Framework (MAF) 1.8.0**. It runs as a single orchestrator agent (`erda`) that routes to tools and a workflow.
+
+### Solution layout (`Erda.slnx`)
+
+Four projects with one-directional references — **`Erda.Server` → `Erda.Agents` → `Erda.Core`**.
+Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
+
+- **`Erda.Core`** (`Microsoft.NET.Sdk`) — host-agnostic business logic: `Configuration/`, `Data/` (EF + migrations), `Services/` (Vault, Codex, Transcriber, ActivityRecorder, clock, `Seq/`), `Scheduling/` (`Reminders/` + `ErrorWatch/`), `WhatsApp/` (channel/sender/queue/worker), and `Abstractions/` (the `IAgentResponder`/`IMemoProcessor` seams that keep Core free of any MAF/ASP.NET dependency). `AddErdaCore()` wires it all.
+- **`Erda.Agents`** (`Microsoft.NET.Sdk`) — the MAF layer: `Orchestration/` (the `erda` agent + responder), `Tools/`, `Workflows/`. `AddErdaAgents()` wires it.
+- **`Erda.Server`** (`Microsoft.NET.Sdk.Web`) — the only runnable app: `Program.cs`, `Api/`, `WhatsApp/WhatsAppEndpoints.cs`, `Hosting/`. Serves the SPA from `wwwroot`.
+- **`Erda.Tests`** (xUnit) — references all three.
 
 ### The three-credential model
 
@@ -38,19 +51,18 @@ Erda is a **.NET 10 web app** built on the **Microsoft Agent Framework (MAF) 1.8
 
 ### Key source files
 
-- `Program.cs` — host/DI wiring: Serilog, OpenTelemetry, MAF, DevUI, WhatsApp endpoints, background services, the panel JSON API + cookie auth + SPA static hosting
-- `Api/` — control-panel JSON API (minimal-API groups over the existing services): `ReminderEndpoints`, `PromptEndpoints`, `ActivityEndpoints` (incl. the `/api/activity/stream` SSE feed), `ConfigEndpoints`, `AuthEndpoints`; `PanelApi` wires them; `CsrfEndpointFilter` (requires `X-Requested-With: erda-panel` on mutations); `ReminderView` + `ConfigPanelService` + `PanelCredentials` hold logic extracted from the old Blazor pages
+- `Erda.Server/Program.cs` — host wiring: Serilog, OpenTelemetry, DevUI, then `AddErdaCore()` + `AddErdaAgents()` + `AddPanelApi()`, the agent registration, and the request pipeline (SPA static hosting + `/api` + WhatsApp endpoint)
+- `Erda.Server/Api/` — control-panel JSON API, grouped by feature (`Reminders/`, `Prompts/`, `Activity/` incl. the `/api/activity/stream` SSE feed, `Config/`, `Auth/`); `PanelApi` wires the groups; `CsrfEndpointFilter` (requires `X-Requested-With: erda-panel` on mutations); per-feature DTOs; `ReminderView`/`ConfigPanelService`/`PanelCredentials` hold panel logic
 - `web/` — Vue 3 + Vite + TS control-panel SPA (4 routes + login). Dev: `make web` (Vite proxies `/api` to the backend). Prod: `npm run build` → `web/dist`, copied into `wwwroot` by the Dockerfile and served with `MapFallbackToFile("index.html")`
-- `Agents/ErdaAgent.cs` — orchestrator: system prompt + tool registration (vault tools, `consult_codex`, `process_voice_memo`)
-- `Agents/ErdaAgentResponder.cs` — adapts agent turns for the WhatsApp channel
-- `Tools/ObsidianTools.cs` — 5 vault tools (list/read/search/write/append); paths confined to `VaultPath`
-- `Tools/ReasoningTools.cs` — `consult_codex` tool: launches Codex with web search enabled
-- `Services/CodexRunner.cs` — `codex exec` subprocess wrapper; strips `OPENAI_API_KEY`; optional web search
-- `Services/VaultService.cs` — path-safe file I/O under `VaultPath`
-- `Services/Transcriber.cs` — OpenAI audio transcription
-- `Workflows/VoiceMemoWorkflow.cs` — voice memo pipeline (transcribe → Codex → write); wrapped as `process_voice_memo` tool via `AsAIFunction`
-- `Scheduling/ErrorWatchScheduler.cs` — background loop: polls Seq for errors, deduplicates by signature, analyzes with Codex, alerts via WhatsApp
-- `WhatsApp/` — bridge integration: inbound queue, background worker, channel service (dispatches text/voice/image to the agent), sender
+- `Erda.Agents/Orchestration/ErdaAgent.cs` — orchestrator: system prompt + tool registration (vault tools, `consult_codex`, `process_voice_memo`)
+- `Erda.Agents/Orchestration/ErdaAgentResponder.cs` — implements `Erda.Core.Abstractions.IAgentResponder`; adapts agent turns for the WhatsApp channel
+- `Erda.Agents/Tools/` — `ObsidianTools` (5 vault tools, confined to `VaultPath`), `ReasoningTools` (`consult_codex`), `ReminderTools`, `NotifyTools`
+- `Erda.Core/Services/CodexRunner.cs` — `codex exec` subprocess wrapper; strips `OPENAI_API_KEY`; optional web search
+- `Erda.Core/Services/VaultService.cs` — path-safe file I/O under `VaultPath`
+- `Erda.Core/Services/Transcriber.cs` — OpenAI audio transcription
+- `Erda.Agents/Workflows/VoiceMemoWorkflow.cs` — voice memo pipeline (transcribe → Codex → write); wrapped as `process_voice_memo` tool via `AsAIFunction`; implements `IMemoProcessor` via `MemoProcessor`
+- `Erda.Core/Scheduling/ErrorWatch/ErrorWatchScheduler.cs` — background loop: polls Seq for errors, deduplicates by signature, analyzes with Codex, alerts via WhatsApp
+- `Erda.Core/WhatsApp/` — bridge integration: inbound queue, background worker, channel service (dispatches text/voice/image to the agent), sender; the HTTP endpoint is `Erda.Server/WhatsApp/WhatsAppEndpoints.cs`
 
 ### MAF-specific patterns
 

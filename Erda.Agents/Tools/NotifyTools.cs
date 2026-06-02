@@ -1,10 +1,8 @@
 using System.ComponentModel;
 using Erda.Core.Configuration;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
-
-using Erda.Core.Configuration;
-using Erda.Core.WhatsApp;
 
 namespace Erda.Agents.Tools;
 

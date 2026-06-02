@@ -53,8 +53,7 @@ with a clear message until the key is present. The startup log prints which are 
 ## Run
 
 ```bash
-cd Erda
-dotnet run
+dotnet run --project Erda.Server   # or: make dev
 ```
 
 Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/devui`**
@@ -133,7 +132,7 @@ answering from memory. This is what keeps notes accurate instead of hallucinated
 Edit `Erda:VaultPath` in `appsettings.json`, or override without editing files:
 
 ```bash
-Erda__VaultPath="/Users/you/MyVault" dotnet run
+Erda__VaultPath="/Users/you/MyVault" dotnet run --project Erda.Server
 ```
 
 (The double underscore is the .NET convention for nesting config sections in env vars.)
@@ -186,7 +185,7 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 `Microsoft.Agents.AI` / `.OpenAI` / `.Workflows` `1.8.0` (stable);
 `Microsoft.Agents.AI.Hosting` `1.8.0-preview`, `.Hosting.OpenAI` `1.8.0-alpha`,
 `.DevUI` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
-`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See `Erda.csproj`.
+`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See the `Erda.*/*.csproj` project files (MAF hosting/DevUI live in `Erda.Server`, the MAF agent/Azure packages in `Erda.Agents`, EF/OpenAI in `Erda.Core`).
 
 ## Observability
 

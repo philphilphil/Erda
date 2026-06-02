@@ -12,14 +12,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore first (cached unless the csproj changes). No custom NuGet feed: the MAF
-# preview/alpha packages resolve from nuget.org.
-COPY Erda.csproj ./
-RUN dotnet restore Erda.csproj
+# Restore first (cached unless a project file changes). Copy just the shared props + the three
+# project files the server needs, so the restore layer is reused when only source changes. No
+# custom NuGet feed: the MAF preview/alpha packages resolve from nuget.org.
+COPY Directory.Build.props ./
+COPY Erda.Core/Erda.Core.csproj     Erda.Core/
+COPY Erda.Agents/Erda.Agents.csproj Erda.Agents/
+COPY Erda.Server/Erda.Server.csproj Erda.Server/
+RUN dotnet restore Erda.Server/Erda.Server.csproj
 
 COPY . .
-# UseAppHost=false: we launch via `dotnet Erda.dll`, so no native apphost is needed.
-RUN dotnet publish Erda.csproj -c Release -o /app/publish /p:UseAppHost=false
+# UseAppHost=false: we launch via `dotnet Erda.Server.dll`, so no native apphost is needed.
+RUN dotnet publish Erda.Server/Erda.Server.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 # ---- codex ------------------------------------------------------------------
 # Fetch the prebuilt codex CLI. Bump CODEX_VERSION to upgrade. The musl build is a static
@@ -62,4 +66,4 @@ ENV CODEX_HOME=/codex
 # The control panel (Vue SPA + JSON API) is served here; docker-compose publishes it to the LAN.
 EXPOSE 5167
 
-ENTRYPOINT ["dotnet", "Erda.dll"]
+ENTRYPOINT ["dotnet", "Erda.Server.dll"]

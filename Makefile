@@ -21,7 +21,7 @@ help:
 
 # Erda only. Development env, so it reads appsettings.Development.json and mounts DevUI.
 dev:
-	@dotnet run
+	@dotnet run --project Erda.Server
 
 # Control-panel SPA dev server (Vite). Proxies /api (and the SSE stream) to the backend on :5167,
 # so run `make dev` alongside it (or use `make dev-web`). `npm install` is a fast no-op if current.
@@ -32,7 +32,7 @@ web:
 # (http://localhost:5173) for the panel; the backend serves /api and /devui on :5167.
 dev-web:
 	@npx --yes concurrently -k -n erda,web -c blue,green \
-		"dotnet run" \
+		"dotnet run --project Erda.Server" \
 		"cd $(WEB_DIR) && npm install && npm run dev"
 
 # Erda + bridge under `concurrently -k`. The bridge is built and exec'd so it is
@@ -40,7 +40,7 @@ dev-web:
 # orphan the compiled binary on the WhatsApp socket / port 8088).
 dev-wa:
 	@npx --yes concurrently -k -n erda,wa -c blue,magenta \
-		"dotnet run" \
+		"dotnet run --project Erda.Server" \
 		"cd $(BRIDGE_DIR) && go build -o whatsapp-bridge . && exec ./whatsapp-bridge"
 
 # Server: pull the latest commit and rebuild/restart the stack. Reads ./.env.
