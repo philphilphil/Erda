@@ -16,6 +16,12 @@ public interface IAgentResponder
 {
     Task<AgentReply> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Runs the messages in a fresh, throwaway session — used for background work (e.g. scheduled
+    /// prompts) so it neither reads nor pollutes the live WhatsApp conversation.
+    /// </summary>
+    Task<AgentReply> RunOnceAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default);
+
     /// <summary>Discards the conversation so the next message starts fresh.</summary>
     Task ResetAsync(CancellationToken cancellationToken = default);
 }
@@ -40,28 +46,41 @@ public sealed class ErdaAgentResponder(
         {
             _session ??= await agent.CreateSessionAsync(cancellationToken);
             var response = await agent.RunAsync(messages, _session, cancellationToken: cancellationToken);
-
-            // Tools the agent actually called this turn (distinct, in call order).
-            var tools = response.Messages
-                .SelectMany(m => m.Contents)
-                .OfType<FunctionCallContent>()
-                .Select(f => f.Name)
-                .Where(n => !string.IsNullOrEmpty(n))
-                .Distinct()
-                .ToList();
-            var usage = response.Usage;
-
-            return new AgentReply(
-                response.Text ?? "",
-                usage?.InputTokenCount,
-                usage?.OutputTokenCount,
-                usage?.TotalTokenCount,
-                tools);
+            return ToReply(response);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    public async Task<AgentReply> RunOnceAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
+    {
+        // A fresh session, independent of the live conversation's _session/_gate, so background
+        // prompts don't block or pollute the live WhatsApp turn.
+        var session = await agent.CreateSessionAsync(cancellationToken);
+        var response = await agent.RunAsync(messages, session, cancellationToken: cancellationToken);
+        return ToReply(response);
+    }
+
+    private static AgentReply ToReply(AgentResponse response)
+    {
+        // Tools the agent actually called this turn (distinct, in call order).
+        var tools = response.Messages
+            .SelectMany(m => m.Contents)
+            .OfType<FunctionCallContent>()
+            .Select(f => f.Name)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct()
+            .ToList();
+        var usage = response.Usage;
+
+        return new AgentReply(
+            response.Text ?? "",
+            usage?.InputTokenCount,
+            usage?.OutputTokenCount,
+            usage?.TotalTokenCount,
+            tools);
     }
 
     public async Task ResetAsync(CancellationToken cancellationToken = default)

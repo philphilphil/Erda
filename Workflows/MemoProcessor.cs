@@ -2,6 +2,12 @@ using Erda.Services;
 
 namespace Erda.Workflows;
 
+/// <summary>Processes an already-transcribed text as a Voice Memo (Codex → "1 Inbox/").</summary>
+public interface IMemoProcessor
+{
+    Task<string> ProcessAsync(string transcript, CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Processes a text transcript (already transcribed) as a Voice Memo:
 /// Codex with the voice-memo system prompt → write to "1 Inbox/" in the vault.
@@ -11,7 +17,7 @@ namespace Erda.Workflows;
 public sealed class MemoProcessor(
     CodexRunner codex,
     VaultService vault,
-    ILogger<MemoProcessor> logger)
+    ILogger<MemoProcessor> logger) : IMemoProcessor
 {
     private const string InboxFolder = "1 Inbox";
 

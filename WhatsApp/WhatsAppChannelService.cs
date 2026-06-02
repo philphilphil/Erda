@@ -21,8 +21,9 @@ public sealed class WhatsAppChannelService(
     IOptions<WhatsAppOptions> options,
     IAgentResponder responder,
     ITranscriber transcriber,
-    MemoProcessor memoProcessor,
+    IMemoProcessor memoProcessor,
     IWhatsAppSender sender,
+    CurrentTimeContext timeContext,
     ILogger<WhatsAppChannelService> logger)
 {
     // Drop any message the bridge replays from before this process started.
@@ -84,8 +85,12 @@ public sealed class WhatsAppChannelService(
                 return;
             }
 
+            // Prepend the current local time so the agent can resolve relative schedules ("tomorrow 9am").
+            var turn = new List<ChatMessage>(messages.Count + 1) { timeContext.Message() };
+            turn.AddRange(messages);
+
             var sw = Stopwatch.StartNew();
-            var reply = await responder.RespondAsync(messages, cancellationToken);
+            var reply = await responder.RespondAsync(turn, cancellationToken);
             sw.Stop();
 
             // Per-turn telemetry → Seq (carries app=Erda). Tokens + tools + latency.

@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <!-- Core Microsoft Agent Framework (stable 1.8.0 train) -->
+    <PackageReference Include="Cronos" Version="0.13.0" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.8.0" />
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.8.0" />
     <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.8.0" />
