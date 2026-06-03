@@ -5,7 +5,6 @@ using Erda.Core.Data;
 using Erda.Server.Api;
 using Erda.Server.Hosting;
 using Erda.Server.WhatsApp;
-using Microsoft.Agents.AI.DevUI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -102,14 +101,10 @@ builder.Services.AddErdaAgents();
 builder.Services.Configure<PanelOptions>(builder.Configuration.GetSection(PanelOptions.SectionName));
 builder.Services.AddPanelApi();
 
-// --- Agent & DevUI transport (discovered by DevUI) -------------------------
+// --- Agent ----------------------------------------------------------------
 // Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). The agent's name
-// MUST equal the registration key. DevUI rides on the OpenAI-compatible endpoints below.
+// MUST equal the registration key; it's resolved by keyed DI (ErdaAgentResponder, WebChatService).
 builder.AddAIAgent(ErdaAgent.Name, (sp, _) => ErdaAgent.Create(sp));
-builder.AddOpenAIResponses();
-builder.AddOpenAIConversations();
-if (builder.Environment.IsDevelopment())
-    builder.AddDevUI();
 
 var app = builder.Build();
 
@@ -123,25 +118,17 @@ using (var scope = app.Services.CreateScope())
 
 LogStartupConfig(app);
 
-app.MapOpenAIResponses();
-app.MapOpenAIConversations();
-if (app.Environment.IsDevelopment())
-    app.MapDevUI(); // dashboard at /devui
-
 // Control panel: serve the Vue SPA's static assets (wwwroot, populated by the Vite build in the
 // Docker image), then cookie auth, then the JSON API. The SPA owns client-side routing, so unmatched
-// non-file paths fall back to index.html in Production. In Development the SPA runs on the Vite dev
-// server (which proxies /api here), so the backend serves no built SPA and "/" lands on DevUI.
+// non-file paths fall back to index.html. In Development the SPA runs on the Vite dev server (which
+// proxies /api here), so wwwroot is empty and the backend serves no SPA — use the Vite URL directly.
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapPanelApi();
 
-if (app.Environment.IsDevelopment())
-    app.MapGet("/", () => Results.Redirect("/devui"));
-else
-    app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html");
 
 // Inbound WhatsApp bridge endpoint (only mapped when WhatsApp:Enabled).
 app.MapWhatsAppChannel();
