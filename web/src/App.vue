@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import { getStatus, getReminders } from './api/client'
@@ -50,11 +50,19 @@ async function loadReminderCount() {
   }
 }
 
+// Re-poll status so a backend restart shows up (online flips, uptime resets) without a manual reload.
+let statusTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   if (route.path !== '/login') {
     loadStatus()
     loadReminderCount()
   }
+  statusTimer = setInterval(() => {
+    if (route.path !== '/login') loadStatus()
+  }, 30_000)
+})
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
 })
 </script>
 

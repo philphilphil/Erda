@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   getReminders,
   createReminder,
+  updateReminder,
   pauseReminder,
   resumeReminder,
   deleteReminder,
@@ -11,8 +12,10 @@ import {
 } from '../api/client'
 import type { ReminderDto, ReminderKind, SystemScheduleDto } from '../api/types'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
+import cronstrue from 'cronstrue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
+import Modal from '../components/Modal.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import Banner from '../components/Banner.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -31,34 +34,39 @@ const newKind = ref<ReminderKind>('Reminder')
 const newSchedKind = ref<'datetime' | 'cron'>('datetime')
 const newWhen = ref('')
 const newText = ref('')
+const newDirectToCodex = ref(false)
+const newPreScript = ref('')
 const addError = ref<string | null>(null)
 const submitting = ref(false)
 
-// ---- tiny helpers ported from the design prototype ----
-const pad = (n: number) => String(n).padStart(2, '0')
+// Edit modal state (scheduled prompts only)
+const editing = ref<ReminderDto | null>(null)
+const editSchedKind = ref<'datetime' | 'cron'>('cron')
+const editWhen = ref('')
+const editText = ref('')
+const editDirectToCodex = ref(false)
+const editPreScript = ref('')
+const editError = ref<string | null>(null)
+const savingEdit = ref(false)
 
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const scriptHint =
+  'Runs in /bin/sh before the prompt; its stdout is injected. Use {{context}} to place it in the prompt, otherwise it is prepended.'
+
+// ---- cron description (human-readable, via cronstrue) ----
 function describeCron(expr: string): string {
-  const p = expr.trim().split(/\s+/)
-  if (p.length !== 5) return expr
-  const [min, hr, dom, mon, dow] = p
-  if (min === '0' && hr === '6' && dom === '*' && dow === '*') return 'Daily at 06:00'
-  if (dom === '*' && mon === '*' && dow === '*' && min !== '*' && hr !== '*')
-    return `Daily at ${pad(+hr)}:${pad(+min)}`
-  if (dow !== '*' && dow !== '?') {
-    const days = dow
-      .split(',')
-      .map((d) => DOW[+d] || d)
-      .join(', ')
-    return `${days} at ${pad(+hr)}:${pad(+min)}`
+  try {
+    return cronstrue.toString(expr, { use24HourTimeFormat: true, verbose: false })
+  } catch {
+    return expr // unparseable → show the raw expression
   }
-  if (min.startsWith('*/')) return `Every ${min.slice(2)} min`
-  if (hr.startsWith('*/')) return `Every ${hr.slice(2)} h`
-  return expr
 }
 
 function isCron(when: string): boolean {
   return when.trim().split(/\s+/).length === 5
+}
+
+function scheduleLabel(when: string): string {
+  return isCron(when) ? describeCron(when) : 'one-time'
 }
 
 // ---- derived counts (across both lists) ----
@@ -78,6 +86,13 @@ const canAdd = computed(
   () => String(newWhen.value ?? '').trim().length > 0 && newText.value.trim().length > 0,
 )
 
+// Live cronstrue preview under the create form's cron input (empty unless a 5-field cron is typed).
+const newCronPreview = computed(() =>
+  newSchedKind.value === 'cron' && isCron(String(newWhen.value ?? ''))
+    ? describeCron(String(newWhen.value))
+    : '',
+)
+
 async function load() {
   const data = await getReminders()
   reminders.value = data.reminders
@@ -91,9 +106,19 @@ onMounted(async () => {
   systemSchedules.value = (await getSystemSchedules()).schedules
 })
 
+function resetAddForm() {
+  newWhen.value = ''
+  newText.value = ''
+  newDirectToCodex.value = false
+  newPreScript.value = ''
+}
+
 function toggleAdding() {
   adding.value = !adding.value
-  if (!adding.value) addError.value = null
+  if (!adding.value) {
+    addError.value = null
+    resetAddForm()
+  }
 }
 
 async function handleAdd() {
@@ -104,21 +129,19 @@ async function handleAdd() {
   }
   submitting.value = true
   try {
+    const isPrompt = newKind.value === 'Prompt'
     await createReminder({
       kind: newKind.value,
       when: String(newWhen.value ?? '').trim(),
       text: newText.value.trim(),
+      directToCodex: isPrompt ? newDirectToCodex.value : undefined,
+      preScript: isPrompt ? newPreScript.value.trim() || null : undefined,
     })
-    newWhen.value = ''
-    newText.value = ''
+    resetAddForm()
     await load()
     adding.value = false
   } catch (e) {
-    if (e instanceof ApiError) {
-      addError.value = e.message
-    } else {
-      addError.value = 'Unexpected error.'
-    }
+    addError.value = e instanceof ApiError ? e.message : 'Unexpected error.'
   } finally {
     submitting.value = false
   }
@@ -137,6 +160,60 @@ async function handleResume(id: string) {
 async function handleDelete(id: string) {
   await deleteReminder(id)
   await load()
+}
+
+// ---- edit modal (scheduled prompts) ----
+const editChars = computed(() => editText.value.length)
+const editTokens = computed(() => Math.max(1, Math.round(editText.value.length / 4)))
+const editCronPreview = computed(() =>
+  editSchedKind.value === 'cron' && isCron(editWhen.value) ? describeCron(editWhen.value) : '',
+)
+const canSaveEdit = computed(
+  () => String(editWhen.value ?? '').trim().length > 0 && editText.value.trim().length > 0,
+)
+
+function openEdit(r: ReminderDto) {
+  editing.value = r
+  editError.value = null
+  if (isCron(r.when)) {
+    editSchedKind.value = 'cron'
+    editWhen.value = r.when
+  } else {
+    editSchedKind.value = 'datetime'
+    // VueDatePicker's model-type uses 'T'; a stored one-time may use a space separator.
+    editWhen.value = r.when.replace(' ', 'T')
+  }
+  editText.value = r.text
+  editDirectToCodex.value = r.directToCodex
+  editPreScript.value = r.preScript ?? ''
+}
+
+function closeEdit() {
+  editing.value = null
+}
+
+async function saveEdit() {
+  if (!editing.value) return
+  editError.value = null
+  if (!canSaveEdit.value) {
+    editError.value = 'When and text are required.'
+    return
+  }
+  savingEdit.value = true
+  try {
+    await updateReminder(editing.value.id, {
+      when: String(editWhen.value ?? '').trim(),
+      text: editText.value.trim(),
+      directToCodex: editDirectToCodex.value,
+      preScript: editPreScript.value.trim() || null,
+    })
+    await load()
+    editing.value = null
+  } catch (e) {
+    editError.value = e instanceof ApiError ? e.message : 'Unexpected error.'
+  } finally {
+    savingEdit.value = false
+  }
 }
 </script>
 
@@ -227,7 +304,7 @@ async function handleDelete(id: string) {
           <span class="hint">
             {{
               newSchedKind === 'cron'
-                ? 'min hour dom mon dow — e.g. 0 6 * * *'
+                ? newCronPreview || 'min hour dom mon dow — e.g. 0 6 * * *'
                 : 'Fires once, at the selected local time'
             }}
           </span>
@@ -245,6 +322,29 @@ async function handleDelete(id: string) {
             "
           />
         </div>
+
+        <template v-if="newKind === 'Prompt'">
+          <div class="field" style="grid-column: span 12">
+            <label class="check-row">
+              <input v-model="newDirectToCodex" type="checkbox" />
+              Run directly via Codex (skip the agent)
+            </label>
+            <span class="hint">
+              Good for big prompts (e.g. a daily news digest); web search is on.
+            </span>
+          </div>
+          <div class="field" style="grid-column: span 12">
+            <label>Pre-run script <span class="faint">(optional)</span></label>
+            <textarea
+              v-model="newPreScript"
+              class="textarea mono"
+              rows="2"
+              spellcheck="false"
+              placeholder="curl -s https://api.example.com/weather"
+            />
+            <span class="hint">{{ scriptHint }}</span>
+          </div>
+        </template>
       </div>
 
       <Banner v-if="addError" tone="warn" icon="alert" style="margin-top: 12px">
@@ -296,9 +396,7 @@ async function handleDelete(id: string) {
             <td>
               <div style="display: flex; flex-direction: column; gap: 1px">
                 <span class="mono" style="font-size: var(--fs-sm); white-space: nowrap">{{ r.when }}</span>
-                <span class="faint" style="font-size: var(--fs-xs)">
-                  {{ isCron(r.when) ? describeCron(r.when) : 'one-time' }}
-                </span>
+                <span class="faint" style="font-size: var(--fs-xs)">{{ scheduleLabel(r.when) }}</span>
               </div>
             </td>
             <td class="cell-msg"><span class="truncate" :title="r.text">{{ r.text }}</span></td>
@@ -381,12 +479,26 @@ async function handleDelete(id: string) {
             <td>
               <div style="display: flex; flex-direction: column; gap: 1px">
                 <span class="mono" style="font-size: var(--fs-sm); white-space: nowrap">{{ r.when }}</span>
-                <span class="faint" style="font-size: var(--fs-xs)">
-                  {{ isCron(r.when) ? describeCron(r.when) : 'one-time' }}
-                </span>
+                <span class="faint" style="font-size: var(--fs-xs)">{{ scheduleLabel(r.when) }}</span>
               </div>
             </td>
-            <td class="cell-msg"><span class="truncate" :title="r.text">{{ r.text }}</span></td>
+            <td class="cell-msg">
+              <div class="msg-cell">
+                <span class="truncate" :title="r.text">{{ r.text }}</span>
+                <span
+                  v-if="r.directToCodex"
+                  class="badge sq b-blue"
+                  title="Runs directly via Codex (skips the agent)"
+                  >Codex</span
+                >
+                <span
+                  v-if="r.preScript"
+                  class="badge sq b-muted"
+                  title="Runs a pre-run script before the prompt"
+                  >script</span
+                >
+              </div>
+            </td>
             <td><StatusBadge :status="r.status" /></td>
             <td>
               <span
@@ -402,6 +514,13 @@ async function handleDelete(id: string) {
             </td>
             <td class="col-actions">
               <div class="row-actions">
+                <button
+                  class="btn btn-ghost btn-sm btn-icon"
+                  title="Edit"
+                  @click="openEdit(r)"
+                >
+                  <Icon name="pencil" :size="14" />
+                </button>
                 <button
                   v-if="r.status === 'Active'"
                   class="btn btn-ghost btn-sm btn-icon"
@@ -459,10 +578,114 @@ async function handleDelete(id: string) {
         <EmptyState icon="cpu" title="No background schedules" sub="Nothing is running on its own." />
       </div>
     </Card>
+
+    <!-- Edit scheduled prompt -->
+    <Modal v-if="editing" title="Edit scheduled prompt" max-width="min(1000px, 96vw)" @close="closeEdit">
+      <div class="grid-form">
+        <div class="field" style="grid-column: span 4">
+          <label>Schedule kind</label>
+          <select v-model="editSchedKind" class="select" @change="editWhen = ''">
+            <option value="datetime">One-time datetime</option>
+            <option value="cron">Cron expression</option>
+          </select>
+        </div>
+        <div class="field" style="grid-column: span 8">
+          <label>{{ editSchedKind === 'cron' ? 'Cron' : 'When' }}</label>
+          <VueDatePicker
+            v-if="editSchedKind === 'datetime'"
+            v-model="editWhen"
+            model-type="yyyy-MM-dd'T'HH:mm"
+            format="yyyy-MM-dd HH:mm"
+            :time-config="{ is24: true, enableSeconds: false }"
+            auto-apply
+            placeholder="Select date & time"
+          />
+          <input v-else v-model="editWhen" class="input mono" type="text" placeholder="0 6 * * *" />
+          <span class="hint">
+            {{
+              editSchedKind === 'cron'
+                ? editCronPreview || 'min hour dom mon dow — e.g. 0 6 * * *'
+                : 'Fires once, at the selected local time'
+            }}
+          </span>
+        </div>
+
+        <div class="field" style="grid-column: span 12">
+          <label>Prompt for the agent</label>
+          <textarea
+            v-model="editText"
+            class="textarea mono"
+            rows="18"
+            spellcheck="false"
+            style="min-height: 380px; font-size: var(--fs-sm); line-height: 1.6"
+          />
+          <span class="hint">
+            {{ editChars.toLocaleString() }} chars · ~{{ editTokens.toLocaleString() }} tok
+          </span>
+        </div>
+
+        <div class="field" style="grid-column: span 12">
+          <label class="check-row">
+            <input v-model="editDirectToCodex" type="checkbox" />
+            Run directly via Codex (skip the agent)
+          </label>
+        </div>
+
+        <div class="field" style="grid-column: span 12">
+          <label>Pre-run script <span class="faint">(optional)</span></label>
+          <textarea
+            v-model="editPreScript"
+            class="textarea mono"
+            rows="2"
+            spellcheck="false"
+            placeholder="curl -s https://api.example.com/weather"
+          />
+          <span class="hint">{{ scriptHint }}</span>
+        </div>
+      </div>
+
+      <Banner v-if="editError" tone="warn" icon="alert" style="margin-top: 12px">
+        {{ editError }}
+      </Banner>
+
+      <div class="row between" style="margin-top: 14px">
+        <span class="faint mono" style="font-size: var(--fs-xs)">{{ editing.id }}</span>
+        <div class="row" style="gap: 8px">
+          <button class="btn btn-ghost" :disabled="savingEdit" @click="closeEdit">Cancel</button>
+          <button class="btn btn-primary" :disabled="!canSaveEdit || savingEdit" @click="saveEdit">
+            <Icon name="save" :size="14" />
+            Save
+          </button>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 
 <style scoped>
+.msg-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row !important;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.check-row input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
 .sys-list {
   display: flex;
   flex-direction: column;

@@ -16,6 +16,19 @@ public sealed class ReminderRow
     public string Text { get; set; } = "";
     public ReminderStatus Status { get; set; }
 
+    /// <summary>
+    /// Scheduled prompts only: run the prompt straight through Codex (web search on) instead of the
+    /// <c>erda</c> agent. Ignored for verbatim reminders. Default <c>false</c> = the agent route.
+    /// </summary>
+    public bool DirectToCodex { get; set; }
+
+    /// <summary>
+    /// Scheduled prompts only: an optional shell command run before the prompt fires; its stdout is
+    /// injected into the prompt (via a <c>{{context}}</c> token, else prepended). Null/empty = none.
+    /// Only Phil can set this (via the panel) — never the agent's <c>schedule_prompt</c> tool.
+    /// </summary>
+    public string? PreScript { get; set; }
+
     /// <summary>Recurring cadence: the last instant this row fired (was <c>LastFiredUtc[id]</c>).</summary>
     public DateTimeOffset? LastFiredUtc { get; set; }
 

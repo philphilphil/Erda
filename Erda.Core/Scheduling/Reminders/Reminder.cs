@@ -30,4 +30,6 @@ public sealed record Reminder(
     string When,
     string Text,
     ReminderStatus Status,
-    WhenSpec Spec);
+    WhenSpec Spec,
+    bool DirectToCodex = false,
+    string? PreScript = null);

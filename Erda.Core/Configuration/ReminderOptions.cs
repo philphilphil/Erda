@@ -29,4 +29,16 @@ public sealed class ReminderOptions
 
     /// <summary>When true, send Phil a WhatsApp note on a parse or dispatch failure.</summary>
     public bool NotifyOnError { get; set; } = true;
+
+    /// <summary>
+    /// Master switch for scheduled-prompt pre-run context scripts. When false, a row's script is
+    /// ignored (treated as none) and a single warning is logged per process.
+    /// </summary>
+    public bool PreScriptEnabled { get; set; } = true;
+
+    /// <summary>Kill a pre-run script that runs longer than this.</summary>
+    public TimeSpan PreScriptTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Cap the injected script stdout (chars) to protect the prompt's token budget.</summary>
+    public int PreScriptMaxOutputChars { get; set; } = 8000;
 }

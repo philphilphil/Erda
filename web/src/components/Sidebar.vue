@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import BrandMark from './BrandMark.vue'
@@ -22,12 +22,23 @@ const emit = defineEmits<{ (e: 'toggle-theme'): void }>()
 const router = useRouter()
 const { state, logout } = useAuth()
 
-// Format uptime as "<Xd Yh Zm>" from a start timestamp to now.
+// A ticking clock so the uptime label recomputes on its own (Date.now() isn't reactive). Minute
+// granularity → a 30s tick keeps it fresh without churn. Cleared on unmount.
+const now = ref(Date.now())
+let tick: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  tick = setInterval(() => (now.value = Date.now()), 30_000)
+})
+onUnmounted(() => {
+  if (tick) clearInterval(tick)
+})
+
+// Format uptime as "<Xd Yh Zm>" from a start timestamp to the ticking `now`.
 const uptime = computed(() => {
   if (!props.startedAtUtc) return ''
   const started = new Date(props.startedAtUtc).getTime()
   if (Number.isNaN(started)) return ''
-  const s = Math.max(0, Math.floor((Date.now() - started) / 1000))
+  const s = Math.max(0, Math.floor((now.value - started) / 1000))
   const d = Math.floor(s / 86400)
   const h = Math.floor((s % 86400) / 3600)
   const mn = Math.floor((s % 3600) / 60)
