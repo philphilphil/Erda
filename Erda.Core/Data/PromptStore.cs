@@ -5,15 +5,14 @@ namespace Erda.Core.Data;
 /// <summary>
 /// Versioned store for the agent's prompts, keyed by <see cref="PromptKind"/>. Every saved edit
 /// becomes a new <see cref="PromptVersion"/>; exactly one version per kind is active at a time, and
-/// prior versions are retained so an edit can be rolled back. The first read of a kind seeds an
-/// active version from the code-baked default so first run preserves current behaviour.
+/// prior versions are retained so an edit can be rolled back. A fresh DB starts empty — there is no
+/// code-baked seed; prompts are authored in the control panel.
 /// </summary>
 public interface IPromptStore
 {
-    /// <summary>The active content for <paramref name="kind"/>. If no version exists yet, seed one
-    /// (active) with <paramref name="codeDefault"/> and return it — so first run keeps current
-    /// behaviour.</summary>
-    string GetActiveContent(string kind, string codeDefault);
+    /// <summary>The active content for <paramref name="kind"/>, or <c>null</c> if no version has been
+    /// saved yet (fresh DB / never authored).</summary>
+    string? GetActiveContent(string kind);
 
     /// <summary>All versions of <paramref name="kind"/>, newest first.</summary>
     IReadOnlyList<PromptVersion> ListVersions(string kind);
@@ -35,22 +34,15 @@ public interface IPromptStore
 public sealed class PromptStore(IDbContextFactory<ErdaDbContext> dbFactory) : IPromptStore
 {
     /// <inheritdoc />
-    public string GetActiveContent(string kind, string codeDefault)
+    public string? GetActiveContent(string kind)
     {
         using var db = dbFactory.CreateDbContext();
 
-        // Guard against >1 active row by taking the newest (highest Id).
-        var active = db.PromptVersions
+        // Guard against >1 active row by taking the newest (highest Id). Null when none has been saved.
+        return db.PromptVersions
             .Where(p => p.Kind == kind && p.IsActive)
             .OrderByDescending(p => p.Id)
-            .FirstOrDefault();
-
-        if (active is not null)
-            return active.Content;
-
-        // No version exists yet for this kind — seed one from the code default so first run keeps behaviour.
-        SaveNewVersion(kind, codeDefault, "seeded from code default");
-        return codeDefault;
+            .FirstOrDefault()?.Content;
     }
 
     /// <inheritdoc />

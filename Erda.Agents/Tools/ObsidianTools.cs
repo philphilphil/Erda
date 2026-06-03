@@ -11,6 +11,9 @@ namespace Erda.Agents.Tools;
 /// </summary>
 public sealed class ObsidianTools(VaultService vault)
 {
+    /// <summary>Vault-relative note that collects Phil's todos, one Markdown checkbox per line.</summary>
+    private const string TodoNote = "Calendar/Todos.md";
+
     /// <summary>Wrap the methods below as <see cref="AITool"/>s with snake_case names.</summary>
     public IList<AITool> AsTools() =>
     [
@@ -19,6 +22,7 @@ public sealed class ObsidianTools(VaultService vault)
         AIFunctionFactory.Create(SearchNotes, "search_notes"),
         AIFunctionFactory.Create(WriteNote, "write_note"),
         AIFunctionFactory.Create(AppendNote, "append_note"),
+        AIFunctionFactory.Create(AddTodo, "add_todo"),
     ];
 
     [Description("List Markdown (.md) notes in the Obsidian vault, optionally limited to a subfolder.")]
@@ -64,5 +68,27 @@ public sealed class ObsidianTools(VaultService vault)
     {
         vault.AppendNote(path, content);
         return $"Appended {content.Length} chars to {path}.";
+    }
+
+    [Description(
+        "Add a single todo item (an unchecked '- [ ] ' checkbox) to Phil's todo list at " +
+        "Calendar/Todos.md. Use whenever Phil asks to remember a task: 'todo <thing>', " +
+        "'mach mir ein todo dass ...', 'add a todo to ...', 'setz auf meine todo-liste ...'. " +
+        "Pass only the task text; the checkbox markup and the destination note are added " +
+        "automatically. Match Phil's language for the task text.")]
+    private string AddTodo(
+        [Description("The task text only, e.g. 'den Müll runterbringen' — no '- [ ]' prefix.")] string task)
+    {
+        var clean = task.Trim();
+        if (clean.Length == 0)
+            return "Nothing to add — the todo text was empty.";
+
+        // Make sure the new item lands on its own line even if the file's last line
+        // has no trailing newline. A missing or empty file needs no leading newline.
+        var existing = vault.Exists(TodoNote) ? vault.ReadNote(TodoNote) : "";
+        var prefix = existing.Length > 0 && !existing.EndsWith('\n') ? "\n" : "";
+
+        vault.AppendNote(TodoNote, $"{prefix}- [ ] {clean}\n");
+        return $"Added todo to {TodoNote}: {clean}";
     }
 }

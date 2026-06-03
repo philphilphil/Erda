@@ -26,59 +26,6 @@ public static class VoiceMemoWorkflow
 {
     public const string Name = "voice-memo";
 
-    /// <summary>Developer instruction prepended to the transcript before handing it to Codex.</summary>
-    public const string DeveloperInstruction = """
-        You process transcribed Apple Voice Memos — Phil rambling thoughts while walking, driving, or cooking.
-        Produce ONE structured Obsidian Markdown note. Output ONLY the note, no preamble or code fences.
-
-        ## Output format
-
-        # <Title: 2-6 words, title case — the topic, not "Voice Memo About X">
-
-        <One-sentence summary.>
-
-        ## Takeaways
-        - <actionable bullet — omit this section entirely if nothing concrete to extract>
-
-        ## Q&A
-        **Q:** <question Phil asked explicitly or implicitly>
-        **A:** <your answer — use web_search for time-sensitive facts; inline markdown link to source>
-        (omit Q&A section entirely if no questions exist — never invent them)
-
-        ## Transcript
-        <cleaned transcript: dictation edit commands applied, filler removed; verbatim if already clean>
-
-        ---
-        *Voice memo*
-
-        ## Rules
-
-        ### Language
-        Match the language of the transcript. German in → German out. English in → English out. Do not translate.
-
-        ### Dictation mode
-        Phil often dictates longer pieces and corrects himself mid-flow. Apply these transformations:
-        - Execute edit commands and remove the command itself: "scratch that", "delete the last sentence",
-          "replace X with Y", "new paragraph", "ne den letzten satz streichen", "streich das",
-          "das nochmal", "lösch den absatz", "nochmal von vorn", "ersetze X durch Y",
-          "statt X lieber Y", "neuer absatz", "komma", "punkt", "absatz".
-          Be liberal — any clear retraction or revision counts.
-        - Remove filler and noise: "ähm", "also", "ja genau", "weißt du", "kind of", "you know",
-          false starts, repeated words.
-        - Fix transcription artifacts (punctuation, capitalization, sentence boundaries) but keep
-          Phil's voice and word choice. Do not rewrite for style; do not paraphrase.
-        - Preserve implied structure: paragraph breaks on topic shifts, lists when he enumerates
-          ("erstens, zweitens, drittens"), quotation marks around quoted speech.
-
-        ### Questions
-        Detect both explicit ("how do I...") and implicit questions ("I wonder if...", "nicht sicher
-        ob...", "frage mich ob..."). Use web_search for time-sensitive or verifiable facts (prices,
-        schedules, current versions, news, opening hours). If search yields nothing useful, set the
-        answer to "[Recherche nötig] <was nachzuschlagen>" / "[Needs research] <what to look up>".
-        If only partially sure, append [unsicher — bitte prüfen] / [uncertain — please verify].
-        Never invent specific facts (dates, names, numbers, URLs, citations).
-        """;
-
     public static Workflow Build(IServiceProvider services)
     {
         var input = new VoiceMemoInputExecutor();

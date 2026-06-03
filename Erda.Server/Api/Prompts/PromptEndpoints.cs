@@ -1,5 +1,4 @@
 using Erda.Core.Data;
-using Erda.Agents.Workflows;
 
 namespace Erda.Server.Api;
 
@@ -49,7 +48,7 @@ public static class PromptEndpoints
         // --- Voice-memo prompt (save-in-place; the code default seeds first read) ---
         g.MapGet("/voice", (IPromptStore prompts) =>
         {
-            var content = prompts.GetActiveContent(PromptKind.Voice, VoiceMemoWorkflow.DeveloperInstruction);
+            var content = prompts.GetActiveContent(PromptKind.Voice) ?? "";
             return Results.Ok(new VoicePromptResponse(content));
         });
 
