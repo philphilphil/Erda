@@ -37,6 +37,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Transcriber>();
         services.AddSingleton<ITranscriber>(sp => sp.GetRequiredService<Transcriber>());
         services.AddSingleton<CodexRunner>();
+        // Other consumers use the concrete CodexRunner; the reminder scheduler takes the interface
+        // so its Codex-direct branch is unit-testable with a fake.
+        services.AddSingleton<ICodexRunner>(sp => sp.GetRequiredService<CodexRunner>());
+        services.AddSingleton<PreScriptRunner>();
+        services.AddSingleton<IPreScriptRunner>(sp => sp.GetRequiredService<PreScriptRunner>());
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<CurrentTimeContext>();
         services.AddSingleton<IPromptStore, PromptStore>();

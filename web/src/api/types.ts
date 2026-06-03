@@ -20,6 +20,10 @@ export interface ReminderDto {
   text: string
   status: ReminderStatus
   nextFire: string
+  // Scheduled prompts only: run straight through Codex (web search on) instead of the agent.
+  directToCodex: boolean
+  // Scheduled prompts only: optional pre-run shell command; its stdout is injected into the prompt.
+  preScript: string | null
 }
 
 export interface RemindersResponse {
@@ -32,6 +36,16 @@ export interface CreateReminderBody {
   kind: ReminderKind
   when: string
   text: string
+  // Applied only when kind is 'Prompt'.
+  directToCodex?: boolean
+  preScript?: string | null
+}
+
+export interface UpdateReminderBody {
+  when: string
+  text: string
+  directToCodex?: boolean
+  preScript?: string | null
 }
 
 // Prompt

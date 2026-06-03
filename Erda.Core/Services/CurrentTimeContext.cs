@@ -11,12 +11,18 @@ namespace Erda.Core.Services;
 /// </summary>
 public sealed class CurrentTimeContext(IClock clock, IOptions<ReminderOptions> options)
 {
-    public ChatMessage Message()
+    /// <summary>The current-time context as a system <see cref="ChatMessage"/> for an agent turn.</summary>
+    public ChatMessage Message() => new(ChatRole.System, Text());
+
+    /// <summary>
+    /// The current-time context line as plain text (what <see cref="Message"/> wraps). Used by the
+    /// Codex-direct scheduled-prompt path, which prepends it so Codex knows the date.
+    /// </summary>
+    public string Text()
     {
         var zone = ResolveZone();
         var local = TimeZoneInfo.ConvertTime(clock.UtcNow, zone);
-        return new ChatMessage(ChatRole.System,
-            $"[Context] Current time: {local:yyyy-MM-dd HH:mm} ({zone.Id}, {local:dddd}).");
+        return $"[Context] Current time: {local:yyyy-MM-dd HH:mm} ({zone.Id}, {local:dddd}).";
     }
 
     private TimeZoneInfo ResolveZone()

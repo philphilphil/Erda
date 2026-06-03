@@ -20,14 +20,22 @@ public sealed class ReminderScheduler(
     ReminderStateStore stateStore,
     VaultService vault,
     IAgentResponder responder,
+    ICodexRunner codex,
+    IPreScriptRunner scriptRunner,
     IWhatsAppSender sender,
     IClock clock,
     CurrentTimeContext timeContext,
     IActivityRecorder recorder,
     ILogger<ReminderScheduler> logger) : BackgroundService
 {
+    /// <summary>Placeholder a prompt can use to position the pre-run script's output.</summary>
+    private const string ContextToken = "{{context}}";
+
     // Malformed rows already surfaced to Phil this process lifetime (so we don't re-nag every minute).
     private readonly HashSet<string> _notifiedMalformed = [];
+
+    // Logged once per process when a row carries a script but pre-scripts are disabled (avoids spam).
+    private bool _warnedPreScriptDisabled;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -209,12 +217,74 @@ public sealed class ReminderScheduler(
             return false;
         }
 
+        // Optional pre-run context script: run it and splice its stdout into the prompt. Sits before
+        // the agent-vs-Codex fork, so it composes with both routes. Fail-safe: any script failure
+        // aborts dispatch (→ NotifyFailureAsync) rather than running the model on missing context.
+        if (!string.IsNullOrWhiteSpace(r.PreScript))
+        {
+            if (!options.Value.PreScriptEnabled)
+            {
+                if (!_warnedPreScriptDisabled)
+                {
+                    _warnedPreScriptDisabled = true;
+                    logger.LogWarning(
+                        "Pre-run scripts are disabled (Reminders:PreScriptEnabled=false); ignoring the script on '{Id}' and any others.",
+                        r.Id);
+                }
+            }
+            else
+            {
+                string context;
+                try
+                {
+                    context = await scriptRunner.RunAsync(r.PreScript!, ct);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Reminder {Id}: pre-run script failed.", r.Id);
+                    return false;
+                }
+                promptText = InjectContext(promptText, context);
+            }
+        }
+
+        // Codex-direct: skip the agent and run the prompt straight through Codex (web search on),
+        // prepending the current time so a daily-news-style prompt knows the date.
+        if (r.DirectToCodex)
+        {
+            string text;
+            try
+            {
+                text = await codex.RunPromptAsync($"{timeContext.Text()}\n\n{promptText}", enableWebSearch: true, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Reminder {Id}: Codex-direct run failed.", r.Id);
+                return false;
+            }
+            var sentCodex = await sender.SendAsync(ownerJid, $"⏰ {text}", ct);
+            if (sentCodex)
+                recorder.Record("scheduled_fire", $"Prompt '{r.Id}' ran (codex)", new { r.Id, r.When });
+            return sentCodex;
+        }
+
         var reply = await responder.RunOnceAsync([timeContext.Message(), new ChatMessage(ChatRole.User, promptText)], ct);
-        var text = string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text;
-        var sent = await sender.SendAsync(ownerJid, $"⏰ {text}", ct);
+        var replyText = string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text;
+        var sent = await sender.SendAsync(ownerJid, $"⏰ {replyText}", ct);
         if (sent)
             recorder.Record("scheduled_fire", $"Prompt '{r.Id}' ran", new { r.Id, r.When, reply.ToolsUsed });
         return sent;
+    }
+
+    /// <summary>
+    /// Splice the pre-run script's <paramref name="context"/> into <paramref name="promptText"/>:
+    /// replace a literal <c>{{context}}</c> token if present, otherwise prepend a labelled block.
+    /// </summary>
+    internal static string InjectContext(string promptText, string context)
+    {
+        if (promptText.Contains(ContextToken, StringComparison.Ordinal))
+            return promptText.Replace(ContextToken, context);
+        return $"[Context gathered before this prompt]\n{context}\n\n{promptText}";
     }
 
     /// <summary>

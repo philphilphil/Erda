@@ -61,6 +61,33 @@ public sealed class FakeClock : IClock
     public DateTimeOffset UtcNow { get; set; } = new(2026, 6, 15, 8, 0, 0, TimeSpan.Zero);
 }
 
+public sealed class FakeCodexRunner : ICodexRunner
+{
+    public List<(string Prompt, bool WebSearch)> Calls { get; } = [];
+    public string Result { get; set; } = "codex says hi";
+    public Exception? Throw { get; set; }
+
+    public Task<string> RunPromptAsync(string prompt, bool enableWebSearch = false,
+        CancellationToken cancellationToken = default, string? logLabel = null, string? reasoningEffort = null)
+    {
+        Calls.Add((prompt, enableWebSearch));
+        return Throw is not null ? Task.FromException<string>(Throw) : Task.FromResult(Result);
+    }
+}
+
+public sealed class FakePreScriptRunner : IPreScriptRunner
+{
+    public List<string> Scripts { get; } = [];
+    public string Output { get; set; } = "CONTEXT";
+    public Exception? Throw { get; set; }
+
+    public Task<string> RunAsync(string script, CancellationToken cancellationToken = default)
+    {
+        Scripts.Add(script);
+        return Throw is not null ? Task.FromException<string>(Throw) : Task.FromResult(Output);
+    }
+}
+
 public sealed class FakeWhatsAppSender : IWhatsAppSender
 {
     public List<(string To, string Text)> Sent { get; } = [];

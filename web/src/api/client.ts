@@ -4,6 +4,7 @@ import type {
   RemindersResponse,
   ReminderDto,
   CreateReminderBody,
+  UpdateReminderBody,
   PromptResponse,
   PromptVersionDto,
   SavePromptBody,
@@ -120,6 +121,10 @@ export function getReminders(): Promise<RemindersResponse> {
 
 export function createReminder(body: CreateReminderBody): Promise<ReminderDto> {
   return post<ReminderDto>('/api/reminders', body)
+}
+
+export function updateReminder(id: string, body: UpdateReminderBody): Promise<ReminderDto> {
+  return put<ReminderDto>(`/api/reminders/${id}`, body)
 }
 
 export function pauseReminder(id: string): Promise<void> {

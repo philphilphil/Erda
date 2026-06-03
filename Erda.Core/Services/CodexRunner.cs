@@ -12,7 +12,7 @@ namespace Erda.Core.Services;
 /// HARD RULE: OPENAI_API_KEY is removed from the child process environment so Codex
 /// never falls back to pay-per-token API-key billing.
 /// </summary>
-public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunner> logger)
+public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunner> logger) : ICodexRunner
 {
     /// <summary>
     /// Voice-memo convenience: builds the prompt from a developer instruction + transcript,
@@ -59,8 +59,9 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// <summary>
     /// Runs <c>codex exec</c> on an already-built prompt and returns Codex's final message.
     /// General-purpose entry point. <paramref name="enableWebSearch"/> turns on Codex's native
-    /// web_search tool (for grounding answers in current sources); when searching we use a
-    /// read-only sandbox since no files need writing.
+    /// web_search tool (for grounding answers in current sources). We always run with the
+    /// <c>workspace-write</c> sandbox plus <c>network_access=true</c> so model-run shell commands can
+    /// reach the network (curl/fetch); file writes stay confined to the throwaway temp work dir.
     /// </summary>
     public async Task<string> RunPromptAsync(
         string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default,
@@ -70,7 +71,9 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
         var effort = NormalizeReasoningEffort(reasoningEffort, opts.CodexReasoningEffort);
         var workDir = Directory.CreateTempSubdirectory("erda-codex-").FullName;
         var outputFile = Path.Combine(workDir, "codex-final.txt");
-        var sandbox = enableWebSearch ? "read-only" : "workspace-write";
+        // workspace-write (not read-only) is required for network_access to take effect; read-only
+        // blocks all egress, which broke prompts that need to fetch URLs.
+        const string sandbox = "workspace-write";
 
         try
         {
@@ -93,6 +96,10 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             psi.ArgumentList.Add($"model_reasoning_effort=\"{effort}\"");
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add("preferred_auth_method=\"chatgpt\"");
+            // Allow model-run shell commands full network egress (verified: workspace-write blocks
+            // the network by default; this override re-enables it). Erda runs on a trusted LAN host.
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add("sandbox_workspace_write.network_access=true");
             if (enableWebSearch)
             {
                 // Enable Codex's native Responses web_search tool.
