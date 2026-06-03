@@ -42,6 +42,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICodexRunner>(sp => sp.GetRequiredService<CodexRunner>());
         services.AddSingleton<PreScriptRunner>();
         services.AddSingleton<IPreScriptRunner>(sp => sp.GetRequiredService<PreScriptRunner>());
+        // URL fetcher for the recipe-importer workflow (creates clients via the factory per fetch).
+        services.AddHttpClient(nameof(UrlFetcher));
+        services.AddSingleton<IUrlFetcher, UrlFetcher>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<CurrentTimeContext>();
         services.AddSingleton<IPromptStore, PromptStore>();

@@ -42,6 +42,8 @@ const PATHS: Record<string, string[]> = {
   eyeoff: ['M4 4l16 16', 'M9.6 5.3A9.7 9.7 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3 3.8', 'M6.3 7.6A16 16 0 0 0 2 12s4 7 10 7a9.6 9.6 0 0 0 3-.5', 'M9.9 9.9a3 3 0 0 0 4.2 4.2'],
   chat: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
   pencil: ['M4 20h4L18.5 9.5l-4-4L4 16z', 'M13.5 6.5l4 4'],
+  workflow: ['M4 5h6v5H4z', 'M14 14h6v5h-6z', 'M9 7.5h4a2 2 0 0 1 2 2V14'],
+  arrowright: ['M5 12h14', 'M13 6l6 6-6 6'],
 }
 
 interface CircleSpec {

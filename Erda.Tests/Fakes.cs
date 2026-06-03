@@ -88,6 +88,19 @@ public sealed class FakePreScriptRunner : IPreScriptRunner
     }
 }
 
+public sealed class FakeUrlFetcher : IUrlFetcher
+{
+    public List<string> Urls { get; } = [];
+    public string Html { get; set; } = "<html><body>hi</body></html>";
+    public Exception? Throw { get; set; }
+
+    public Task<string> FetchAsync(string url, CancellationToken cancellationToken = default)
+    {
+        Urls.Add(url);
+        return Throw is not null ? Task.FromException<string>(Throw) : Task.FromResult(Html);
+    }
+}
+
 public sealed class FakeWhatsAppSender : IWhatsAppSender
 {
     public List<(string To, string Text)> Sent { get; } = [];

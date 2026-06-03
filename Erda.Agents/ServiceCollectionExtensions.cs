@@ -25,6 +25,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MemoProcessor>();
         services.AddSingleton<IMemoProcessor>(sp => sp.GetRequiredService<MemoProcessor>());
 
+        // Workflows tab: auto-discover every IWorkflowProvider in this assembly (reflection), so a new
+        // workflow appears in the panel just by adding a provider — no registry edit. The catalog
+        // builds each and asks MAF's WorkflowVisualizer to diagram it.
+        foreach (var providerType in typeof(ServiceCollectionExtensions).Assembly.GetTypes()
+                     .Where(t => t is { IsClass: true, IsAbstract: false } && typeof(IWorkflowProvider).IsAssignableFrom(t)))
+            services.AddSingleton(typeof(IWorkflowProvider), providerType);
+        services.AddSingleton<IWorkflowCatalog, WorkflowCatalog>();
+
         // The long-lived session responder for the WhatsApp conversation.
         services.AddSingleton<IAgentResponder, ErdaAgentResponder>();
 

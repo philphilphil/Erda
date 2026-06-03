@@ -104,6 +104,39 @@ export interface PutConfigBody {
   values: Record<string, string | null>
 }
 
+// Workflows (read-only; MAF pipelines, reflected as a node/edge graph)
+export interface WorkflowNode {
+  id: string
+  type: string
+  inputs: string[]
+  outputs: string[]
+  isStart: boolean
+}
+
+export interface WorkflowEdge {
+  from: string
+  to: string
+}
+
+export interface WorkflowGraph {
+  id: string
+  title: string
+  description: string
+  tags: string[]
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+  runnable: boolean
+  inputLabel: string
+}
+
+export interface WorkflowsResponse {
+  workflows: WorkflowGraph[]
+}
+
+export interface RunWorkflowResponse {
+  output: string
+}
+
 // System schedules (read-only background jobs)
 export interface SystemScheduleDto {
   key: string

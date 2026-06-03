@@ -15,6 +15,8 @@ import type {
   SaveVoicePromptBody,
   StatusResponse,
   SystemSchedulesResponse,
+  WorkflowsResponse,
+  RunWorkflowResponse,
   ChatSession,
 } from './types'
 
@@ -137,6 +139,16 @@ export function resumeReminder(id: string): Promise<void> {
 
 export function deleteReminder(id: string): Promise<void> {
   return del<void>(`/api/reminders/${id}`)
+}
+
+// ── Workflows ─────────────────────────────────────────────────────────────────
+
+export function getWorkflows(): Promise<WorkflowsResponse> {
+  return get<WorkflowsResponse>('/api/workflows')
+}
+
+export function runWorkflow(id: string, input: string): Promise<RunWorkflowResponse> {
+  return post<RunWorkflowResponse>(`/api/workflows/${id}/run`, { input })
 }
 
 // ── System schedules ────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import ActivityView from './views/ActivityView.vue'
 import ChatView from './views/ChatView.vue'
 import ConfigView from './views/ConfigView.vue'
 import CapabilitiesView from './views/CapabilitiesView.vue'
+import WorkflowsView from './views/WorkflowsView.vue'
 import LoginView from './views/LoginView.vue'
 
 const router = createRouter({
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: '/prompt', component: PromptView },
     { path: '/chat', component: ChatView },
     { path: '/activity', component: ActivityView },
+    { path: '/workflows', component: WorkflowsView },
     { path: '/config', component: ConfigView },
     { path: '/capabilities', component: CapabilitiesView },
     { path: '/login', component: LoginView },

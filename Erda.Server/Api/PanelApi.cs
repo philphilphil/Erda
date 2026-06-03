@@ -61,6 +61,7 @@ public static class PanelApi
             data.RequireAuthorization();
 
         data.MapReminderEndpoints();
+        data.MapWorkflowEndpoints();
         data.MapPromptEndpoints();
         data.MapActivityEndpoints();
         data.MapConfigEndpoints();
