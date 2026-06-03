@@ -13,6 +13,7 @@ import type {
   VoicePromptResponse,
   SaveVoicePromptBody,
   StatusResponse,
+  SystemSchedulesResponse,
   ChatSession,
 } from './types'
 
@@ -131,6 +132,12 @@ export function resumeReminder(id: string): Promise<void> {
 
 export function deleteReminder(id: string): Promise<void> {
   return del<void>(`/api/reminders/${id}`)
+}
+
+// ── System schedules ────────────────────────────────────────────────────────
+
+export function getSystemSchedules(): Promise<SystemSchedulesResponse> {
+  return get<SystemSchedulesResponse>('/api/system-schedules')
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
