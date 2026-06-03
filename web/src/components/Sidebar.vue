@@ -75,6 +75,10 @@ async function handleLogout() {
         <Icon name="sliders" />
         <span class="label">Config</span>
       </RouterLink>
+      <RouterLink to="/capabilities" class="nav-item" active-class="active">
+        <Icon name="zap" />
+        <span class="label">Capabilities</span>
+      </RouterLink>
     </nav>
 
     <div class="sb-spacer" />
