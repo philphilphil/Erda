@@ -90,6 +90,21 @@ export interface PutConfigBody {
   values: Record<string, string | null>
 }
 
+// System schedules (read-only background jobs)
+export interface SystemScheduleDto {
+  key: string
+  name: string
+  icon: string
+  description: string
+  enabled: boolean
+  status: string
+  tags: string[]
+}
+
+export interface SystemSchedulesResponse {
+  schedules: SystemScheduleDto[]
+}
+
 // Chat
 export interface ChatMessage {
   role: 'user' | 'assistant'

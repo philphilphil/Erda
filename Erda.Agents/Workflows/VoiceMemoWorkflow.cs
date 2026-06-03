@@ -15,9 +15,10 @@ namespace Erda.Agents.Workflows;
 ///   Input (chat -> path) -> Transcribe (.m4a -> text) -> Codex (text -> note) -> ObsidianWrite (note -> ChatMessage)
 ///
 /// The three middle steps are plain string executors (Codex is shelled out, not an AIAgent
-/// node). But when a workflow is hosted as an AIAgent (DevUI / OpenAI-Responses), its START
-/// executor must speak the chat protocol (accept List&lt;ChatMessage&gt; + TurnToken) and its
-/// OUTPUT must be a ChatMessage to surface in the response. So the chain is bookended by
+/// node). But when a workflow is hosted as an AIAgent (here: wrapped as the process_voice_memo
+/// tool via AsAIFunction), its START executor must speak the chat protocol (accept
+/// List&lt;ChatMessage&gt; + TurnToken) and its OUTPUT must be a ChatMessage to surface in the
+/// response. So the chain is bookended by
 /// <see cref="VoiceMemoInputExecutor"/> (chat -> path string) at the front and a
 /// ChatMessage-returning <see cref="ObsidianWriteExecutor"/> at the end.
 /// </summary>
@@ -94,7 +95,7 @@ public static class VoiceMemoWorkflow
             .AddEdge(transcribe, codex)
             .AddEdge(codex, write)
             .WithOutputFrom(write)
-            .WithName(Name) // must equal the registration key, or DevUI enumeration throws
+            .WithName(Name) // workflow name, surfaced when it's wrapped as the process_voice_memo tool
             .Build();
     }
 

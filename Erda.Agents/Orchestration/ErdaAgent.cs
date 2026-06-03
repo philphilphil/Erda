@@ -89,8 +89,8 @@ public static class ErdaAgent
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
         var recorder = services.GetRequiredService<IActivityRecorder>();
 
-        // Foundry endpoint + key. If unset we still construct the agent (so the app and DevUI
-        // start) using a placeholder; the actual call fails clearly until the env vars are set.
+        // Foundry endpoint + key. If unset we still construct the agent (so the app starts)
+        // using a placeholder; the actual call fails clearly until the env vars are set.
         var endpoint = configuration["AZURE_OPENAI_ENDPOINT"];
         var apiKey = configuration["AZURE_OPENAI_API_KEY"];
         var configured = !string.IsNullOrWhiteSpace(endpoint) && !string.IsNullOrWhiteSpace(apiKey);

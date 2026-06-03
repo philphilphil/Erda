@@ -6,9 +6,10 @@ import {
   pauseReminder,
   resumeReminder,
   deleteReminder,
+  getSystemSchedules,
   ApiError,
 } from '../api/client'
-import type { ReminderDto, ReminderKind } from '../api/types'
+import type { ReminderDto, ReminderKind, SystemScheduleDto } from '../api/types'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
@@ -19,6 +20,7 @@ import EmptyState from '../components/EmptyState.vue'
 const reminders = ref<ReminderDto[]>([])
 const scheduledPrompts = ref<ReminderDto[]>([])
 const malformedCount = ref(0)
+const systemSchedules = ref<SystemScheduleDto[]>([])
 
 // View state
 const adding = ref(false)
@@ -83,7 +85,11 @@ async function load() {
   malformedCount.value = data.malformedCount
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // Read-only; doesn't change with reminder edits, so fetch once.
+  systemSchedules.value = (await getSystemSchedules()).schedules
+})
 
 function toggleAdding() {
   adding.value = !adding.value
@@ -432,5 +438,71 @@ async function handleDelete(id: string) {
         />
       </div>
     </Card>
+
+    <Card title="System scheduled" icon="cpu" sub="read-only · background" flush>
+      <div v-if="systemSchedules.length > 0" class="sys-list">
+        <div v-for="s in systemSchedules" :key="s.key" class="sys-row">
+          <div class="sys-main">
+            <span class="sys-icon"><Icon :name="s.icon" :size="15" /></span>
+            <span class="sys-name">{{ s.name }}</span>
+            <span class="badge" :class="s.enabled ? 'b-green' : 'b-muted'">
+              <span class="dot" />{{ s.status }}
+            </span>
+          </div>
+          <div class="sys-desc">{{ s.description }}</div>
+          <div class="sys-tags">
+            <span v-for="t in s.tags" :key="t" class="badge sq b-muted">{{ t }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="card-body">
+        <EmptyState icon="cpu" title="No background schedules" sub="Nothing is running on its own." />
+      </div>
+    </Card>
   </div>
 </template>
+
+<style scoped>
+.sys-list {
+  display: flex;
+  flex-direction: column;
+}
+.sys-row {
+  padding: 13px var(--pad-card);
+  border-bottom: 1px solid var(--border);
+}
+.sys-row:last-child {
+  border-bottom: none;
+}
+.sys-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sys-icon {
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+.sys-name {
+  font-weight: 500;
+  color: var(--text);
+  font-size: var(--fs);
+}
+.sys-main .badge {
+  margin-left: auto;
+}
+.sys-desc {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  margin-top: 5px;
+}
+.sys-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+</style>

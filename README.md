@@ -1,9 +1,10 @@
-# Erda — a personal agent on the Microsoft Agent Framework (.NET) with DevUI
+# Erda — a personal agent on the Microsoft Agent Framework (.NET)
 
 Erda is a lean MVP personal assistant built on the **Microsoft Agent Framework (MAF)** for
-.NET, with MAF's browser-based **DevUI** as the interaction surface. It does three things:
+.NET. You interact with it through a **WhatsApp** channel and a **LAN control panel** (a Vue
+SPA). It does three things:
 
-1. **Chat** — talk to Erda in DevUI.
+1. **Chat** — talk to Erda in the control panel's chat view or over WhatsApp.
 2. **Browse + edit an Obsidian vault** — list, read, search, write, and append notes.
 3. **Voice-memo pipeline** — an Apple Voice Memo `.m4a` → OpenAI speech-to-text → a **Codex**
    agent (your ChatGPT subscription) cleans it up → the result is written into your vault.
@@ -47,20 +48,18 @@ export AZURE_OPENAI_API_KEY="<your-foundry-key>"
 export OPENAI_API_KEY="sk-...your-openai-platform-key..."
 ```
 
-Erda starts even if these are unset (so DevUI loads), but the relevant capability will fail
+Erda starts even if these are unset (so the app still boots), but the relevant capability will fail
 with a clear message until the key is present. The startup log prints which are `set` / `MISSING`.
 
 ## Run
 
 ```bash
-dotnet run --project Erda.Server   # bare backend; `make dev` also starts the SPA
+make dev                            # backend (:5167) + control-panel SPA (:5173)
+dotnet run --project Erda.Server    # bare backend only, no SPA
 ```
 
-Then open the DevUI URL printed in the console, e.g. **`http://localhost:5167/devui`**
-(the exact port comes from `Properties/launchSettings.json`; `/` redirects to `/devui`).
-
-DevUI is only mounted in the **Development** environment (it exposes system prompts), guarded by
-`app.Environment.IsDevelopment()`.
+Then open the control panel at **`http://localhost:5173`** (the Vite dev server proxies `/api`
+to the backend on :5167). See [Control panel](#control-panel-vue-spa--json-api) below.
 
 ## Control panel (Vue SPA + JSON API)
 
@@ -83,11 +82,11 @@ tweaking runtime config — all over a JSON API under `/api`, with a Vue 3 SPA f
   Vite proxies `/api` to the backend, so cookies work same-origin. Build the SPA with
   `cd web && npm ci && npm run build`.
 - **Production:** the Dockerfile builds the SPA and serves it from the app's `wwwroot` at the root
-  URL; the API is at `/api`. (DevUI remains Development-only.)
+  URL; the API is at `/api`.
 
 ## Architecture: Erda is the single orchestrator
 
-DevUI shows **one** entity, **`erda`** — a MAF `ChatClientAgent` on gpt-5-mini that owns the
+Erda is **one** agent — **`erda`**, a MAF `ChatClientAgent` on gpt-5-mini that owns the
 agent loop. Everything else is a **tool** Erda routes to:
 
 - the five **Obsidian vault** tools;
@@ -102,9 +101,9 @@ request to explain/summarize/write-about a topic, technology, product, person, o
 `consult_codex` (which searches the web and cites sources) *before* writing — rather than
 answering from memory. This is what keeps notes accurate instead of hallucinated.
 
-## Using it in DevUI
+## Using it
 
-- **Chat** — select **`erda`** and talk to it.
+- **Chat** — open the control panel's **Chat** view, or message Erda on WhatsApp.
 - **Vault tools** — ask Erda to list/read/search/write/append notes. All paths are confined to
   the vault root; anything that escapes is rejected.
 - **Voice memo** — ask Erda to process a voice memo and give it the **absolute path** to a real
@@ -141,7 +140,7 @@ Erda__VaultPath="/Users/you/MyVault" dotnet run --project Erda.Server
 
 ```
 Erda/
-  Program.cs                          # host + DI + DevUI wiring (registers only the erda agent)
+  Program.cs                          # host + DI wiring (registers only the erda agent)
   Configuration/ErdaOptions.cs        # strongly-typed settings
   Agents/ErdaAgent.cs                 # orchestrator agent: instructions + tool wiring
   Tools/ObsidianTools.cs              # the 5 vault function tools
@@ -160,9 +159,6 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 
 - The chat agent uses `new AzureOpenAIClient(uri, new ApiKeyCredential(key)).GetChatClient(deployment).AsAIAgent(...)`.
   Azure.AI.OpenAI 2.x uses **`System.ClientModel.ApiKeyCredential`**, not `Azure.AzureKeyCredential`.
-- DevUI transport is registered on the **builder**: `builder.AddOpenAIResponses()` /
-  `builder.AddOpenAIConversations()` (extensions on `IHostApplicationBuilder`), then
-  `app.MapOpenAIResponses()` / `app.MapOpenAIConversations()` / `app.MapDevUI()`.
 - **Workflow-as-tool**: the voice-memo workflow is wrapped with `workflow.AsAIAgent(...)` then
   `.AsAIFunction(...)` and attached to Erda as the `process_voice_memo` tool — the orchestrator
   routes to it rather than it being a separate top-level agent.
@@ -177,15 +173,14 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
   (the latter is API-only and Codex rejects it on a ChatGPT account).
 - **Codex web search**: `codex exec -c tools.web_search=true` (with a read-only sandbox) enables
   the native web_search tool — this is how `consult_codex` grounds and cites facts.
-- **An agent's `name` must equal its registration key** (e.g. both `"erda"`), or DevUI's eager
-  entity enumeration throws at startup.
+- **The agent is registered and resolved by keyed DI under its name** — `ErdaAgent.Name` is
+  `"erda"`, and `ErdaAgentResponder` / `WebChatService` pull it via `[FromKeyedServices("erda")]`.
 
 ## Package versions
 
 `Microsoft.Agents.AI` / `.OpenAI` / `.Workflows` `1.8.0` (stable);
-`Microsoft.Agents.AI.Hosting` `1.8.0-preview`, `.Hosting.OpenAI` `1.8.0-alpha`,
-`.DevUI` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
-`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See the `Erda.*/*.csproj` project files (MAF hosting/DevUI live in `Erda.Server`, the MAF agent/Azure packages in `Erda.Agents`, EF/OpenAI in `Erda.Core`).
+`Microsoft.Agents.AI.Hosting` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
+`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See the `Erda.*/*.csproj` project files (MAF hosting lives in `Erda.Server`, the MAF agent/Azure packages in `Erda.Agents`, EF/OpenAI in `Erda.Core`).
 
 ## Observability
 
@@ -222,8 +217,8 @@ in [`Program.cs`](Program.cs).
 Erda runs on an always-on ARM64 Linux box (e.g. an NVIDIA Jetson) as a two-container Compose
 stack: **`erda`** + **`whatsapp-bridge`**. Nothing here uses the GPU — every model call is cloud
 — so no `nvidia-docker` runtime is needed. In production Erda runs
-`ASPNETCORE_ENVIRONMENT=Production`, so **DevUI is not mounted**; you interact with Erda over
-WhatsApp and through the **LAN control panel** (published on port 5167 — see below).
+`ASPNETCORE_ENVIRONMENT=Production`; you interact with Erda over WhatsApp and through the
+**LAN control panel** (published on port 5167 — see below).
 
 ### Files
 
