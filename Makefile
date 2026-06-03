@@ -24,7 +24,7 @@ help:
 # (http://localhost:5173) for the panel; the backend serves /api and /devui on :5167.
 dev:
 	@npx --yes concurrently -k -n erda,web -c blue,green \
-		"dotnet run --project Erda.Server" \
+		"dotnet watch --project Erda.Server" \
 		"cd $(WEB_DIR) && npm install && npm run dev"
 
 # Everything under one `concurrently -k`: the backend (Development env -> appsettings.Development.json
