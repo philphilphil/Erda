@@ -32,6 +32,11 @@ services:
       context: .
     image: erda/erda:local
     restart: unless-stopped
+    # Run as the host owner (phil = 1000:1000) so the codex CLI subprocess writes files into the
+    # bind-mounted /codex (= host ~/.codex) as phil, not root. Otherwise root-owned files pile up
+    # in ~/.codex and break the interactive `codex` on the host. The erda-data/media named volumes
+    # must be chowned to 1000:1000 once (see README/deploy notes) since Docker creates them root-owned.
+    user: "1000:1000"
     depends_on: [whatsapp-bridge]
     ports:
       - "${PANEL_BIND:-0.0.0.0}:5167:5167"                         # control panel (home LAN; set PANEL_BIND to a LAN IP to restrict)
