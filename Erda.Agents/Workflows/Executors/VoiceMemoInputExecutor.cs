@@ -6,8 +6,9 @@ namespace Erda.Agents.Workflows.Executors;
 /// <summary>
 /// Entry adapter for the voice-memo workflow.
 ///
-/// When a workflow is hosted as an AIAgent (DevUI / OpenAI-Responses surface), its start
-/// executor MUST speak the chat protocol: it has to accept <c>List&lt;ChatMessage&gt;</c> + a
+/// When a workflow is hosted as an AIAgent (here: wrapped as the process_voice_memo tool via
+/// AsAIFunction), its start executor MUST speak the chat protocol: it has to accept
+/// <c>List&lt;ChatMessage&gt;</c> + a
 /// <c>TurnToken</c>. A plain <c>Executor&lt;string, string&gt;</c> start node fails validation
 /// with "Workflow does not support ChatProtocol".
 ///

@@ -21,14 +21,14 @@ help:
 	@echo "make deploy   - git pull && docker compose up -d --build"
 
 # Backend + SPA only (no bridge): the common loop when WhatsApp isn't linked. Open the Vite URL
-# (http://localhost:5173) for the panel; the backend serves /api and /devui on :5167.
+# (http://localhost:5173) for the panel; the backend serves /api on :5167.
 dev:
 	@npx --yes concurrently -k -n erda,web -c blue,green \
 		"dotnet watch --project Erda.Server" \
 		"cd $(WEB_DIR) && npm install && npm run dev"
 
 # Everything under one `concurrently -k`: the backend (Development env -> appsettings.Development.json
-# + DevUI on :5167, hot-reloaded via `dotnet watch`), the Vite SPA (:5173, proxies /api + the SSE
+# on :5167, hot-reloaded via `dotnet watch`), the Vite SPA (:5173, proxies /api + the SSE
 # stream to :5167), and the WhatsApp bridge. The bridge is built and exec'd so it is concurrently's
 # direct child and dies cleanly with -k (unlike `go run`, which would orphan the compiled binary on
 # the WhatsApp socket / port 8088).
