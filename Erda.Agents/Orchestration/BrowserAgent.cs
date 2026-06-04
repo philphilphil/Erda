@@ -4,8 +4,6 @@ using Erda.Agents.Tools;
 using Erda.Core.Configuration;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 

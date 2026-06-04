@@ -44,14 +44,16 @@ public sealed class PlaywrightMcp(
         {
             if (_connected) return;
 
-            // Append --headless only when configured headless, so local dev can watch the window.
-            string[] args = _opts.Headless ? [.. _opts.McpArgs, "--headless"] : _opts.McpArgs;
+            // Always include the user-data-dir from config (single source of truth), then append
+            // --headless when configured, so local dev can watch the browser window.
+            var args = new List<string>(_opts.McpArgs) { "--user-data-dir", _opts.UserDataDir };
+            if (_opts.Headless) args.Add("--headless");
 
             var transport = new StdioClientTransport(new StdioClientTransportOptions
             {
                 Name = ServerName,
                 Command = _opts.McpCommand,
-                Arguments = args,
+                Arguments = args.ToArray(),
                 ShutdownTimeout = TimeSpan.FromSeconds(10),
             }, loggerFactory);
 

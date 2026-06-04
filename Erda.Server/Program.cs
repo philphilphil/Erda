@@ -133,6 +133,11 @@ app.MapFallbackToFile("index.html");
 // Inbound WhatsApp bridge endpoint (only mapped when WhatsApp:Enabled).
 app.MapWhatsAppChannel();
 
+// Connect the browser MCP before the host starts. The orchestrator agent is built when the
+// background services (e.g. ReminderScheduler) are constructed during host start, and it reads
+// IBrowserMcp.Tools at that moment — so the MCP must be connected first. No-op when disabled.
+await app.Services.GetRequiredService<Erda.Agents.Tools.IBrowserMcp>().EnsureStartedAsync();
+
 app.Run();
 
 // Print the resolved config and which credentials are present, so missing keys are obvious.

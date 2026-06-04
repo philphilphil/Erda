@@ -1,6 +1,5 @@
 using Erda.Agents;
 using Erda.Agents.Tools;
-using Erda.Core.Configuration;
 using Microsoft.Extensions.AI;
 using Xunit;
 
