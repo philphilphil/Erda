@@ -7,6 +7,10 @@ namespace Erda.Core.WhatsApp;
 public interface IWhatsAppSender
 {
     Task<bool> SendAsync(string toJid, string text, CancellationToken cancellationToken = default);
+
+    /// <summary>Sends an image file (read by the bridge from the shared media volume) to a JID,
+    /// with an optional caption. Returns whether the bridge accepted it.</summary>
+    Task<bool> SendImageAsync(string toJid, string filePath, string? caption, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -56,6 +60,43 @@ public sealed class WhatsAppSender(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to POST to the WhatsApp bridge at {Url}.", url);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendImageAsync(string toJid, string filePath, string? caption, CancellationToken cancellationToken = default)
+    {
+        var o = options.Value;
+        if (string.IsNullOrWhiteSpace(o.BridgeUrl))
+        {
+            logger.LogWarning("WhatsApp bridge URL is not configured; cannot send image.");
+            return false;
+        }
+
+        // Same dev tagging as text: distinguish a dev instance's images from prod's.
+        if (hostEnvironment.IsDevelopment())
+            caption = DevOutboundPrefix + (caption ?? "");
+
+        var url = $"{o.BridgeUrl.TrimEnd('/')}/send-media";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(new { to = toJid, mediaPath = filePath, caption }),
+        };
+        request.Headers.TryAddWithoutValidation("X-Bridge-Secret", o.SharedSecret);
+
+        try
+        {
+            using var response = await http.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Bridge /send-media returned {Status} when sending to {To}.", (int)response.StatusCode, toJid);
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to POST image to the WhatsApp bridge at {Url}.", url);
             return false;
         }
     }

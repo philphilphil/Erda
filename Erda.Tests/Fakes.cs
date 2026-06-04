@@ -104,11 +104,18 @@ public sealed class FakeUrlFetcher : IUrlFetcher
 public sealed class FakeWhatsAppSender : IWhatsAppSender
 {
     public List<(string To, string Text)> Sent { get; } = [];
+    public List<(string To, string FilePath, string? Caption)> SentImages { get; } = [];
     public bool Result { get; set; } = true;
 
     public Task<bool> SendAsync(string toJid, string text, CancellationToken cancellationToken = default)
     {
         Sent.Add((toJid, text));
+        return Task.FromResult(Result);
+    }
+
+    public Task<bool> SendImageAsync(string toJid, string filePath, string? caption, CancellationToken cancellationToken = default)
+    {
+        SentImages.Add((toJid, filePath, caption));
         return Task.FromResult(Result);
     }
 }
