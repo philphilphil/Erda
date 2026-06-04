@@ -2,8 +2,8 @@
 import { ref, onMounted } from 'vue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
-import { getMcpCapabilities } from '../api/client'
-import type { McpServerDto } from '../api/types'
+import { getMcpCapabilities, getAccounts } from '../api/client'
+import type { McpServerDto, AccountDto } from '../api/types'
 
 interface Capability {
   icon: string
@@ -47,9 +47,11 @@ const onRequest: Capability[] = [
 ]
 
 const mcpServers = ref<McpServerDto[]>([])
+const accounts = ref<AccountDto[]>([])
 onMounted(async () => {
   try {
     mcpServers.value = (await getMcpCapabilities()).servers
+    accounts.value = (await getAccounts()).accounts
   } catch {
     // panel stays empty
   }
@@ -114,6 +116,22 @@ const automatic: Capability[] = [
           <div class="cap-detail">
             <div class="cap-tags">
               <span v-for="t in s.tools" :key="t.name" class="badge sq b-muted">{{ t.name }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+
+    <Card v-if="accounts.length" flush title="Logins Erda can use" sub="read-only — curated in 1Password">
+      <div class="cap-list">
+        <div v-for="a in accounts" :key="a.title" class="cap-row">
+          <div class="cap-name">
+            <span class="ci"><Icon name="globe" /></span>
+            <span>{{ a.title }}</span>
+          </div>
+          <div class="cap-detail">
+            <div class="cap-tags">
+              <span v-for="s in a.sites" :key="s" class="badge sq b-muted">{{ s }}</span>
             </div>
           </div>
         </div>

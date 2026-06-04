@@ -169,6 +169,14 @@ export interface McpCapabilitiesResponse {
   servers: McpServerDto[]
 }
 
+export interface AccountDto {
+  title: string
+  sites: string[]
+}
+export interface AccountsResponse {
+  accounts: AccountDto[]
+}
+
 // Chat
 export interface ChatMessage {
   role: 'user' | 'assistant'
