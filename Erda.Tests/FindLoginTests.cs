@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Erda.Agents.Tools;
 using Erda.Core.Services.OnePassword;
 using Xunit;
@@ -92,7 +93,7 @@ public class FindLoginTests
     public async Task Tool_returns_references_for_a_single_match_and_never_a_value()
     {
         var tool = FindLogin.CreateTool(new FakeOpCli(ListJson, MoxItemJson), "Erda");
-        var result = (string)(await tool.InvokeAsync(new() { ["domain"] = "moxfield.com" }))!;
+        var result = ((JsonElement)(await tool.InvokeAsync(new() { ["domain"] = "moxfield.com" }))!).GetString()!;
 
         Assert.Contains("op://Erda/moxid/username", result);
         Assert.Contains("op://Erda/moxid/password", result);
@@ -105,7 +106,27 @@ public class FindLoginTests
     public async Task Tool_reports_no_login_when_nothing_matches()
     {
         var tool = FindLogin.CreateTool(new FakeOpCli(ListJson, MoxItemJson), "Erda");
-        var result = (string)(await tool.InvokeAsync(new() { ["domain"] = "unknown-site.com" }))!;
+        var result = ((JsonElement)(await tool.InvokeAsync(new() { ["domain"] = "unknown-site.com" }))!).GetString()!;
         Assert.Contains("No login", result);
+    }
+
+    [Fact]
+    public async Task Tool_asks_which_account_when_multiple_match()
+    {
+        const string twoMatches = """
+        [ { "id":"a", "title":"Moxfield Personal", "urls":[ { "href":"https://www.moxfield.com" } ] },
+          { "id":"b", "title":"Moxfield Alt", "urls":[ { "href":"https://moxfield.com/login" } ] } ]
+        """;
+        var tool = FindLogin.CreateTool(new FakeOpCli(twoMatches, MoxItemJson), "Erda");
+        var result = ((JsonElement)(await tool.InvokeAsync(new() { ["domain"] = "moxfield.com" }))!).GetString()!;
+        Assert.Contains("Multiple logins match", result);
+    }
+
+    [Fact]
+    public async Task Tool_returns_a_graceful_message_on_unparseable_op_output()
+    {
+        var tool = FindLogin.CreateTool(new FakeOpCli("}{ not json", MoxItemJson), "Erda");
+        var result = ((JsonElement)(await tool.InvokeAsync(new() { ["domain"] = "moxfield.com" }))!).GetString()!;
+        Assert.Contains("couldn't parse", result);   // does not throw
     }
 }

@@ -41,6 +41,11 @@ public static class FindLogin
             {
                 return $"Could not reach 1Password to look up a login: {ex.Message}";
             }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                // Do NOT include ex.Message / the raw JSON — op output can contain secret values.
+                return "1Password returned output I couldn't parse while looking up a login.";
+            }
 
             var hits = Match(domain, items);
             if (hits.Count == 0)
@@ -58,6 +63,11 @@ public static class FindLogin
             catch (OpCliException ex)
             {
                 return $"Found '{hits[0].Title}' but could not read its details: {ex.Message}";
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                // Generic message only — the item JSON contains the password value; never echo it.
+                return $"Found '{hits[0].Title}' but its 1Password entry could not be parsed.";
             }
 
             var refs = BuildReferences(vault, detail);
@@ -79,8 +89,6 @@ public static class FindLogin
                 Description =
                     "Look up a saved login for a site by domain. Returns 1Password references (op://…) to " +
                     "type into the login form — never the secret values. 'No login' means you cannot sign in.",
-                // Return the string directly (not JSON-serialized) so callers can cast to string.
-                MarshalResult = (result, _, _) => ValueTask.FromResult(result),
             });
     }
 
@@ -117,12 +125,11 @@ public static class FindLogin
                 if (u.TryGetProperty("href", out var href) && href.GetString() is { Length: > 0 } h)
                     urls.Add(h);
 
-        var hasTotp = false;
-        if (root.TryGetProperty("fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Array)
-            foreach (var f in fieldsEl.EnumerateArray())
-                if (f.TryGetProperty("type", out var ty) &&
-                    string.Equals(ty.GetString(), "OTP", StringComparison.OrdinalIgnoreCase))
-                    hasTotp = true;
+        var hasTotp = root.TryGetProperty("fields", out var fieldsEl)
+            && fieldsEl.ValueKind == JsonValueKind.Array
+            && fieldsEl.EnumerateArray().Any(f =>
+                f.TryGetProperty("type", out var ty) &&
+                string.Equals(ty.GetString(), "OTP", StringComparison.OrdinalIgnoreCase));
 
         return new OpItemDetail(id, title, urls, hasTotp);
     }
