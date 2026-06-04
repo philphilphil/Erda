@@ -10,8 +10,9 @@ public sealed record McpServerStatus(string Name, string Transport, bool Connect
 
 /// <summary>
 /// Owns the lifecycle of the Playwright MCP server (a stdio child process) and exposes its tools to
-/// the browser sub-agent. A single instance; connected once at startup by
-/// <see cref="BrowserMcpHostedService"/>. When the feature is disabled, this is a no-op:
+/// the browser sub-agent. A single instance; connected once at startup (Program.cs calls
+/// <see cref="EnsureStartedAsync"/> before the host starts, so the orchestrator agent sees the
+/// tools when it is built). When the feature is disabled, this is a no-op:
 /// <see cref="Tools"/> is empty and no child process is launched.
 /// </summary>
 public interface IBrowserMcp
