@@ -33,11 +33,14 @@ public class OpSecretResolverTests
         Assert.Equal(["read", "op://Erda/Moxfield/password"], argv);
     }
 
-    [Fact]
-    public async Task Resolves_a_totp_field_via_op_item_get_otp()
+    [Theory]
+    [InlineData("op://Erda/Moxfield/one-time password")]
+    [InlineData("op://Erda/Moxfield/otp")]
+    [InlineData("op://Erda/Moxfield/totp")]
+    public async Task Resolves_a_totp_field_via_op_item_get_otp(string reference)
     {
         var cli = new FakeOpCli("123456");
-        var value = await Make(cli).ResolveAsync("op://Erda/Moxfield/one-time password");
+        var value = await Make(cli).ResolveAsync(reference);
 
         Assert.Equal("123456", value);
         var argv = Assert.Single(cli.Calls);

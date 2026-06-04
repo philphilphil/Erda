@@ -49,6 +49,9 @@ public sealed class OpSecretResolver(IOpCli cli, IOptions<BrowserOptions> option
         return (parts[0], parts[1], parts[2]);
     }
 
+    // Substring match (otp/totp) is a deliberate, acceptable trade-off for the single-user vault: a
+    // field literally named e.g. "depot" would false-positive, but conventional 1Password field names
+    // make that a non-concern.
     private static bool IsOneTimePassword(string field) =>
         field.Equals("one-time password", StringComparison.OrdinalIgnoreCase)
         || field.Contains("otp", StringComparison.OrdinalIgnoreCase)
