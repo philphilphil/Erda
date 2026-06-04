@@ -2,6 +2,7 @@ using System.ClientModel;
 using Azure.AI.OpenAI;
 using Erda.Agents.Tools;
 using Erda.Core.Configuration;
+using Erda.Core.Services.OnePassword;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -62,8 +63,8 @@ public static class BrowserAgent
         // falls back to the orchestrator's deployment (ChatDeployment) when no browser-specific one is set
         var deployment = string.IsNullOrWhiteSpace(browser.Deployment) ? erda.ChatDeployment : browser.Deployment!;
 
-        var opCli = services.GetRequiredService<Erda.Core.Services.OnePassword.IOpCli>();
-        var secretResolver = services.GetRequiredService<Erda.Core.Services.OnePassword.IOpSecretResolver>();
+        var opCli = services.GetRequiredService<IOpCli>();
+        var secretResolver = services.GetRequiredService<IOpSecretResolver>();
 
         ChatClient chat = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
             .GetChatClient(deployment);
