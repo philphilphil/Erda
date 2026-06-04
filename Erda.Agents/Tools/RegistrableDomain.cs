@@ -52,6 +52,8 @@ public static class RegistrableDomain
         // Not an absolute URL — treat as a bare host. Reject anything with spaces or no dot.
         if (s.Contains(' ')) return "";
         s = s.ToLowerInvariant();
+        var colon = s.IndexOf(':');
+        if (colon >= 0) s = s[..colon];
         return s.Contains('.') ? s : "";
     }
 }

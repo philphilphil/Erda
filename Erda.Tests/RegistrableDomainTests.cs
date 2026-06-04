@@ -13,6 +13,7 @@ public class RegistrableDomainTests
     [InlineData("HTTPS://WWW.Moxfield.COM", "moxfield.com")]
     [InlineData("foo.bar.co.uk", "bar.co.uk")]          // two-level public suffix
     [InlineData("shop.example.com.au", "example.com.au")]
+    [InlineData("moxfield.com:443", "moxfield.com")]    // bare host with port
     public void Of_returns_the_registrable_domain(string input, string expected)
         => Assert.Equal(expected, RegistrableDomain.Of(input));
 
@@ -27,6 +28,7 @@ public class RegistrableDomainTests
     public void Matches_is_case_insensitive_and_subdomain_tolerant()
     {
         Assert.True(RegistrableDomain.Matches("https://login.moxfield.com", "moxfield.com"));
+        Assert.True(RegistrableDomain.Matches("moxfield.com:443", "moxfield.com"));
         Assert.False(RegistrableDomain.Matches("https://example.com", "moxfield.com"));
     }
 }
