@@ -22,7 +22,7 @@ public sealed class BrowserOptions
     /// <c>--headless</c> is appended by the runner when <see cref="Headless"/> is true (so local dev can
     /// drop it and watch the browser).</summary>
     public string[] McpArgs { get; set; } =
-        ["@playwright/mcp@0.0.41", "--user-data-dir", "/data/browser"];
+        ["@playwright/mcp@0.0.75", "--user-data-dir", "/data/browser"];
 
     /// <summary>Run Chromium headless. Default true (the Jetson has no display). Set
     /// <c>Erda__Browser__Headless=false</c> on the dev Mac to watch the agent browse in a real window.</summary>

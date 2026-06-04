@@ -56,6 +56,21 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
+
+# ---- browser (Playwright MCP) ----------------------------------------------
+# Node + the pinned Playwright MCP server + a Chromium build, installed to a world-readable path so
+# the container (running as uid 1000) can launch it. Pin must match BrowserOptions.McpArgs.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ARG PLAYWRIGHT_MCP_VERSION=0.0.75
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
+ && npx --yes playwright install --with-deps chromium \
+ && chmod -R a+rx /ms-playwright \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish ./
 # The control-panel SPA: served from wwwroot by UseStaticFiles + MapFallbackToFile("index.html").
 COPY --from=web /web/dist ./wwwroot

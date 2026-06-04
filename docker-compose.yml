@@ -60,11 +60,13 @@ services:
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:?set AZURE_OPENAI_ENDPOINT in .env}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:?set AZURE_OPENAI_API_KEY in .env}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}  # transcription only; stripped from the Codex subprocess
+      Erda__Browser__Enabled: ${BROWSER_ENABLED:-false}
     volumes:
       - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
       - ${VAULT_DIR:?set VAULT_DIR (absolute) in .env}:/vault       # host-synced Obsidian vault, RW
       - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity, config) — survives redeploys
       - media:/media                                                # SHARED with the bridge (same path)
+      - browser-data:/data/browser    # persistent browser profile (logged-in session)
     networks: [erdanet]
 
 networks:
@@ -75,3 +77,4 @@ volumes:
   bridge-data:
   erda-data:
   media:
+  browser-data:
