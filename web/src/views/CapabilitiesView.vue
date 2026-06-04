@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
+import { getMcpCapabilities } from '../api/client'
+import type { McpServerDto } from '../api/types'
 
 interface Capability {
   icon: string
@@ -35,7 +38,22 @@ const onRequest: Capability[] = [
     desc: 'Turns an Apple Voice Memo into a clean, structured note.',
     tags: ['gpt-4o-transcribe → gpt-5.5'],
   },
+  {
+    icon: 'globe',
+    title: 'Web browsing',
+    desc: 'Drives a real browser to read sites and complete tasks, like a person would.',
+    tags: ['Playwright MCP', 'agentic'],
+  },
 ]
+
+const mcpServers = ref<McpServerDto[]>([])
+onMounted(async () => {
+  try {
+    mcpServers.value = (await getMcpCapabilities()).servers
+  } catch {
+    // panel stays empty
+  }
+})
 
 // Things Erda does in the background, without being prompted.
 const automatic: Capability[] = [
@@ -77,6 +95,25 @@ const automatic: Capability[] = [
             <div class="cap-desc">{{ cap.desc }}</div>
             <div class="cap-tags">
               <span v-for="tag in cap.tags" :key="tag" class="badge sq b-muted">{{ tag }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+
+    <Card v-if="mcpServers.length" flush title="Connected MCPs" sub="tool servers Erda is wired to">
+      <div class="cap-list">
+        <div v-for="s in mcpServers" :key="s.name" class="cap-row">
+          <div class="cap-name">
+            <span class="ci"><Icon name="globe" /></span>
+            <span>{{ s.name }}</span>
+            <span class="badge" :class="s.connected ? 'b-green' : 'b-muted'">
+              <span class="dot" />{{ s.connected ? 'connected' : 'disconnected' }}
+            </span>
+          </div>
+          <div class="cap-detail">
+            <div class="cap-tags">
+              <span v-for="t in s.tools" :key="t.name" class="badge sq b-muted">{{ t.name }}</span>
             </div>
           </div>
         </div>
