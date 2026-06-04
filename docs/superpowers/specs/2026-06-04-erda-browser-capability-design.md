@@ -42,8 +42,8 @@ small **secret-injection middleware** (resolve `op://` refs below the LLM + scru
 - The logged-in session is **persisted and reused** so login happens only when the session lapses.
 - A credential's **plaintext value never enters the LLM context, the transcript, or Seq logs.**
 - Secrets are scoped: a leaked token grants **read-only access to one dedicated 1Password vault**, nothing else.
-- New web tasks are added by writing a **playbook prompt** that references a **1Password item** — no
-  per-site code, no DB.
+- New web tasks are added by writing a **playbook prompt** that just names the site; credentials
+  resolve automatically by **URL lookup** against the `Erda` vault — no per-site code, no DB.
 - The Capabilities page shows **which MCP servers are connected** and **which tools** they expose, live.
 - Browsing runs on a **configurable model** (default = the orchestrator's), isolated so its big page
   snapshots don't pollute the main chat or its token budget.
@@ -60,8 +60,9 @@ small **secret-injection middleware** (resolve `op://` refs below the LLM + scru
 - **An in-app account/credential editor.** Accounts are created and curated in the **1Password app**;
   Erda has no write access and stores no account table. The panel may *display* the scoped vault's
   items read-only (titles + sites), nothing more.
-- **Domain-enforced secret binding at the framework level** (browser-use's `allowed_domains` gate).
-  v1 scopes secrets per-workflow in Erda; framework-level domain enforcement is a later hardening.
+- **Strict domain re-validation at inject-time** (browser-use's `allowed_domains` gate — re-checking
+  the live page's domain when the secret is actually typed). Credential *selection* is domain-based
+  via `find_login`; re-validating again at the injection layer is a later hardening.
 - **Outbound video/document media** over WhatsApp — images only in v1.
 - **Anti-bot / captcha evasion.** If a site blocks automation, the task fails loudly.
 
@@ -192,7 +193,7 @@ AIAgent browser = browserChat
 tools.Add(browser.AsAIFunction(
     name: "browse_web",
     description: "Perform a web task in a real browser (navigate, read, log in, interact) and return the result. " +
-                 "Provide the task in plain language and, if a login is needed, the account key."));
+                 "Provide the task in plain language; logins resolve automatically by URL (find_login)."));
 ```
 
 The sub-agent's **system prompt** carries the generic browsing guidance (prefer accessibility
@@ -250,12 +251,17 @@ what 1Password already knows."
 - **Each login item already carries everything:** the site **URL** (the item's website field),
   `username`, `password`, the **TOTP** seed, plus optional **custom fields / tags** for any
   Erda-specific metadata (e.g. a `playbook` tag).
-- **Binding is by explicit reference, not runtime URL-matching.** 1Password recommends explicit
-  `op://Erda/<item>/<field>` references over dynamic URL lookup because it's deterministic and the
-  agent never guesses which item matches a domain. So a **browser playbook** (stored in the existing
-  prompt/workflow store, *not* a new table) names its item directly — the Moxfield playbook references
-  `op://Erda/Moxfield/username` / `…/password` / `…/one-time password`, and can read the login URL
-  from the item too.
+- **Credential lookup is by URL — one mechanism for both playbooks and ad-hoc "go to X and do Y."**
+  When the sub-agent hits a login page it calls a **`find_login(domain)`** tool, which runs
+  `op item list --vault Erda --format json`, matches the page's **registrable domain** against each
+  item's URL field, and returns that item's `op://…` **references** (username / password / one-time
+  password) — **never the secret values**. The agent types the references and Component 4 injects
+  them. So playbooks stay **pure natural language** — no `op://` strings embedded, no item named.
+- **Disambiguation:** 0 matches → the agent reports it has no login for that site and **cannot** log
+  in (the vault is the allow-list — fails safe); multiple matches → it asks which account.
+  *(Trade-off: URL lookup is marginally less deterministic than naming an item explicitly — 1Password's
+  stated preference — but for a single-user vault with ~one item per site it's simpler and the vault
+  stays the hard boundary.)*
 - **Discovery / UI (optional, read-only):** the panel can show what Erda can access by running
   `op item list --vault Erda --format json` (titles + site URLs only — **no secrets**). No CRUD, no
   write-back; accounts are created in the 1Password app.
@@ -270,9 +276,9 @@ Sources: [service accounts for agentic AI](https://1password.com/blog/service-ac
 ## Component 7 — Unattended login & session persistence
 
 - **Agent-driven login (the normal path).** When the sub-agent lands on a login page (first run or
-  after expiry), it follows its system prompt + playbook to fill the form using the account's
-  `op://…` references; the injection middleware (Component 4) supplies username, password, and — if
-  present — the current **TOTP** code. No human in the loop, no manual capture.
+  after expiry), it calls `find_login(domain)` (Component 6) to get the matching item's `op://…`
+  references and fills the form with them; the injection middleware (Component 4) supplies username,
+  password, and — if present — the current **TOTP** code. No human in the loop, no manual capture.
 - **Reuse:** Playwright MCP `--user-data-dir /data/browser` persists cookies/localStorage across
   restarts, so after the first successful login the agent skips it on subsequent runs until the
   session lapses.
@@ -357,6 +363,9 @@ order (not separate releases; all part of this design):
   `op://` ref passes through untouched. (Drive with a fake tool + fake resolver.)
 - Vault discovery: a fake `op item list --vault Erda` JSON maps to the read-only accounts DTO
   (titles + site URLs only; assert no secret field can leak through).
+- `find_login(domain)` matching: matches on **registrable domain** (a subdomain/SSO-redirect URL still
+  finds the right item); 0 matches → "no login" result; multiple → an ambiguity result; the returned
+  payload contains only `op://…` references, never secret values.
 - `SendImageAsync` posts the expected `{to, mediaPath, caption}` to `/send-media` with the secret
   header (HttpClient test handler), and applies the dev caption prefix in Development.
 - Capabilities endpoint maps a fake MCP tool list to the DTO (name/status/tools).
@@ -390,6 +399,7 @@ confirm it answers and (when asked) a screenshot arrives on WhatsApp; confirm Se
 - `docker-compose.yml` — `browser-data` volume; `OP_SERVICE_ACCOUNT_TOKEN`; `.env.example` additions.
 - `Erda.Agents/Tools/BrowserMcp.cs` — MCP client lifecycle + tool list (new).
 - `Erda.Agents/Tools/SecretInjection.cs` — function-invocation middleware (new).
+- `Erda.Agents/Tools/FindLogin.cs` — `find_login(domain)` URL→item lookup; returns references, never secrets (new).
 - `Erda.Agents/Orchestration/ErdaAgent.cs` — build the browser sub-agent, add `browse_web` (gated by `Browser:Enabled`).
 - `Erda.Core/Services/OpSecretResolver.cs` + `IOpSecretResolver.cs` — `op` subprocess incl. TOTP (new).
 - `Erda.Core/Configuration/ErdaOptions.cs` (+ a new `BrowserOptions`) — config keys.
