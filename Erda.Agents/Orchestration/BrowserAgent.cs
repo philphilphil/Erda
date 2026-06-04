@@ -71,7 +71,16 @@ public static class BrowserAgent
 
         var tools = new List<AITool>(mcp.Tools) { FindLogin.CreateTool(opCli, browser.OnePasswordVault) };
 
-        AIAgent agent = chat.AsAIAgent(instructions: SystemPrompt, name: "browser", tools: tools)
+        // The Playwright snapshots are huge and accumulate; a reducer trims stale ones below the
+        // function-invocation loop so the sub-agent's context stays bounded (it previously blew the
+        // model's window with context_length_exceeded), and StepLimit caps a runaway loop at MaxSteps.
+        var reducer = new BrowserSnapshotReducer();
+
+        AIAgent agent = chat.AsAIAgent(
+                instructions: SystemPrompt,
+                name: "browser",
+                tools: tools,
+                clientFactory: inner => inner.AsBuilder().UseChatReducer(reducer).Build())
             .AsBuilder()
             .UseOpenTelemetry(
                 sourceName: ObservabilityOptions.ActivitySourceName,
@@ -80,6 +89,7 @@ public static class BrowserAgent
             // real values just before the MCP type call and restores the reference in a finally, so the
             // OTel span records only the reference — never the resolved secret. See SecretInjection.
             .Use(SecretInjection.Middleware(secretResolver))
+            .Use(StepLimit.Middleware(browser.MaxSteps))
             // NOTE: intentionally NOT adding ToolCallActivity.Middleware here — the orchestrator already
             // records the top-level browse_web call; recording every inner navigate/click would flood the
             // LAN activity feed. Granular browser steps live in OTel/Seq instead.
