@@ -49,12 +49,10 @@ const onRequest: Capability[] = [
 const mcpServers = ref<McpServerDto[]>([])
 const accounts = ref<AccountDto[]>([])
 onMounted(async () => {
-  try {
-    mcpServers.value = (await getMcpCapabilities()).servers
-    accounts.value = (await getAccounts()).accounts
-  } catch {
-    // panel stays empty
-  }
+  // Independent so one endpoint failing (or 1Password being unconfigured) still renders the other card.
+  const [mcp, accts] = await Promise.allSettled([getMcpCapabilities(), getAccounts()])
+  if (mcp.status === 'fulfilled') mcpServers.value = mcp.value.servers
+  if (accts.status === 'fulfilled') accounts.value = accts.value.accounts
 })
 
 // Things Erda does in the background, without being prompted.
