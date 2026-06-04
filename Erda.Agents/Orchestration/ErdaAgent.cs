@@ -10,6 +10,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 using Erda.Agents.Workflows;
+using Erda.Agents.Orchestration;
 
 namespace Erda.Agents;
 
@@ -48,6 +49,9 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<ReasoningTools>().AsTools());
         tools.AddRange(services.GetRequiredService<NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
+
+        var browseTool = BrowserAgent.TryCreateTool(services);
+        if (browseTool is not null) tools.Add(browseTool);
 
         // The active system prompt lives in the SQLite DB (authored in the control panel). There is
         // no code-baked default: a fresh DB has no system prompt until one is saved. Read once at
