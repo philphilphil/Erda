@@ -79,4 +79,30 @@ public class SecretInjectionTests
 
         Assert.Equal("op://Erda/Moxfield/password", ctx.Arguments["text"]); // reference restored in finally
     }
+
+    [Fact]
+    public async Task Restores_all_references_when_a_later_resolve_throws()
+    {
+        // A resolver that succeeds for most refs but throws for the one ending in "/boom".
+        var resolver = new ThrowingResolver();
+        var middleware = SecretInjection.Middleware(resolver);
+        var ctx = Context("browser_type",
+            ("a", "op://Erda/A/password"),
+            ("b", "op://Erda/B/boom"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            middleware(null!, ctx, (c, ct) => ValueTask.FromResult<object?>("typed"), CancellationToken.None).AsTask());
+
+        // Neither arg may be left holding a resolved secret — both restored to their references.
+        Assert.Equal("op://Erda/A/password", ctx.Arguments["a"]);
+        Assert.Equal("op://Erda/B/boom", ctx.Arguments["b"]);
+    }
+
+    private sealed class ThrowingResolver : IOpSecretResolver
+    {
+        public Task<string> ResolveAsync(string reference, CancellationToken ct = default) =>
+            reference.EndsWith("/boom")
+                ? throw new InvalidOperationException("op failed")
+                : Task.FromResult("REAL-SECRET-" + reference.Split('/').Last());
+    }
 }

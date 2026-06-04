@@ -12,9 +12,8 @@ namespace Erda.Agents.Tools;
 ///
 /// Ordering matters: this middleware is added <b>after</b> <c>UseOpenTelemetry</c> in
 /// <see cref="Erda.Agents.BrowserAgent"/>, so OpenTelemetry is the outer layer and records the
-/// argument <i>before</i> the swap (and, if it serializes lazily, <i>after</i> the restore). Either
-/// way the recorded/telemetry copy only ever holds the <c>op://…</c> reference — never the resolved
-/// secret. This runs regardless of the message-content capture flag.
+/// argument <i>before</i> the swap. The recorded/telemetry copy only ever holds the <c>op://…</c>
+/// reference — never the resolved secret. This runs regardless of the message-content capture flag.
 ///
 /// Only exact top-level reference strings (a value that starts with <c>op://</c>) are resolved; the
 /// browsing prompt instructs the agent to type the bare reference as the field value.
@@ -29,19 +28,19 @@ public static class SecretInjection
             if (args is null)
                 return await next(context!, cancellationToken);
 
-            // Resolve every op:// string arg, remembering the originals to restore afterward.
             List<KeyValuePair<string, object?>>? originals = null;
-            foreach (var kv in args.ToList())
-            {
-                if (kv.Value is string s && s.StartsWith("op://", StringComparison.Ordinal))
-                {
-                    (originals ??= []).Add(kv);
-                    args[kv.Key] = await resolver.ResolveAsync(s, cancellationToken);
-                }
-            }
-
             try
             {
+                // Resolve every op:// string arg, remembering originals to restore in finally.
+                foreach (var kv in args.ToList())
+                {
+                    if (kv.Value is string s && s.StartsWith("op://", StringComparison.Ordinal))
+                    {
+                        (originals ??= []).Add(kv);
+                        args[kv.Key] = await resolver.ResolveAsync(s, cancellationToken);
+                    }
+                }
+
                 return await next(context!, cancellationToken);
             }
             finally
