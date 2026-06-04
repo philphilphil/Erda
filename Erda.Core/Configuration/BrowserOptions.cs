@@ -30,6 +30,11 @@ public sealed class BrowserOptions
     /// <summary>Persistent profile directory (kept on the browser-data volume) — the logged-in session.</summary>
     public string UserDataDir { get; set; } = "/data/browser";
 
+    /// <summary>Directory the MCP writes output files (screenshots) to (<c>--output-dir</c>). Prod = the
+    /// shared <c>/media</c> volume the WhatsApp bridge sends from; dev points at a gitignored project
+    /// <c>media/</c> folder. Without this the MCP writes into the process working directory.</summary>
+    public string OutputDir { get; set; } = "/media";
+
     /// <summary>Upper bound on tool calls inside a single browse_web run, to bound a runaway loop.</summary>
     public int MaxSteps { get; set; } = 40;
 }
