@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 
-namespace Erda.Agents.Orchestration;
+namespace Erda.Agents;
 
 /// <summary>
 /// Builds the browser sub-agent and exposes it to the orchestrator as the single <c>browse_web</c>
@@ -47,20 +47,29 @@ public static class BrowserAgent
         var configuration = services.GetRequiredService<IConfiguration>();
         var erda = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
         var browser = services.GetRequiredService<IOptions<BrowserOptions>>().Value;
+        var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
 
         var endpoint = configuration["AZURE_OPENAI_ENDPOINT"];
         var apiKey = configuration["AZURE_OPENAI_API_KEY"];
+        // Unlike ErdaAgent (which builds with a placeholder URI so the app starts), we simply omit the
+        // tool when unconfigured — the orchestrator already surfaces a clear error for missing creds.
         if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey)) return null;
 
+        // falls back to the orchestrator's deployment (ChatDeployment) when no browser-specific one is set
         var deployment = string.IsNullOrWhiteSpace(browser.Deployment) ? erda.ChatDeployment : browser.Deployment!;
 
         ChatClient chat = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
             .GetChatClient(deployment);
 
-        AIAgent agent = chat.AsAIAgent(
-            instructions: SystemPrompt,
-            name: "browser",
-            tools: [.. mcp.Tools]);
+        AIAgent agent = chat.AsAIAgent(instructions: SystemPrompt, name: "browser", tools: [.. mcp.Tools])
+            .AsBuilder()
+            .UseOpenTelemetry(
+                sourceName: ObservabilityOptions.ActivitySourceName,
+                configure: telemetry => telemetry.EnableSensitiveData = observability.CaptureMessageContent)
+            // NOTE: intentionally NOT adding ToolCallActivity.Middleware here — the orchestrator already
+            // records the top-level browse_web call; recording every inner navigate/click would flood the
+            // LAN activity feed. Granular browser steps live in OTel/Seq instead.
+            .Build();
 
         return agent.AsAIFunction(new AIFunctionFactoryOptions
         {
