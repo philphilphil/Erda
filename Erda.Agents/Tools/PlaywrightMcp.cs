@@ -20,10 +20,11 @@ public sealed class PlaywrightMcp(
 
     private readonly BrowserOptions _opts = options.Value;
     private readonly ILogger<PlaywrightMcp> _logger = loggerFactory.CreateLogger<PlaywrightMcp>();
+    // Not disposed: this is an app-lifetime singleton, so the semaphore lives until process exit.
     private readonly SemaphoreSlim _gate = new(1, 1);
     private McpClient? _client;
-    private IReadOnlyList<AITool> _tools = [];
-    private bool _connected;
+    private volatile IReadOnlyList<AITool> _tools = [];
+    private volatile bool _connected;
 
     public bool Enabled => _opts.Enabled;
     public IReadOnlyList<AITool> Tools => _tools;
@@ -63,6 +64,7 @@ public sealed class PlaywrightMcp(
         catch (Exception ex)
         {
             _logger.LogError(ex, "Playwright MCP failed to connect; browse_web will be unavailable.");
+            if (_client is not null) { await _client.DisposeAsync(); _client = null; }
             _tools = [];
             _connected = false;
         }

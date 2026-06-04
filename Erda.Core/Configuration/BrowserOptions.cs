@@ -7,6 +7,8 @@ namespace Erda.Core.Configuration;
 /// </summary>
 public sealed class BrowserOptions
 {
+    public const string SectionName = "Erda:Browser";
+
     /// <summary>Master switch. When false, no MCP child process and no <c>browse_web</c> tool.</summary>
     public bool Enabled { get; set; }
 
