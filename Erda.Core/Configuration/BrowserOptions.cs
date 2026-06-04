@@ -37,4 +37,13 @@ public sealed class BrowserOptions
 
     /// <summary>Upper bound on tool calls inside a single browse_web run, to bound a runaway loop.</summary>
     public int MaxSteps { get; set; } = 40;
+
+    /// <summary>Executable that runs the 1Password CLI (resolves <c>op://…</c> references and lists
+    /// the <see cref="OnePasswordVault"/> items). On PATH in the runtime image.</summary>
+    public string OpCommand { get; set; } = "op";
+
+    /// <summary>The single 1Password vault Erda may read. It is the account registry AND the
+    /// allow-list: only logins in this vault can be used. The service-account token is scoped
+    /// read-only to it. References outside this vault are refused by the resolver.</summary>
+    public string OnePasswordVault { get; set; } = "Erda";
 }
