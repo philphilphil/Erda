@@ -239,6 +239,22 @@ preserved: Azure + OpenAI-platform keys arrive as env vars; **Codex auth is the 
 `~/.codex` session** (no key). `CodexRunner` still strips `OPENAI_API_KEY` from the subprocess,
 so Codex authenticates against the ChatGPT subscription, not per-token billing.
 
+### Browser logins (1Password)
+
+Erda logs into sites using credentials it never sees. Set up a dedicated, least-privilege vault:
+
+1. In the 1Password app, create a vault named **`Erda`**. Add a login item per site Erda may use
+   (the item's **website** field drives matching; include the **one-time password** field for TOTP-based
+   2FA). Curating this vault is how you control which sites Erda can sign into — Erda has no write access.
+2. In 1Password → **Developer → Service Accounts**, create a service account with **read-only** access
+   to **only** the `Erda` vault. Copy its token into `OP_SERVICE_ACCOUNT_TOKEN` in `.env`.
+3. Set `BROWSER_ENABLED=true`. On the first run for a site, Erda fills the login form from 1Password and
+   the session persists on the `browser-data` volume, so later runs skip the login.
+
+**Hard stops:** a captcha or a push/SMS/email challenge cannot be solved unattended — Erda stops and
+messages you on WhatsApp. As a fallback you can refresh a session manually: run a headed browser against
+the same profile and log in once, then let Erda reuse the persisted session.
+
 ### One-time bootstrap on the Jetson
 
 1. **Codex login** (host): `codex login` — opens a device-code flow (prints a URL to open on

@@ -61,6 +61,7 @@ services:
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:?set AZURE_OPENAI_API_KEY in .env}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}  # transcription only; stripped from the Codex subprocess
       Erda__Browser__Enabled: ${BROWSER_ENABLED:-false}
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:-}   # read-only, scoped to the Erda 1Password vault
     volumes:
       - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
       - ${VAULT_DIR:?set VAULT_DIR (absolute) in .env}:/vault       # host-synced Obsidian vault, RW

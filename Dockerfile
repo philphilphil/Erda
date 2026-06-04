@@ -63,13 +63,27 @@ COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ARG PLAYWRIGHT_MCP_VERSION=0.0.75
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
  && npx --yes playwright install --with-deps chromium \
  && chmod -R a+rx /ms-playwright \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# ---- 1Password CLI (op) ----------------------------------------------------
+# The op binary resolves op://… secret references and lists the scoped Erda vault for the browser
+# sub-agent. Authenticated by OP_SERVICE_ACCOUNT_TOKEN (read-only, one vault) from compose. ARM64
+# build for the Jetson; override OP_VERSION/OP_ARCH for another host.
+ARG OP_VERSION=2.31.1
+ARG OP_ARCH=arm64
+RUN curl -fsSL -o /tmp/op.zip \
+      "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VERSION}/op_linux_${OP_ARCH}_v${OP_VERSION}.zip" \
+ && (cd /tmp && unzip -o op.zip op) \
+ && mv /tmp/op /usr/local/bin/op \
+ && chmod +x /usr/local/bin/op \
+ && rm -f /tmp/op.zip \
+ && /usr/local/bin/op --version
 
 COPY --from=build /app/publish ./
 # The control-panel SPA: served from wwwroot by UseStaticFiles + MapFallbackToFile("index.html").
