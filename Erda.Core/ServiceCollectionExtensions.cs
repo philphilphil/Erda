@@ -2,6 +2,7 @@ using Erda.Core.Configuration;
 using Erda.Core.Data;
 using Erda.Core.Scheduling;
 using Erda.Core.Services;
+using Erda.Core.Services.OnePassword;
 using Erda.Core.Services.Seq;
 using Erda.Core.WhatsApp;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +45,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PreScriptRunner>();
         services.AddSingleton<IPreScriptRunner>(sp => sp.GetRequiredService<PreScriptRunner>());
         // --- 1Password (op CLI) — subprocess seam (resolver registered in the next task) ---
-        services.AddSingleton<Erda.Core.Services.OnePassword.IOpCli, Erda.Core.Services.OnePassword.OpCli>();
+        services.AddSingleton<IOpCli, OpCli>();
         // URL fetcher for the recipe-importer workflow (creates clients via the factory per fetch).
         services.AddHttpClient(nameof(UrlFetcher));
         services.AddSingleton<IUrlFetcher, UrlFetcher>();

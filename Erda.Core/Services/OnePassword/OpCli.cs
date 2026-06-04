@@ -29,6 +29,8 @@ public sealed class OpCli(IOptions<BrowserOptions> options, ILogger<OpCli> logge
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
 
+        var cmd = args.Count > 0 ? args[0] : "(no command)";
+
         using var proc = new Process { StartInfo = psi };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
@@ -59,7 +61,7 @@ public sealed class OpCli(IOptions<BrowserOptions> options, ILogger<OpCli> logge
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             try { proc.Kill(entireProcessTree: true); } catch { /* best-effort */ }
-            throw new OpCliException($"op {args[0]} exceeded {Timeout} and was killed.");
+            throw new OpCliException($"op {cmd} exceeded {Timeout} and was killed.");
         }
 
         if (proc.ExitCode != 0)
@@ -69,7 +71,7 @@ public sealed class OpCli(IOptions<BrowserOptions> options, ILogger<OpCli> logge
             // argv is safe to log (references/ids/flags only). stderr from op does not echo values.
             logger.LogWarning("op {Args} failed (exit {Exit}) in {Ms}ms: {Err}",
                 string.Join(' ', args), proc.ExitCode, sw.ElapsedMilliseconds, tail);
-            throw new OpCliException($"op {args[0]} failed (exit {proc.ExitCode}): {tail}");
+            throw new OpCliException($"op {cmd} failed (exit {proc.ExitCode}): {tail}");
         }
 
         logger.LogDebug("op {Args} ok in {Ms}ms", string.Join(' ', args), sw.ElapsedMilliseconds);
