@@ -44,8 +44,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICodexRunner>(sp => sp.GetRequiredService<CodexRunner>());
         services.AddSingleton<PreScriptRunner>();
         services.AddSingleton<IPreScriptRunner>(sp => sp.GetRequiredService<PreScriptRunner>());
-        // --- 1Password (op CLI) — subprocess seam (resolver registered in the next task) ---
+        // --- 1Password (op CLI + secret resolver) ---
         services.AddSingleton<IOpCli, OpCli>();
+        services.AddSingleton<IOpSecretResolver, OpSecretResolver>();
         // URL fetcher for the recipe-importer workflow (creates clients via the factory per fetch).
         services.AddHttpClient(nameof(UrlFetcher));
         services.AddSingleton<IUrlFetcher, UrlFetcher>();
