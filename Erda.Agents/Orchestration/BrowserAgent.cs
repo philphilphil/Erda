@@ -27,8 +27,14 @@ public static class BrowserAgent
     private const string SystemPrompt =
         "You control a real web browser through tools. Work step by step: take a snapshot to see the " +
         "page, then act (navigate/click/type), then snapshot again. Prefer the accessibility snapshot " +
-        "over screenshots for deciding actions. When you have the answer, state it concisely. If a page " +
-        "blocks you (captcha, login you cannot complete), stop and say so rather than guessing.";
+        "over screenshots for deciding actions. When you have the answer, state it concisely.\n\n" +
+        "LOGGING IN: if a page requires sign-in, call find_login with the site's domain. It returns " +
+        "1Password references (op://…) — type those references verbatim into the username and password " +
+        "fields; they resolve to the real credentials securely, so never ask for or guess a password. " +
+        "If the site then asks for a one-time code / 2FA, type the one-time-password reference it gave " +
+        "you. If find_login says there is no login, or the site shows a captcha or a push/SMS/email " +
+        "challenge you cannot complete, STOP and report clearly that you are blocked and why — do not " +
+        "guess credentials or codes.";
 
     /// <summary>True when the feature is on and the MCP actually connected with at least one tool.</summary>
     public static bool ShouldExpose(IBrowserMcp mcp) => mcp.Enabled && mcp.Tools.Count > 0;
@@ -56,14 +62,23 @@ public static class BrowserAgent
         // falls back to the orchestrator's deployment (ChatDeployment) when no browser-specific one is set
         var deployment = string.IsNullOrWhiteSpace(browser.Deployment) ? erda.ChatDeployment : browser.Deployment!;
 
+        var opCli = services.GetRequiredService<Erda.Core.Services.OnePassword.IOpCli>();
+        var secretResolver = services.GetRequiredService<Erda.Core.Services.OnePassword.IOpSecretResolver>();
+
         ChatClient chat = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
             .GetChatClient(deployment);
 
-        AIAgent agent = chat.AsAIAgent(instructions: SystemPrompt, name: "browser", tools: [.. mcp.Tools])
+        var tools = new List<AITool>(mcp.Tools) { FindLogin.CreateTool(opCli, browser.OnePasswordVault) };
+
+        AIAgent agent = chat.AsAIAgent(instructions: SystemPrompt, name: "browser", tools: tools)
             .AsBuilder()
             .UseOpenTelemetry(
                 sourceName: ObservabilityOptions.ActivitySourceName,
                 configure: telemetry => telemetry.EnableSensitiveData = observability.CaptureMessageContent)
+            // Secret injection runs INSIDE OpenTelemetry (added after it): it swaps op:// references for
+            // real values just before the MCP type call and restores the reference in a finally, so the
+            // OTel span records only the reference — never the resolved secret. See SecretInjection.
+            .Use(SecretInjection.Middleware(secretResolver))
             // NOTE: intentionally NOT adding ToolCallActivity.Middleware here — the orchestrator already
             // records the top-level browse_web call; recording every inner navigate/click would flood the
             // LAN activity feed. Granular browser steps live in OTel/Seq instead.
