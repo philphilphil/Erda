@@ -42,6 +42,7 @@ public sealed class BrowserSnapshotReducer(int keepLargeToolResults = 1, int lar
     private bool IsLargeToolResult(ChatMessage m)
     {
         if (m.Role != ChatRole.Tool) return false;
+        // Playwright MCP tool results are a single string FunctionResultContent; measure that.
         var frc = m.Contents.OfType<FunctionResultContent>().FirstOrDefault();
         var len = (frc?.Result?.ToString() ?? m.Text)?.Length ?? 0;
         return len > _threshold;

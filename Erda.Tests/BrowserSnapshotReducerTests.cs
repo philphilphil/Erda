@@ -36,6 +36,8 @@ public class BrowserSnapshotReducerTests
         // c1 was trimmed to the placeholder but keeps its CallId
         var c1 = reduced[3].Contents.OfType<FunctionResultContent>().Single();
         Assert.Equal("c1", c1.CallId);
+        Assert.Equal("[earlier browser snapshot omitted to save context]", c1.Result?.ToString());
+        Assert.Equal(ChatRole.Tool, reduced[3].Role);
         Assert.DoesNotContain(new string('x', 100), c1.Result?.ToString() ?? "");   // big text gone
         // c2 small tool result is untouched
         Assert.Equal("small ok", reduced[5].Contents.OfType<FunctionResultContent>().Single().Result?.ToString());
@@ -57,5 +59,21 @@ public class BrowserSnapshotReducerTests
         Assert.Equal(3, reduced.Count);
         // only one large result, keepLargeToolResults=2 → nothing trimmed
         Assert.Contains(new string('x', 5000), reduced[2].Contents.OfType<FunctionResultContent>().Single().Result?.ToString());
+    }
+
+    [Fact]
+    public async Task Trims_all_large_results_when_keep_is_zero()
+    {
+        var reducer = new BrowserSnapshotReducer(keepLargeToolResults: 0, largeThresholdChars: 1000);
+        var messages = new List<ChatMessage> { Sys("s"), Tool("c1", Big(5000)), Tool("c2", Big(5000)) };
+
+        var reduced = (await reducer.ReduceAsync(messages)).ToList();
+
+        foreach (var i in new[] { 1, 2 })
+        {
+            var frc = reduced[i].Contents.OfType<FunctionResultContent>().Single();
+            Assert.Equal("[earlier browser snapshot omitted to save context]", frc.Result?.ToString());
+        }
+        Assert.Equal("c1", reduced[1].Contents.OfType<FunctionResultContent>().Single().CallId);
     }
 }
