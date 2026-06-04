@@ -26,6 +26,7 @@ public static class ServiceCollectionExtensions
         services.Configure<SeqOptions>(configuration.GetSection(SeqOptions.SectionName));
         services.Configure<ErrorWatchOptions>(configuration.GetSection(ErrorWatchOptions.SectionName));
         services.Configure<ReminderOptions>(configuration.GetSection(ReminderOptions.SectionName));
+        services.Configure<BrowserOptions>(configuration.GetSection("Erda:Browser"));
 
         // --- SQLite database (all runtime state) ---
         // Consumers are singletons/background services, so they take an IDbContextFactory and open a
