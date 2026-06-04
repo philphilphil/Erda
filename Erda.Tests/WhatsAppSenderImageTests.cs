@@ -68,6 +68,17 @@ public class WhatsAppSenderImageTests
     }
 
     [Fact]
+    public async Task Dev_null_caption_becomes_a_clean_prefix_tag()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK);
+        await Make(handler, Environments.Development)
+            .SendImageAsync("1@s.whatsapp.net", "/media/shot.png", null);
+
+        using var doc = JsonDocument.Parse(handler.Body!);
+        Assert.Equal("🧪", doc.RootElement.GetProperty("caption").GetString());  // tagged, no trailing space
+    }
+
+    [Fact]
     public async Task Returns_false_on_a_non_success_status()
     {
         var handler = new CapturingHandler(HttpStatusCode.InternalServerError);

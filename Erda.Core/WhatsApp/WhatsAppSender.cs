@@ -73,9 +73,10 @@ public sealed class WhatsAppSender(
             return false;
         }
 
-        // Same dev tagging as text: distinguish a dev instance's images from prod's.
+        // Tag dev-instance images so they're distinguishable from prod's — but keep it clean when
+        // there is no caption (avoid a stray trailing-space "🧪 " label).
         if (hostEnvironment.IsDevelopment())
-            caption = DevOutboundPrefix + (caption ?? "");
+            caption = string.IsNullOrEmpty(caption) ? DevOutboundPrefix.Trim() : DevOutboundPrefix + caption;
 
         var url = $"{o.BridgeUrl.TrimEnd('/')}/send-media";
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
