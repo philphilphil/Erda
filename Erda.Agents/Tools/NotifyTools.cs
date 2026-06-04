@@ -7,9 +7,10 @@ using Microsoft.Extensions.Options;
 namespace Erda.Agents.Tools;
 
 /// <summary>
-/// Exposes a single tool, <c>message_me</c>, that lets Erda proactively send Phil a WhatsApp
-/// message (via the bridge). This is the agent-facing side of the outbound path; the error-watch
-/// scheduler uses the same <see cref="IWhatsAppSender"/> directly.
+/// Exposes the agent's proactive WhatsApp tools: <c>message_me</c> (send Phil a text) and
+/// <c>send_image</c> (send Phil an image file, e.g. a browser screenshot). This is the agent-facing
+/// side of the outbound path; the error-watch scheduler uses the same <see cref="IWhatsAppSender"/>
+/// directly.
 /// </summary>
 public sealed class NotifyTools(IWhatsAppSender sender, IOptions<WhatsAppOptions> options)
 {

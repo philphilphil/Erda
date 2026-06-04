@@ -64,4 +64,16 @@ public class NotifyToolsTests
         Assert.Contains("Cannot send", result);
         Assert.Null(sender.ImageCall);   // never reached the sender
     }
+
+    [Fact]
+    public async Task Send_image_refuses_when_owner_number_is_unconfigured()
+    {
+        var sender = new FakeSender();
+        var tools = new NotifyTools(sender, Options.Create(new WhatsAppOptions { OwnerNumber = "" }));
+        var result = ((JsonElement)(await Tool(tools, "send_image")
+            .InvokeAsync(new() { ["filePath"] = "/any/path.png" }))!).GetString()!;
+
+        Assert.Contains("not configured", result);
+        Assert.Null(sender.ImageCall);   // guarded before touching the sender
+    }
 }
