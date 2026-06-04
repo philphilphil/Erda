@@ -104,13 +104,14 @@ public class BrowserOptionsTests
         Assert.Null(opts.Deployment);          // null => fall back to ChatDeployment
         Assert.Equal("/data/browser", opts.UserDataDir);
         Assert.True(opts.MaxSteps > 0);
+        Assert.True(opts.Headless);            // headless by default; flip to false on dev to watch
     }
 }
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=Erda.Tests.BrowserOptionsTests"`
+Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "FullyQualifiedName~BrowserOptionsTests"`
 Expected: FAIL — `BrowserOptions` does not exist (compile error).
 
 - [ ] **Step 4: Create BrowserOptions**
@@ -135,9 +136,15 @@ public sealed class BrowserOptions
     /// <summary>Executable that launches the MCP server (stdio).</summary>
     public string McpCommand { get; set; } = "npx";
 
-    /// <summary>Arguments for <see cref="McpCommand"/>. Pinned MCP version + headless + persistent profile.</summary>
+    /// <summary>Base arguments for <see cref="McpCommand"/>. Pinned MCP version + persistent profile.
+    /// <c>--headless</c> is appended by the runner when <see cref="Headless"/> is true (so local dev can
+    /// drop it and watch the browser).</summary>
     public string[] McpArgs { get; set; } =
-        ["@playwright/mcp@0.0.41", "--headless", "--user-data-dir", "/data/browser"];
+        ["@playwright/mcp@0.0.41", "--user-data-dir", "/data/browser"];
+
+    /// <summary>Run Chromium headless. Default true (the Jetson has no display). Set
+    /// <c>Erda__Browser__Headless=false</c> on the dev Mac to watch the agent browse in a real window.</summary>
+    public bool Headless { get; set; } = true;
 
     /// <summary>Persistent profile directory (kept on the browser-data volume) — the logged-in session.</summary>
     public string UserDataDir { get; set; } = "/data/browser";
@@ -150,7 +157,7 @@ public sealed class BrowserOptions
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=Erda.Tests.BrowserOptionsTests"`
+Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "FullyQualifiedName~BrowserOptionsTests"`
 Expected: PASS (2 tests).
 
 - [ ] **Step 6: Commit**
@@ -249,11 +256,14 @@ public sealed class PlaywrightMcp(IOptions<BrowserOptions> options, ILogger<Play
         {
             if (_connected) return;
 
+            // Append --headless only when configured headless, so local dev can watch the window.
+            string[] args = _opts.Headless ? [.. _opts.McpArgs, "--headless"] : _opts.McpArgs;
+
             var transport = new StdioClientTransport(new StdioClientTransportOptions
             {
                 Name = ServerName,
                 Command = _opts.McpCommand,
-                Arguments = _opts.McpArgs,
+                Arguments = args,
                 ShutdownTimeout = TimeSpan.FromSeconds(10),
             });
 
@@ -376,7 +386,7 @@ public class BrowserAgentGateTests
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=Erda.Tests.BrowserAgentGateTests"`
+Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "FullyQualifiedName~BrowserAgentGateTests"`
 Expected: FAIL — `BrowserAgent` does not exist.
 
 - [ ] **Step 3: Implement BrowserAgent**
@@ -457,7 +467,7 @@ public static class BrowserAgent
 
 - [ ] **Step 4: Run the gate test to verify it passes**
 
-Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=Erda.Tests.BrowserAgentGateTests"`
+Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "FullyQualifiedName~BrowserAgentGateTests"`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Wire browse_web into the orchestrator**
@@ -530,7 +540,7 @@ public class CapabilitiesEndpointTests
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=Erda.Tests.CapabilitiesEndpointTests"`
+Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "FullyQualifiedName~CapabilitiesEndpointTests"`
 Expected: FAIL — `CapabilitiesEndpoints` / DTOs do not exist.
 
 - [ ] **Step 3: Create the DTOs**
@@ -584,7 +594,7 @@ Add `using Erda.Server.Api.Capabilities;` at the top.
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=Erda.Tests.CapabilitiesEndpointTests"`
+Run: `dotnet test Erda.Tests/Erda.Tests.csproj --filter "FullyQualifiedName~CapabilitiesEndpointTests"`
 Expected: PASS (1 test).
 
 - [ ] **Step 7: Commit**
@@ -766,11 +776,11 @@ git commit -m "feat(browser): Node + Playwright MCP + Chromium in the runtime im
 
 - [ ] **Step 1: Run locally with the browser enabled**
 
-Ensure Node + the MCP are available locally (`npm install -g @playwright/mcp@<pinned> && npx playwright install chromium`), then run the backend with the feature on:
+Ensure Node + the MCP are available locally (`npm install -g @playwright/mcp@<pinned> && npx playwright install chromium`), then run the backend with the feature on and **headed so you can watch it**:
 ```bash
-Erda__Browser__Enabled=true ASPNETCORE_ENVIRONMENT=Development dotnet run --project Erda.Server
+Erda__Browser__Enabled=true Erda__Browser__Headless=false ASPNETCORE_ENVIRONMENT=Development dotnet run --project Erda.Server
 ```
-Expected log line: `Playwright MCP connected: N tools.` (N is ~20+).
+Expected log line: `Playwright MCP connected: N tools.` (N is ~20+). When you drive a task (Step 3), a real Chromium window opens and you can watch the agent navigate/click — this is how you judge whether the model is good enough. (Also: in Development, OTel content capture is on, so the per-step accessibility snapshots/tool args show in Seq, and every `browse_web` call appears in the Activity feed.)
 
 - [ ] **Step 2: Verify the capabilities endpoint**
 
