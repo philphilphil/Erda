@@ -179,12 +179,12 @@ func sendMediaHandler(cfg Config, client *whatsmeow.Client) http.HandlerFunc {
 func buildImageMessage(up whatsmeow.UploadResponse, mime, caption string) *waE2E.ImageMessage {
 	msg := &waE2E.ImageMessage{
 		Mimetype:      proto.String(mime),
-		URL:           &up.URL,
-		DirectPath:    &up.DirectPath,
+		URL:           proto.String(up.URL),
+		DirectPath:    proto.String(up.DirectPath),
 		MediaKey:      up.MediaKey,
 		FileEncSHA256: up.FileEncSHA256,
 		FileSHA256:    up.FileSHA256,
-		FileLength:    &up.FileLength,
+		FileLength:    proto.Uint64(up.FileLength),
 	}
 	if caption != "" {
 		msg.Caption = proto.String(caption)
