@@ -49,6 +49,9 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
 
+        var browseTool = BrowserAgent.TryCreateTool(services);
+        if (browseTool is not null) tools.Add(browseTool);
+
         // The active system prompt lives in the SQLite DB (authored in the control panel). There is
         // no code-baked default: a fresh DB has no system prompt until one is saved. Read once at
         // agent-build time; a panel edit applies on restart.

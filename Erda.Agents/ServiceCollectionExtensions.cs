@@ -21,6 +21,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<NotifyTools>();
         services.AddSingleton<ReminderTools>();
 
+        // Browser MCP: Playwright stdio child process, connected once at startup.
+        services.AddSingleton<IBrowserMcp, PlaywrightMcp>();
+
         // Voice-memo workflow, exposed to the WhatsApp channel via IMemoProcessor.
         services.AddSingleton<MemoProcessor>();
         services.AddSingleton<IMemoProcessor>(sp => sp.GetRequiredService<MemoProcessor>());

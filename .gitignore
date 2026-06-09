@@ -34,3 +34,6 @@ web/*.local
 # Playwright MCP verification artifacts
 .playwright-mcp/
 panel-*.png
+
+# Agentic browser screenshot output (dev OutputDir = project-root media/)
+/media/

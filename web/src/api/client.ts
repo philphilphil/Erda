@@ -18,6 +18,8 @@ import type {
   WorkflowsResponse,
   RunWorkflowResponse,
   ChatSession,
+  McpCapabilitiesResponse,
+  AccountsResponse,
 } from './types'
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -203,6 +205,16 @@ export function putConfig(body: PutConfigBody): Promise<void> {
 
 export function restart(): Promise<void> {
   return post<void>('/api/config/restart')
+}
+
+// ── Capabilities ─────────────────────────────────────────────────────────────
+
+export function getMcpCapabilities(): Promise<McpCapabilitiesResponse> {
+  return get<McpCapabilitiesResponse>('/api/capabilities/mcp')
+}
+
+export function getAccounts(): Promise<AccountsResponse> {
+  return get<AccountsResponse>('/api/capabilities/accounts')
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
