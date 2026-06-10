@@ -22,8 +22,12 @@ public static class BrowserAgent
     public const string ToolName = "browse_web";
 
     public const string ToolDescription =
-        "Perform a web task in a real browser (navigate, read, interact) and return the result. " +
-        "Provide the task in plain language, e.g. 'open example.com and tell me the main heading'.";
+        "Perform a web task in a real browser (navigate, read, interact, or take a screenshot) and " +
+        "return the result. Provide the task in plain language, e.g. 'open example.com and tell me the " +
+        "main heading'. For a screenshot, say so explicitly (e.g. 'open example.com and take a full-page " +
+        "screenshot'); the browser saves the image to the media directory and returns its absolute file " +
+        "path, which you can then send to Phil with send_image. Use this — not consult_codex — for " +
+        "anything that needs a live page rendered.";
 
     private const string SystemPrompt =
         "You control a real web browser through tools. Work step by step: take a snapshot to see the " +
@@ -35,7 +39,11 @@ public static class BrowserAgent
         "If the site then asks for a one-time code / 2FA, type the one-time-password reference it gave " +
         "you. If find_login says there is no login, or the site shows a captcha or a push/SMS/email " +
         "challenge you cannot complete, STOP and report clearly that you are blocked and why — do not " +
-        "guess credentials or codes.";
+        "guess credentials or codes.\n\n" +
+        "SCREENSHOTS: when asked for a screenshot, navigate to the page and let it settle, then take the " +
+        "screenshot (full page when asked, otherwise the visible viewport). The image is saved to the " +
+        "output directory — report the absolute path of the saved file in your final answer so it can be " +
+        "sent on to Phil.";
 
     /// <summary>True when the feature is on and the MCP actually connected with at least one tool.</summary>
     public static bool ShouldExpose(IBrowserMcp mcp) => mcp.Enabled && mcp.Tools.Count > 0;

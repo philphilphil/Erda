@@ -7,20 +7,17 @@ using Xunit;
 namespace Erda.Tests;
 
 /// <summary>
-/// Verifies the <c>SeedAddTodoPromptGuidance</c> data migration. Unlike the other DB tests (which use
-/// EnsureCreated and bypass migrations), these apply real migrations so the migration's Up() runs —
-/// covering the append, the active-flag flip, the idempotency guard, and the empty-DB no-op. Applying
-/// the migration to a target id requires <see cref="IMigrator"/> so we can seed an active prompt
-/// <i>before</i> the seed migration runs (mirroring an existing instance).
+/// Verifies the <c>SeedBrowserPromptGuidance</c> data migration (sibling of
+/// <see cref="AddTodoPromptMigrationTests"/>). Migrates up to the migration <i>before</i> the seed,
+/// plants an active prompt (mirroring an existing instance), then runs the seed — covering the append,
+/// the active-flag flip, the idempotency guard, and the empty-DB no-op. Planting after the prior
+/// migration means only the browser seed runs against the planted rows, isolating it from the
+/// add_todo seed.
 /// </summary>
-public class AddTodoPromptMigrationTests
+public class BrowserPromptMigrationTests
 {
     /// <summary>The migration immediately before the one under test.</summary>
-    private const string BeforeSeed = "20260603120100_AddPreScript";
-
-    /// <summary>The migration under test. Pinned (not a full <c>Migrate()</c>) so later seed
-    /// migrations — which append their own guidance — don't run here and skew the row counts.</summary>
-    private const string Seed = "20260603130000_SeedAddTodoPromptGuidance";
+    private const string BeforeSeed = "20260610040519_DropConfigOverrides";
 
     private static DbContextOptions<ErdaDbContext> NewOptions()
     {
@@ -37,7 +34,7 @@ public class AddTodoPromptMigrationTests
     };
 
     [Fact]
-    public void Appends_add_todo_to_active_system_prompt_as_new_active_version()
+    public void Appends_browse_web_to_active_system_prompt_as_new_active_version()
     {
         var options = NewOptions();
 
@@ -51,18 +48,18 @@ public class AddTodoPromptMigrationTests
             db.SaveChanges();
         }
 
-        // Apply the seed migration.
+        // Apply the seed migration (the only one after BeforeSeed).
         using (var db = new ErdaDbContext(options))
-            db.GetService<IMigrator>().Migrate(Seed);
+            db.GetService<IMigrator>().Migrate();
 
         using (var db = new ErdaDbContext(options))
         {
-            // Exactly one active system version, built from the CURRENT prompt + the add_todo block.
+            // Exactly one active system version, built from the CURRENT prompt + the browser block.
             var active = db.PromptVersions.Single(p => p.Kind == PromptKind.System && p.IsActive);
             Assert.StartsWith("CURRENT SYSTEM PROMPT.", active.Content);
-            Assert.Contains("add_todo", active.Content);
-            Assert.Contains("Calendar/Todos.md", active.Content);
-            Assert.Contains("Phil's todo list", active.Content); // apostrophe escaping survived intact
+            Assert.Contains("browse_web", active.Content);
+            Assert.Contains("send_image", active.Content);
+            Assert.Contains("Don't use", active.Content); // apostrophe escaping survived intact
 
             // The previously-active prompt was deactivated; the older inactive one is unaffected.
             Assert.False(db.PromptVersions.Single(p => p.Content == "CURRENT SYSTEM PROMPT.").IsActive);
@@ -76,25 +73,25 @@ public class AddTodoPromptMigrationTests
     }
 
     [Fact]
-    public void Is_noop_when_active_prompt_already_mentions_add_todo()
+    public void Is_noop_when_active_prompt_already_mentions_browse_web()
     {
         var options = NewOptions();
 
         using (var db = new ErdaDbContext(options))
         {
             db.GetService<IMigrator>().Migrate(BeforeSeed);
-            db.PromptVersions.Add(Row(PromptKind.System, "Already documents add_todo here.", active: true));
+            db.PromptVersions.Add(Row(PromptKind.System, "Already documents browse_web here.", active: true));
             db.SaveChanges();
         }
 
         using (var db = new ErdaDbContext(options))
-            db.GetService<IMigrator>().Migrate(Seed);
+            db.GetService<IMigrator>().Migrate();
 
         using (var db = new ErdaDbContext(options))
         {
             var system = db.PromptVersions.Where(p => p.Kind == PromptKind.System).ToList();
             Assert.Single(system); // guard prevented a duplicate version
-            Assert.Equal("Already documents add_todo here.", system[0].Content);
+            Assert.Equal("Already documents browse_web here.", system[0].Content);
             Assert.True(system[0].IsActive);
         }
     }
