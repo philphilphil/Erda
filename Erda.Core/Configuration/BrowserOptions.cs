@@ -45,9 +45,12 @@ public sealed class BrowserOptions
     /// (branded Google Chrome), which the runtime image doesn't install and which has no ARM64 Linux
     /// build — leaving it off fails with "Chromium distribution 'chrome' is not found". This selects the
     /// bundled Chromium the Dockerfile installs. <c>--no-sandbox</c> is required to launch Chromium in
-    /// the container (per the Playwright MCP Docker docs). <c>--headless</c> is appended by the runner
-    /// unless <see cref="ShowWindow"/> is set.</summary>
-    public string[] McpArgs => ["@playwright/mcp@0.0.75", "--browser", "chromium", "--no-sandbox"];
+    /// the container (per the Playwright MCP Docker docs). <c>--image-responses omit</c> stops the
+    /// screenshot tool from returning the PNG inline as base64 — a full-page screenshot is ~1.2M tokens
+    /// and blew the sub-agent's context (<c>context_length_exceeded</c>); the file is still written to
+    /// disk, which is all Erda needs (it sends the file via send_image). <c>--headless</c> is appended by
+    /// the runner unless <see cref="ShowWindow"/> is set.</summary>
+    public string[] McpArgs => ["@playwright/mcp@0.0.75", "--browser", "chromium", "--no-sandbox", "--image-responses", "omit"];
 
     /// <summary>Upper bound on tool calls inside a single browse_web run, to bound a runaway loop.</summary>
     public int MaxSteps => 40;

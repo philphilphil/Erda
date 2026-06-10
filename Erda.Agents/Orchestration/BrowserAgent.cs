@@ -29,7 +29,11 @@ public static class BrowserAgent
         "path, which you can then send to Phil with send_image. Use this — not consult_codex — for " +
         "anything that needs a live page rendered.";
 
-    private const string SystemPrompt =
+    // outputDir is injected so the screenshot guidance names the one writable, allow-listed directory
+    // (the MCP's --output-dir). A bare/relative screenshot filename resolves against the MCP's CWD
+    // (/app, read-only for the 1000:1000 container) and fails with EACCES; only an ABSOLUTE path under
+    // outputDir works. See BrowserOptions.McpArgs for why image responses are omitted.
+    private static string BuildSystemPrompt(string outputDir) =>
         "You control a real web browser through tools. Work step by step: take a snapshot to see the " +
         "page, then act (navigate/click/type), then snapshot again. Prefer the accessibility snapshot " +
         "over screenshots for deciding actions. When you have the answer, state it concisely.\n\n" +
@@ -40,10 +44,12 @@ public static class BrowserAgent
         "you. If find_login says there is no login, or the site shows a captcha or a push/SMS/email " +
         "challenge you cannot complete, STOP and report clearly that you are blocked and why — do not " +
         "guess credentials or codes.\n\n" +
-        "SCREENSHOTS: when asked for a screenshot, navigate to the page and let it settle, then take the " +
-        "screenshot (full page when asked, otherwise the visible viewport). The image is saved to the " +
-        "output directory — report the absolute path of the saved file in your final answer so it can be " +
-        "sent on to Phil.";
+        "SCREENSHOTS: when asked for a screenshot, navigate to the page and let it settle, then call the " +
+        "screenshot tool with an ABSOLUTE filename under " + outputDir + " — e.g. \"" + outputDir +
+        "/screenshot.png\". A bare or relative name is rejected (the tool writes to a read-only " +
+        "directory by default), so always pass the full path under " + outputDir + ". Capture the full " +
+        "page when asked. Then report that exact absolute path in your final answer so the screenshot " +
+        "can be sent on to Phil.";
 
     /// <summary>True when the feature is on and the MCP actually connected with at least one tool.</summary>
     public static bool ShouldExpose(IBrowserMcp mcp) => mcp.Enabled && mcp.Tools.Count > 0;
@@ -85,7 +91,7 @@ public static class BrowserAgent
         var reducer = new BrowserSnapshotReducer();
 
         AIAgent agent = chat.AsAIAgent(
-                instructions: SystemPrompt,
+                instructions: BuildSystemPrompt(browser.OutputDir),
                 name: "browser",
                 tools: tools,
                 clientFactory: inner => inner.AsBuilder().UseChatReducer(reducer).Build())
