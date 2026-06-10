@@ -87,4 +87,55 @@ public class ConfigValidationTests
     {
         Assert.True(new BrowserOptionsValidator().Validate(null, new BrowserOptions { Enabled = false }).Succeeded);
     }
+
+    [Fact]
+    public void ErrorWatch_enabled_requires_interval_level_cap()
+    {
+        var result = new ErrorWatchOptionsValidator().Validate(null, new ErrorWatchOptions { Enabled = true });
+        Assert.True(result.Failed);
+        Assert.Contains("ErrorWatch__PollInterval", result.FailureMessage);   // unset TimeSpan = 00:00:00
+        Assert.Contains("ErrorWatch__MinLevel", result.FailureMessage);
+        Assert.Contains("ErrorWatch__MaxAlertsPerPoll", result.FailureMessage); // unset int = 0
+    }
+
+    [Fact]
+    public void Reminders_enabled_requires_core_settings_and_prescript_limits_only_when_prescript_on()
+    {
+        var noPreScript = new ReminderOptionsValidator().Validate(null, new ReminderOptions { Enabled = true });
+        Assert.True(noPreScript.Failed);
+        Assert.Contains("Reminders__TimeZone", noPreScript.FailureMessage);
+        Assert.Contains("Reminders__PollInterval", noPreScript.FailureMessage);
+        Assert.DoesNotContain("PreScriptTimeout", noPreScript.FailureMessage); // not required while PreScript off
+
+        var withPreScript = new ReminderOptionsValidator().Validate(null,
+            new ReminderOptions { Enabled = true, PreScriptEnabled = true });
+        Assert.Contains("Reminders__PreScriptTimeout", withPreScript.FailureMessage);
+        Assert.Contains("Reminders__PreScriptMaxOutputChars", withPreScript.FailureMessage);
+    }
+
+    [Fact]
+    public void Reminders_disabled_needs_nothing()
+    {
+        Assert.True(new ReminderOptionsValidator().Validate(null, new ReminderOptions { Enabled = false }).Succeeded);
+    }
+
+    [Fact]
+    public void Erda_options_require_models_and_a_positive_codex_timeout()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Erda:VaultPath"] = "/vault",
+            ["Erda:DbPath"] = "/db",
+            // models + codex settings deliberately omitted
+        }).Build();
+        var services = new ServiceCollection();
+        services.AddOptions<ErdaOptions>().Bind(config.GetSection(ErdaOptions.SectionName)).ValidateDataAnnotations();
+
+        var ex = Assert.Throws<OptionsValidationException>(
+            () => services.BuildServiceProvider().GetRequiredService<IOptions<ErdaOptions>>().Value);
+        var failures = string.Join(" ", ex.Failures);
+        Assert.Contains(nameof(ErdaOptions.ChatDeployment), failures);
+        Assert.Contains(nameof(ErdaOptions.CodexModel), failures);
+        Assert.Contains(nameof(ErdaOptions.CodexTimeout), failures); // unset TimeSpan rejected by [PositiveTimeSpan]
+    }
 }

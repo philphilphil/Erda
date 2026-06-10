@@ -15,8 +15,8 @@ public sealed class SeqOptions
     /// <summary>API key with read/query permission (also used for ingestion if <see cref="IngestToErda"/>).</summary>
     public string? ApiKey { get; set; }
 
-    /// <summary>Ship Erda's own Serilog output to Seq (so Erda's errors are queryable too).</summary>
-    public bool IngestToErda { get; set; } = true;
+    /// <summary>Ship Erda's own Serilog output to Seq (so Erda's errors are queryable too). Absent ⇒ off.</summary>
+    public bool IngestToErda { get; set; }
 
     public bool HasServer => !string.IsNullOrWhiteSpace(ServerUrl);
 }

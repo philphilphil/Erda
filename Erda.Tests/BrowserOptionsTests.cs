@@ -16,9 +16,8 @@ public class BrowserOptionsTests
             {
                 ["Erda:Browser:Enabled"] = "true",
                 ["Erda:Browser:Deployment"] = "gpt-5",
-                ["Erda:Browser:McpCommand"] = "npx",
                 ["Erda:Browser:UserDataDir"] = "/data/browser",
-                ["Erda:Browser:MaxSteps"] = "25",
+                ["Erda:Browser:OutputDir"] = "/media",
             })
             .Build();
 
@@ -29,7 +28,7 @@ public class BrowserOptionsTests
         Assert.True(opts.Enabled);
         Assert.Equal("gpt-5", opts.Deployment);
         Assert.Equal("/data/browser", opts.UserDataDir);
-        Assert.Equal(25, opts.MaxSteps);
+        Assert.Equal("/media", opts.OutputDir);
     }
 
     [Fact]

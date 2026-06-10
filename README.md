@@ -115,17 +115,20 @@ answering from memory. This is what keeps notes accurate instead of hallucinated
 
 ## Configuration
 
-**Env-only.** There is no `appsettings.json` — every setting comes from environment variables, kept
-in `.env` (see [`.env.example`](.env.example) for the full, documented catalog). `make dev` sources
-`.env`; in prod `docker-compose` loads it via `env_file`. **Required values have no default**: if one
-is missing the app refuses to start and names the missing key. Bool switches are **off when absent**.
-Feature settings (WhatsApp, Browser) are only required when that feature's `Enabled` switch is on.
+**Env-only, no defaults.** There is no `appsettings.json` — every setting comes from environment
+variables, kept in `.env` (see [`.env.example`](.env.example) for the full, documented catalog).
+`make dev` sources `.env`; in prod `docker-compose` loads it via `env_file`. **No setting has an
+in-code default**: a missing value stops the app at startup naming the key (validated via
+`ValidateOnStart`). Bool switches are **off when absent**. Feature settings (WhatsApp, ErrorWatch,
+Reminders, Browser) are required only when that feature's `Enabled` switch is on.
 
-Required: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `OPENAI_API_KEY`, `Erda__VaultPath`,
-`Erda__DbPath` (and the WhatsApp/Browser settings when those features are enabled). Everything else is
-either a bool switch (e.g. `ErrorWatch__Enabled`) or a code-level invariant (model names, poll
-intervals, timezone) that is intentionally not configurable. The double underscore is the .NET
-convention for nesting config sections in env vars (`Erda__VaultPath` → `Erda:VaultPath`).
+Always required: the 3 credentials, `Erda__VaultPath`, `Erda__DbPath`, and the model/codex settings
+(`Erda__ChatDeployment`, `Erda__TranscribeModel`, `Erda__CodexModel`, `Erda__CodexReasoningEffort`,
+`Erda__CodexTimeout`, `Erda__CodexExecutable`, `Erda__VoiceMemoSubfolder`). The only values *not* in
+config are a handful of fixed mechanics expressed as code constants — the Playwright MCP command/args,
+the browse-loop cap, and the 1Password vault name (`Erda`) — which aren't settings to tune. The double
+underscore is the .NET convention for nesting config sections in env vars (`Erda__VaultPath` →
+`Erda:VaultPath`).
 
 ### Point it at a different vault
 

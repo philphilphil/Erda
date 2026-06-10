@@ -30,7 +30,8 @@ public sealed class WhatsAppOptions
     /// Dev-routing keyword for running a Development instance alongside Production on the same
     /// WhatsApp account. A Development instance answers ONLY messages whose text starts with this
     /// prefix (and strips it); a Production instance IGNORES those (the dev instance takes them).
-    /// Empty/whitespace disables the gating entirely (the instance answers everything, as before).
+    /// Empty/whitespace disables the gating entirely (the instance answers everything). Optional: set
+    /// it (e.g. <c>@dev</c>) only when running a Development instance alongside Production.
     /// </summary>
-    public string DevPrefix { get; set; } = "@dev";
+    public string DevPrefix { get; set; } = "";
 }

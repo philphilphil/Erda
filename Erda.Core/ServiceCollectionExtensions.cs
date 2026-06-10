@@ -48,10 +48,18 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<BrowserOptions>, BrowserOptionsValidator>();
 
+        services.AddOptions<ErrorWatchOptions>()
+            .Bind(configuration.GetSection(ErrorWatchOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ErrorWatchOptions>, ErrorWatchOptionsValidator>();
+
+        services.AddOptions<ReminderOptions>()
+            .Bind(configuration.GetSection(ReminderOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReminderOptions>, ReminderOptionsValidator>();
+
         services.Configure<ObservabilityOptions>(configuration.GetSection(ObservabilityOptions.SectionName));
         services.Configure<SeqOptions>(configuration.GetSection(SeqOptions.SectionName));
-        services.Configure<ErrorWatchOptions>(configuration.GetSection(ErrorWatchOptions.SectionName));
-        services.Configure<ReminderOptions>(configuration.GetSection(ReminderOptions.SectionName));
 
         // --- SQLite database (all runtime state) ---
         // Consumers are singletons/background services, so they take an IDbContextFactory and open a
