@@ -18,7 +18,7 @@ public interface ITranscriber
 /// </summary>
 public sealed class Transcriber(
     IOptions<ErdaOptions> options,
-    IConfiguration configuration,
+    IOptions<CredentialsOptions> credentials,
     ILogger<Transcriber> logger) : ITranscriber
 {
     private const long MaxBytes = 25L * 1024 * 1024; // OpenAI transcription limit
@@ -33,9 +33,7 @@ public sealed class Transcriber(
             throw new InvalidOperationException(
                 $"Audio file is {info.Length / (1024 * 1024)} MB; the transcription API limit is 25 MB.");
 
-        var apiKey = configuration["OPENAI_API_KEY"]
-            ?? throw new InvalidOperationException("OPENAI_API_KEY is not set; it is required for transcription.");
-
+        var apiKey = credentials.Value.OpenAIApiKey; // validated at startup; guaranteed present
         var model = options.Value.TranscribeModel;
         logger.LogInformation("Transcribing {File} with OpenAI model {Model} (platform key).", audioFilePath, model);
 

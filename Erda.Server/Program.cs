@@ -46,19 +46,15 @@ builder.Host.UseSerilog((context, configuration) =>
 });
 
 // --- SQLite database path --------------------------------------------------
-// One file holds prompt versions, reminders (+ run-state), error-watch state, the activity feed,
-// and config overrides. Path is bind-mounted in the container (Erda:DbPath) so it survives
-// redeploys; otherwise LocalApplicationData/erda/erda.db. The path is needed here (before the DI
-// container) for the SQLite config-override provider, and is handed to AddErdaCore.
+// One file holds prompt versions, reminders (+ run-state), error-watch state, and the activity feed.
+// Bind-mounted in the container so it survives redeploys. Required (no default) like every setting;
+// read here, before the DI container, because the DbContext factory needs it at registration. The
+// matching [Required] on ErdaOptions.DbPath also fails the app at startup if it's blank.
 var dbPath = builder.Configuration[$"{ErdaOptions.SectionName}:{nameof(ErdaOptions.DbPath)}"];
 if (string.IsNullOrWhiteSpace(dbPath))
-    dbPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "erda", "erda.db");
+    throw new InvalidOperationException(
+        "Erda__DbPath is required — set it in .env (e.g. Erda__DbPath=/data/erda/erda.db).");
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dbPath))!);
-
-// Config overrides edited in the control panel live in the DB and are layered over appsettings/env
-// here (read once at startup — they apply on restart). Safe before the DB exists: returns empty.
-builder.Configuration.AddSqliteOverrides(dbPath);
 
 // --- OpenTelemetry tracing -------------------------------------------------
 // MAF emits spans per turn: agent run -> model call (token usage) -> each tool/function call.
@@ -140,24 +136,14 @@ await app.Services.GetRequiredService<Erda.Agents.Tools.IBrowserMcp>().EnsureSta
 
 app.Run();
 
-// Print the resolved config and which credentials are present, so missing keys are obvious.
+// Print the resolved (non-secret) config. Credentials are validated at startup (ValidateOnStart),
+// so by the time this runs they are guaranteed present — no need to warn about missing keys here.
 static void LogStartupConfig(WebApplication app)
 {
-    var cfg = app.Configuration;
     var log = app.Services.GetRequiredService<ILogger<Program>>();
     var opts = app.Services.GetRequiredService<IOptions<ErdaOptions>>().Value;
 
-    static string State(string? v) => string.IsNullOrWhiteSpace(v) ? "MISSING" : "set";
-
     log.LogInformation(
-        "Erda config: vault={Vault}, chatDeployment={Deployment}, transcribeModel={Transcribe}, codex={Codex}/{Effort}, voiceMemoSubfolder={Sub}",
-        opts.VaultPath, opts.ChatDeployment, opts.TranscribeModel, opts.CodexModel, opts.CodexReasoningEffort, opts.VoiceMemoSubfolder);
-    log.LogInformation(
-        "Credentials: AZURE_OPENAI_ENDPOINT={A}, AZURE_OPENAI_API_KEY={B}, OPENAI_API_KEY={C}",
-        State(cfg["AZURE_OPENAI_ENDPOINT"]), State(cfg["AZURE_OPENAI_API_KEY"]), State(cfg["OPENAI_API_KEY"]));
-
-    if (string.IsNullOrWhiteSpace(cfg["AZURE_OPENAI_ENDPOINT"]) || string.IsNullOrWhiteSpace(cfg["AZURE_OPENAI_API_KEY"]))
-        log.LogWarning("Chat agent will fail until AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY are set.");
-    if (string.IsNullOrWhiteSpace(cfg["OPENAI_API_KEY"]))
-        log.LogWarning("Voice-memo transcription will fail until OPENAI_API_KEY is set.");
+        "Erda config: vault={Vault}, db={Db}, chatDeployment={Deployment}, transcribeModel={Transcribe}, codex={Codex}/{Effort}, voiceMemoSubfolder={Sub}",
+        opts.VaultPath, opts.DbPath, opts.ChatDeployment, opts.TranscribeModel, opts.CodexModel, opts.CodexReasoningEffort, opts.VoiceMemoSubfolder);
 }

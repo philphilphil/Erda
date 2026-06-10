@@ -14,8 +14,8 @@ public sealed class ObservabilityOptions
     /// </summary>
     public const string ActivitySourceName = "Erda.Agent";
 
-    /// <summary>Master switch for OpenTelemetry tracing. When false, no spans are emitted/exported.</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>Master switch for OpenTelemetry tracing. Absent ⇒ off; enable explicitly in .env.</summary>
+    public bool Enabled { get; set; }
 
     /// <summary>
     /// When true, prompt / completion / tool-argument <b>content</b> is captured in spans (and in

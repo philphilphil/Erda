@@ -16,9 +16,8 @@ public class BrowserOptionsTests
             {
                 ["Erda:Browser:Enabled"] = "true",
                 ["Erda:Browser:Deployment"] = "gpt-5",
-                ["Erda:Browser:McpCommand"] = "npx",
                 ["Erda:Browser:UserDataDir"] = "/data/browser",
-                ["Erda:Browser:MaxSteps"] = "25",
+                ["Erda:Browser:OutputDir"] = "/media",
             })
             .Build();
 
@@ -29,7 +28,7 @@ public class BrowserOptionsTests
         Assert.True(opts.Enabled);
         Assert.Equal("gpt-5", opts.Deployment);
         Assert.Equal("/data/browser", opts.UserDataDir);
-        Assert.Equal(25, opts.MaxSteps);
+        Assert.Equal("/media", opts.OutputDir);
     }
 
     [Fact]
@@ -38,8 +37,23 @@ public class BrowserOptionsTests
         var opts = new BrowserOptions();
         Assert.False(opts.Enabled);
         Assert.Null(opts.Deployment);          // null => fall back to ChatDeployment
-        Assert.Equal("/data/browser", opts.UserDataDir);
+        Assert.Equal("", opts.UserDataDir);    // required when enabled; no default (validated at startup)
+        Assert.Equal("", opts.OutputDir);      // required when enabled; no default
         Assert.True(opts.MaxSteps > 0);
-        Assert.True(opts.Headless);            // headless by default; flip to false on dev to watch
+        Assert.False(opts.ShowWindow);         // absent => headless (safe for the display-less Jetson)
+    }
+
+    [Fact]
+    public void Default_McpArgs_select_bundled_chromium_no_sandbox()
+    {
+        // The MCP defaults to the `chrome` channel (branded Google Chrome), which the ARM64 runtime
+        // image never installs — launching it fails with "Chromium distribution 'chrome' is not found".
+        // The default args must pin the bundled Chromium and disable the sandbox so it launches in-container.
+        var opts = new BrowserOptions();
+
+        var browserIdx = Array.IndexOf(opts.McpArgs, "--browser");
+        Assert.True(browserIdx >= 0 && browserIdx + 1 < opts.McpArgs.Length, "--browser flag missing");
+        Assert.Equal("chromium", opts.McpArgs[browserIdx + 1]);
+        Assert.Contains("--no-sandbox", opts.McpArgs);
     }
 }

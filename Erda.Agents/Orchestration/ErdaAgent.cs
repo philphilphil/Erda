@@ -26,20 +26,15 @@ public static class ErdaAgent
 
     public static AIAgent Create(IServiceProvider services)
     {
-        var configuration = services.GetRequiredService<IConfiguration>();
+        var creds = services.GetRequiredService<IOptions<CredentialsOptions>>().Value;
         var options = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
         var recorder = services.GetRequiredService<IActivityRecorder>();
 
-        // Foundry endpoint + key. If unset we still construct the agent (so the app starts)
-        // using a placeholder; the actual call fails clearly until the env vars are set.
-        var endpoint = configuration["AZURE_OPENAI_ENDPOINT"];
-        var apiKey = configuration["AZURE_OPENAI_API_KEY"];
-        var configured = !string.IsNullOrWhiteSpace(endpoint) && !string.IsNullOrWhiteSpace(apiKey);
-
+        // Foundry endpoint + key are validated at startup, so they are guaranteed present here.
         ChatClient chatClient = new AzureOpenAIClient(
-                new Uri(configured ? endpoint! : "https://erda-unconfigured.invalid"),
-                new ApiKeyCredential(configured ? apiKey! : "unconfigured"))
+                new Uri(creds.AzureOpenAIEndpoint),
+                new ApiKeyCredential(creds.AzureOpenAIApiKey))
             .GetChatClient(options.ChatDeployment);
 
         var tools = new List<AITool>();

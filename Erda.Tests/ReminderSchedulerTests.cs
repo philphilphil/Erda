@@ -16,7 +16,18 @@ public class ReminderSchedulerTests
     // June → Berlin is UTC+2, so 08:00Z == 10:00 local.
     private static readonly DateTimeOffset Now = new(2026, 6, 15, 8, 0, 0, TimeSpan.Zero);
 
-    private static ReminderOptions Opts() => new() { NotePath = "Reminders.md", NotifyOnError = true };
+    // Settings now have no in-code defaults, so the test must supply them explicitly.
+    private static ReminderOptions Opts(bool preScriptEnabled = true) => new()
+    {
+        NotePath = "Reminders.md",
+        TimeZone = "Europe/Berlin",
+        PollInterval = TimeSpan.FromMinutes(1),
+        OverdueGrace = TimeSpan.FromHours(24),
+        NotifyOnError = true,
+        PreScriptEnabled = preScriptEnabled,
+        PreScriptTimeout = TimeSpan.FromSeconds(30),
+        PreScriptMaxOutputChars = 8000,
+    };
 
     private static (ReminderScheduler Scheduler, ReminderStore Store, FakeWhatsAppSender Sender, FakeAgentResponder Responder, ReminderStateStore StateStore, VaultService Vault, FakeCodexRunner Codex, FakePreScriptRunner Script) Make(ReminderOptions? opts = null)
     {
@@ -303,8 +314,7 @@ public class ReminderSchedulerTests
     [Fact]
     public async Task Prescript_is_ignored_when_disabled_and_prompt_runs_verbatim()
     {
-        var (s, store, _, responder, ss, _, _, script) =
-            Make(new ReminderOptions { NotePath = "Reminders.md", NotifyOnError = true, PreScriptEnabled = false });
+        var (s, store, _, responder, ss, _, _, script) = Make(Opts(preScriptEnabled: false));
         store.Append(ReminderKind.Prompt, "weather", "0 6 * * *", "Plain prompt", preScript: "echo X");
 
         await s.PollOnceAsync(Opts(), ss, SeededRecurring("weather"), Berlin, OwnerJid, Now, default);

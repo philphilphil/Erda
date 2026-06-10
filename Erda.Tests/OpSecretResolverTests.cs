@@ -19,8 +19,9 @@ public class OpSecretResolverTests
         }
     }
 
-    private static OpSecretResolver Make(IOpCli cli, string vault = "Erda") =>
-        new(cli, Options.Create(new BrowserOptions { OnePasswordVault = vault }), NullLogger<OpSecretResolver>.Instance);
+    // BrowserOptions.OnePasswordVault is a fixed constant ("Erda") — the resolver is always scoped to it.
+    private static OpSecretResolver Make(IOpCli cli) =>
+        new(cli, Options.Create(new BrowserOptions()), NullLogger<OpSecretResolver>.Instance);
 
     [Fact]
     public async Task Resolves_a_plain_field_via_op_read()

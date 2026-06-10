@@ -10,7 +10,6 @@ import type {
   SavePromptBody,
   ActivityDto,
   ConfigItemDto,
-  PutConfigBody,
   VoicePromptResponse,
   SaveVoicePromptBody,
   StatusResponse,
@@ -197,10 +196,6 @@ export function getActivity(max = 100): Promise<ActivityDto[]> {
 
 export function getConfig(): Promise<ConfigItemDto[]> {
   return get<ConfigItemDto[]>('/api/config')
-}
-
-export function putConfig(body: PutConfigBody): Promise<void> {
-  return put<void>('/api/config', body)
 }
 
 export function restart(): Promise<void> {

@@ -4,6 +4,12 @@ namespace Erda.Core.Configuration;
 /// Options for the agentic browser feature (Playwright MCP). Bound from the <c>Erda:Browser</c>
 /// configuration section. Off by default — when <see cref="Enabled"/> is false the MCP child is
 /// never launched and the <c>browse_web</c> tool is not registered.
+/// <para>
+/// The settable members are configuration: the <see cref="Enabled"/>/<see cref="ShowWindow"/>
+/// switches, the optional sub-agent <see cref="Deployment"/>, and <see cref="UserDataDir"/>/
+/// <see cref="OutputDir"/> (required when enabled — see <c>BrowserOptionsValidator</c>). The rest are
+/// fixed mechanics expressed as read-only constants, so there is no default to set or forget.
+/// </para>
 /// </summary>
 public sealed class BrowserOptions
 {
@@ -12,38 +18,46 @@ public sealed class BrowserOptions
     /// <summary>Master switch. When false, no MCP child process and no <c>browse_web</c> tool.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>Azure AI Foundry deployment for the browser sub-agent. Null => use ErdaOptions.ChatDeployment.</summary>
+    /// <summary>Azure AI Foundry deployment for the browser sub-agent. Null/blank => use ErdaOptions.ChatDeployment.</summary>
     public string? Deployment { get; set; }
 
-    /// <summary>Executable that launches the MCP server (stdio).</summary>
-    public string McpCommand { get; set; } = "npx";
+    /// <summary>Show a real browser window instead of headless. Absent ⇒ false ⇒ headless (the safe
+    /// state for the display-less Jetson). Set <c>Erda__Browser__ShowWindow=true</c> on the dev Mac to
+    /// watch the agent browse.</summary>
+    public bool ShowWindow { get; set; }
 
-    /// <summary>Base arguments for <see cref="McpCommand"/>. Pinned MCP version + persistent profile.
-    /// <c>--headless</c> is appended by the runner when <see cref="Headless"/> is true (so local dev can
-    /// drop it and watch the browser).</summary>
-    public string[] McpArgs { get; set; } = ["@playwright/mcp@0.0.75"];
-
-    /// <summary>Run Chromium headless. Default true (the Jetson has no display). Set
-    /// <c>Erda__Browser__Headless=false</c> on the dev Mac to watch the agent browse in a real window.</summary>
-    public bool Headless { get; set; } = true;
-
-    /// <summary>Persistent profile directory (kept on the browser-data volume) — the logged-in session.</summary>
-    public string UserDataDir { get; set; } = "/data/browser";
+    /// <summary>Persistent profile directory (the logged-in session) — on the browser-data volume in
+    /// the container. Required when <see cref="Enabled"/>.</summary>
+    public string UserDataDir { get; set; } = "";
 
     /// <summary>Directory the MCP writes output files (screenshots) to (<c>--output-dir</c>). Prod = the
-    /// shared <c>/media</c> volume the WhatsApp bridge sends from; dev points at a gitignored project
-    /// <c>media/</c> folder. Without this the MCP writes into the process working directory.</summary>
-    public string OutputDir { get; set; } = "/media";
+    /// shared <c>/media</c> volume the WhatsApp bridge sends from; dev points at a project folder.
+    /// Required when <see cref="Enabled"/>.</summary>
+    public string OutputDir { get; set; } = "";
+
+    // --- Fixed mechanics (constants, not configuration) -------------------------------------------
+
+    /// <summary>Executable that launches the MCP server (stdio).</summary>
+    public string McpCommand => "npx";
+
+    /// <summary>Base arguments for <see cref="McpCommand"/>. Pinned MCP version + browser selection.
+    /// <c>--browser chromium</c> is required: the MCP otherwise defaults to the <c>chrome</c> channel
+    /// (branded Google Chrome), which the runtime image doesn't install and which has no ARM64 Linux
+    /// build — leaving it off fails with "Chromium distribution 'chrome' is not found". This selects the
+    /// bundled Chromium the Dockerfile installs. <c>--no-sandbox</c> is required to launch Chromium in
+    /// the container (per the Playwright MCP Docker docs). <c>--headless</c> is appended by the runner
+    /// unless <see cref="ShowWindow"/> is set.</summary>
+    public string[] McpArgs => ["@playwright/mcp@0.0.75", "--browser", "chromium", "--no-sandbox"];
 
     /// <summary>Upper bound on tool calls inside a single browse_web run, to bound a runaway loop.</summary>
-    public int MaxSteps { get; set; } = 40;
+    public int MaxSteps => 40;
 
     /// <summary>Executable that runs the 1Password CLI (resolves <c>op://…</c> references and lists
     /// the <see cref="OnePasswordVault"/> items). On PATH in the runtime image.</summary>
-    public string OpCommand { get; set; } = "op";
+    public string OpCommand => "op";
 
     /// <summary>The single 1Password vault Erda may read. It is the account registry AND the
     /// allow-list: only logins in this vault can be used. The service-account token is scoped
     /// read-only to it. References outside this vault are refused by the resolver.</summary>
-    public string OnePasswordVault { get; set; } = "Erda";
+    public string OnePasswordVault => "Erda";
 }

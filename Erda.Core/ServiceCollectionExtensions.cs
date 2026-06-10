@@ -6,6 +6,7 @@ using Erda.Core.Services.OnePassword;
 using Erda.Core.Services.Seq;
 using Erda.Core.WhatsApp;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Erda.Core;
 
@@ -21,13 +22,44 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services, IConfiguration configuration, string dbPath)
     {
         // --- Options ---
-        services.Configure<ErdaOptions>(configuration.GetSection(ErdaOptions.SectionName));
+        // Env vars are the single source. Required settings carry no default and are validated at
+        // startup (ValidateOnStart) so a missing value stops the app with a clear, aggregated error
+        // instead of failing later. Feature settings (WhatsApp, Browser) are only required when their
+        // Enabled switch is on — see the IValidateOptions validators below.
+
+        // Credentials are flat env vars (AZURE_OPENAI_*, OPENAI_API_KEY), so bind the config root.
+        services.AddOptions<CredentialsOptions>()
+            .Bind(configuration)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddOptions<ErdaOptions>()
+            .Bind(configuration.GetSection(ErdaOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddOptions<WhatsAppOptions>()
+            .Bind(configuration.GetSection(WhatsAppOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<WhatsAppOptions>, WhatsAppOptionsValidator>();
+
+        services.AddOptions<BrowserOptions>()
+            .Bind(configuration.GetSection(BrowserOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<BrowserOptions>, BrowserOptionsValidator>();
+
+        services.AddOptions<ErrorWatchOptions>()
+            .Bind(configuration.GetSection(ErrorWatchOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ErrorWatchOptions>, ErrorWatchOptionsValidator>();
+
+        services.AddOptions<ReminderOptions>()
+            .Bind(configuration.GetSection(ReminderOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReminderOptions>, ReminderOptionsValidator>();
+
         services.Configure<ObservabilityOptions>(configuration.GetSection(ObservabilityOptions.SectionName));
-        services.Configure<WhatsAppOptions>(configuration.GetSection(WhatsAppOptions.SectionName));
         services.Configure<SeqOptions>(configuration.GetSection(SeqOptions.SectionName));
-        services.Configure<ErrorWatchOptions>(configuration.GetSection(ErrorWatchOptions.SectionName));
-        services.Configure<ReminderOptions>(configuration.GetSection(ReminderOptions.SectionName));
-        services.Configure<BrowserOptions>(configuration.GetSection(BrowserOptions.SectionName));
 
         // --- SQLite database (all runtime state) ---
         // Consumers are singletons/background services, so they take an IDbContextFactory and open a

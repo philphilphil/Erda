@@ -49,24 +49,19 @@ public static class BrowserAgent
         var mcp = services.GetRequiredService<IBrowserMcp>();
         if (!ShouldExpose(mcp)) return null;
 
-        var configuration = services.GetRequiredService<IConfiguration>();
+        var creds = services.GetRequiredService<IOptions<CredentialsOptions>>().Value;
         var erda = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
         var browser = services.GetRequiredService<IOptions<BrowserOptions>>().Value;
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
 
-        var endpoint = configuration["AZURE_OPENAI_ENDPOINT"];
-        var apiKey = configuration["AZURE_OPENAI_API_KEY"];
-        // Unlike ErdaAgent (which builds with a placeholder URI so the app starts), we simply omit the
-        // tool when unconfigured — the orchestrator already surfaces a clear error for missing creds.
-        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey)) return null;
-
+        // Credentials are validated at startup, so they're guaranteed present here.
         // falls back to the orchestrator's deployment (ChatDeployment) when no browser-specific one is set
         var deployment = string.IsNullOrWhiteSpace(browser.Deployment) ? erda.ChatDeployment : browser.Deployment!;
 
         var opCli = services.GetRequiredService<IOpCli>();
         var secretResolver = services.GetRequiredService<IOpSecretResolver>();
 
-        ChatClient chat = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey))
+        ChatClient chat = new AzureOpenAIClient(new Uri(creds.AzureOpenAIEndpoint), new ApiKeyCredential(creds.AzureOpenAIApiKey))
             .GetChatClient(deployment);
 
         var tools = new List<AITool>(mcp.Tools) { FindLogin.CreateTool(opCli, browser.OnePasswordVault) };

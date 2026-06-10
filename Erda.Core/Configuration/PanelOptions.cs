@@ -10,8 +10,8 @@ public sealed class PanelOptions
 {
     public const string SectionName = "Panel";
 
-    /// <summary>Login username. Ignored when blank (then only the password is checked).</summary>
-    public string Username { get; set; } = "admin";
+    /// <summary>Login username. Optional — ignored when blank (then only the password is checked).</summary>
+    public string Username { get; set; } = "";
 
     /// <summary>Login password. When blank, the panel requires no authentication at all.</summary>
     public string? Password { get; set; }

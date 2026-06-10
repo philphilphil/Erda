@@ -1,111 +1,61 @@
+using Erda.Core.Configuration;
 using Erda.Server.Api;
-using Erda.Core.Data;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Erda.Tests;
 
 /// <summary>
-/// Covers the effective-vs-override resolution and the save/clear rules ported out of the old
-/// <c>ConfigEditor.razor</c>. The DB-backed override store is a throwaway SQLite file per test.
+/// The Config screen is read-only now (env-only config). These cover that <see cref="ConfigPanelService"/>
+/// projects the effective option values into grouped rows and never echoes a secret value.
 /// </summary>
 public class ConfigPanelServiceTests
 {
-    private static IConfiguration Config() =>
-        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["ErrorWatch:MinLevel"] = "Error",
-            ["Reminders:TimeZone"] = "Europe/Berlin",
-        }).Build();
+    private static ConfigPanelService New(
+        ErdaOptions? erda = null,
+        WhatsAppOptions? whatsApp = null,
+        SeqOptions? seq = null) =>
+        new(
+            Options.Create(erda ?? new ErdaOptions { VaultPath = "/vault", DbPath = "/data/erda.db" }),
+            Options.Create(whatsApp ?? new WhatsAppOptions()),
+            Options.Create(seq ?? new SeqOptions()),
+            Options.Create(new ErrorWatchOptions()),
+            Options.Create(new ReminderOptions()),
+            Options.Create(new ObservabilityOptions()),
+            Options.Create(new BrowserOptions()));
 
-    private static (ConfigPanelService svc, IDbContextFactory<ErdaDbContext> db) New()
+    [Fact]
+    public void GetItems_projects_effective_option_values()
     {
-        var factory = TestDb.NewFactory();
-        return (new ConfigPanelService(Config(), factory), factory);
+        var items = New(erda: new ErdaOptions { VaultPath = "/my/vault", DbPath = "/db", ChatDeployment = "gpt-5-mini" }).GetItems();
+
+        Assert.Equal("/my/vault", items.Single(i => i.Label == "Vault path").Value);
+        Assert.Equal("gpt-5-mini", items.Single(i => i.Label == "Chat deployment").Value);
     }
 
     [Fact]
-    public void GetItems_returns_the_full_allowlist_with_effective_values()
+    public void GetItems_masks_secrets_and_never_echoes_them()
     {
-        var (svc, _) = New();
-        var items = svc.GetItems();
+        var secret = "super-secret-value";
+        var items = New(whatsApp: new WhatsAppOptions { SharedSecret = secret }, seq: new SeqOptions { ApiKey = secret }).GetItems();
 
-        Assert.Equal(ConfigPanelService.Allowlist.Count, items.Count);
-        var minLevel = items.Single(i => i.Key == "ErrorWatch:MinLevel");
-        Assert.Equal("Error", minLevel.Effective);
-        Assert.Equal("Error", minLevel.Value);
-        Assert.False(minLevel.Overridden);
+        Assert.Equal("(set)", items.Single(i => i.Label == "Shared secret").Value);
+        Assert.Equal("(set)", items.Single(i => i.Label == "API key").Value);
+        Assert.DoesNotContain(items, i => i.Value.Contains(secret));
     }
 
     [Fact]
-    public void Apply_writes_an_override_when_value_differs_and_is_non_blank()
+    public void GetItems_shows_not_set_for_blank_values()
     {
-        var (svc, _) = New();
-        svc.Apply(new Dictionary<string, string?> { ["ErrorWatch:MinLevel"] = "Warning" });
+        var items = New(seq: new SeqOptions { ServerUrl = null, ApiKey = null }).GetItems();
 
-        var item = svc.GetItems().Single(i => i.Key == "ErrorWatch:MinLevel");
-        Assert.True(item.Overridden);
-        Assert.Equal("Warning", item.Value);   // pending override shown in the input
-        Assert.Equal("Error", item.Effective);  // running value unchanged until restart
+        Assert.Equal("(not set)", items.Single(i => i.Label == "Server URL").Value);
+        Assert.Equal("(not set)", items.Single(i => i.Label == "API key").Value);
     }
 
     [Fact]
-    public void Apply_clears_an_override_when_value_equals_effective()
+    public void GetItems_assigns_every_row_a_nonempty_group()
     {
-        var (svc, _) = New();
-        svc.Apply(new Dictionary<string, string?> { ["ErrorWatch:MinLevel"] = "Warning" });
-        svc.Apply(new Dictionary<string, string?> { ["ErrorWatch:MinLevel"] = "Error" }); // back to effective
-
-        Assert.False(svc.GetItems().Single(i => i.Key == "ErrorWatch:MinLevel").Overridden);
-    }
-
-    [Fact]
-    public void Apply_clears_an_override_when_value_is_blank()
-    {
-        var (svc, _) = New();
-        svc.Apply(new Dictionary<string, string?> { ["ErrorWatch:MinLevel"] = "Warning" });
-        svc.Apply(new Dictionary<string, string?> { ["ErrorWatch:MinLevel"] = "" });
-
-        Assert.False(svc.GetItems().Single(i => i.Key == "ErrorWatch:MinLevel").Overridden);
-    }
-
-    [Fact]
-    public void Apply_ignores_keys_outside_the_allowlist()
-    {
-        var (svc, factory) = New();
-        svc.Apply(new Dictionary<string, string?> { ["Totally:Unknown"] = "value" });
-
-        using var db = factory.CreateDbContext();
-        Assert.Empty(db.ConfigOverrides.ToList());
-    }
-
-    [Fact]
-    public void GetItems_assigns_every_item_a_nonempty_group()
-    {
-        var (svc, _) = New();
-        Assert.All(svc.GetItems(), i => Assert.False(string.IsNullOrWhiteSpace(i.Group)));
-    }
-
-    [Fact]
-    public void GetItems_groups_reasoning_error_watch_and_reminders_keys()
-    {
-        var (svc, _) = New();
-        var items = svc.GetItems();
-
-        Assert.Equal("Model & reasoning", items.Single(i => i.Key == "Erda:CodexReasoningEffort").Group);
-        Assert.Equal("Error watch", items.Single(i => i.Key == "ErrorWatch:MinLevel").Group);
-        Assert.Equal("Reminders", items.Single(i => i.Key == "Reminders:TimeZone").Group);
-    }
-
-    [Fact]
-    public void Apply_only_touches_keys_present_in_the_request()
-    {
-        var (svc, _) = New();
-        svc.Apply(new Dictionary<string, string?> { ["ErrorWatch:MinLevel"] = "Warning" });
-        // A second apply that doesn't mention MinLevel must leave its override intact.
-        svc.Apply(new Dictionary<string, string?> { ["Reminders:TimeZone"] = "UTC" });
-
-        Assert.True(svc.GetItems().Single(i => i.Key == "ErrorWatch:MinLevel").Overridden);
+        Assert.All(New().GetItems(), i => Assert.False(string.IsNullOrWhiteSpace(i.Group)));
     }
 }

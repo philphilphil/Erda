@@ -1,90 +1,69 @@
-using Erda.Core.Data;
-using Microsoft.EntityFrameworkCore;
+using Erda.Core.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Erda.Server.Api;
 
 /// <summary>
-/// Backs the Config screen: owns the allowlist of editable runtime keys and the read/write rules for
-/// the <c>ConfigOverrides</c> table. Lifted out of the old <c>ConfigEditor.razor</c> so the
-/// effective-vs-override resolution and the save/clear logic are unit-testable. Overrides are applied
-/// on restart (the SQLite configuration provider reads them once at startup), matching v1 behavior.
+/// Backs the (read-only) Config screen. Config is env-only and validated/applied at startup, so there
+/// is nothing to edit here — change <c>.env</c> and restart. This surfaces the effective, loaded
+/// values grouped for display, so the operator can confirm what the container actually booted with
+/// without shell access. Secrets are shown as a presence flag, never echoed.
 /// </summary>
-public sealed class ConfigPanelService(IConfiguration config, IDbContextFactory<ErdaDbContext> dbFactory)
+public sealed class ConfigPanelService(
+    IOptions<ErdaOptions> erda,
+    IOptions<WhatsAppOptions> whatsApp,
+    IOptions<SeqOptions> seq,
+    IOptions<ErrorWatchOptions> errorWatch,
+    IOptions<ReminderOptions> reminders,
+    IOptions<ObservabilityOptions> observability,
+    IOptions<BrowserOptions> browser)
 {
-    /// <summary>One editable knob: a config <see cref="Key"/> in <c>Section:Key</c> form, plus UI
-    /// labels and the <see cref="Group"/> the panel renders it under.</summary>
-    public sealed record AllowlistItem(string Group, string Label, string Key, string Hint);
+    private static string Show(object? v) => v?.ToString() is { Length: > 0 } s ? s : "(not set)";
+    private static string Secret(string? v) => string.IsNullOrWhiteSpace(v) ? "(not set)" : "(set)";
 
-    /// <summary>
-    /// The keys the panel may edit, in render order, each tagged with its panel group. Anything not
-    /// here is ignored by <see cref="Apply"/> and never returned by <see cref="GetItems"/> — a
-    /// deliberate guard so the UI can't write arbitrary config.
-    /// </summary>
-    public static readonly IReadOnlyList<AllowlistItem> Allowlist =
-    [
-        new("Model & reasoning", "Codex reasoning effort", "Erda:CodexReasoningEffort", "low / medium / high"),
-        new("Model & reasoning", "Chat model deployment", "Erda:ChatDeployment", ""),
-        new("Error watch", "Error-watch enabled", "ErrorWatch:Enabled", "true / false"),
-        new("Error watch", "Error-watch min level", "ErrorWatch:MinLevel", "Error / Warning / …"),
-        new("Error watch", "Error-watch max alerts/poll", "ErrorWatch:MaxAlertsPerPoll", "numeric"),
-        new("Error watch", "Error-watch poll interval", "ErrorWatch:PollInterval", "00:05:00"),
-        new("Reminders", "Reminders enabled", "Reminders:Enabled", "true / false"),
-        new("Reminders", "Reminders poll interval", "Reminders:PollInterval", "00:01:00"),
-        new("Reminders", "Reminders timezone", "Reminders:TimeZone", "Europe/Berlin"),
-    ];
-
-    /// <summary>
-    /// The allowlisted knobs with their running (<c>effective</c>) value, the prefill <c>value</c>
-    /// (pending DB override if present, else effective), and whether an override row exists.
-    /// </summary>
+    /// <summary>The effective configuration, grouped for the read-only panel.</summary>
     public IReadOnlyList<ConfigItemDto> GetItems()
     {
-        using var db = dbFactory.CreateDbContext();
-        var overrides = db.ConfigOverrides.ToDictionary(c => c.Key, c => c.Value);
+        var e = erda.Value;
+        var w = whatsApp.Value;
+        var s = seq.Value;
+        var ew = errorWatch.Value;
+        var r = reminders.Value;
+        var o = observability.Value;
+        var b = browser.Value;
 
-        return Allowlist.Select(item =>
-        {
-            var effective = config[item.Key];
-            var hasOverride = overrides.TryGetValue(item.Key, out var ov);
-            var value = hasOverride ? ov : effective;
-            return new ConfigItemDto(item.Key, item.Label, item.Hint, value, effective, hasOverride, item.Group);
-        }).ToList();
-    }
+        return
+        [
+            new("Vault & data", "Vault path", Show(e.VaultPath)),
+            new("Vault & data", "Database path", Show(e.DbPath)),
 
-    /// <summary>
-    /// Set or clear overrides for the supplied keys (only allowlisted keys present in
-    /// <paramref name="values"/> are touched). An override row is written only when the value differs
-    /// from the effective config and is non-blank; otherwise any existing override row is removed.
-    /// Mirrors the old Blazor save/clear behavior exactly. Returns the number of rows touched.
-    /// </summary>
-    public void Apply(IReadOnlyDictionary<string, string?> values)
-    {
-        using var db = dbFactory.CreateDbContext();
+            new("Model & reasoning", "Chat deployment", Show(e.ChatDeployment)),
+            new("Model & reasoning", "Transcribe model", Show(e.TranscribeModel)),
+            new("Model & reasoning", "Codex model", Show(e.CodexModel)),
+            new("Model & reasoning", "Codex reasoning effort", Show(e.CodexReasoningEffort)),
 
-        foreach (var item in Allowlist)
-        {
-            if (!values.TryGetValue(item.Key, out var value))
-                continue; // only act on keys the caller actually sent
+            new("WhatsApp", "Enabled", Show(w.Enabled)),
+            new("WhatsApp", "Owner number", Show(w.OwnerNumber)),
+            new("WhatsApp", "Bridge URL", Show(w.BridgeUrl)),
+            new("WhatsApp", "Shared secret", Secret(w.SharedSecret)),
 
-            var effective = config[item.Key];
-            var existing = db.ConfigOverrides.FirstOrDefault(c => c.Key == item.Key);
+            new("Seq", "Server URL", Show(s.ServerUrl)),
+            new("Seq", "API key", Secret(s.ApiKey)),
 
-            var isDifferent = !string.Equals(value, effective, StringComparison.Ordinal);
-            var isBlank = string.IsNullOrWhiteSpace(value);
+            new("Error watch", "Enabled", Show(ew.Enabled)),
+            new("Error watch", "Poll interval", Show(ew.PollInterval)),
+            new("Error watch", "Min level", Show(ew.MinLevel)),
+            new("Error watch", "Max alerts/poll", Show(ew.MaxAlertsPerPoll)),
 
-            if (isDifferent && !isBlank)
-            {
-                if (existing is null)
-                    db.ConfigOverrides.Add(new ConfigOverride { Key = item.Key, Value = value });
-                else
-                    existing.Value = value;
-            }
-            else if (existing is not null)
-            {
-                db.ConfigOverrides.Remove(existing);
-            }
-        }
+            new("Reminders", "Enabled", Show(r.Enabled)),
+            new("Reminders", "Poll interval", Show(r.PollInterval)),
+            new("Reminders", "Timezone", Show(r.TimeZone)),
 
-        db.SaveChanges();
+            new("Observability", "Tracing enabled", Show(o.Enabled)),
+            new("Observability", "Capture message content", Show(o.CaptureMessageContent)),
+
+            new("Browser", "Enabled", Show(b.Enabled)),
+            new("Browser", "Show window", Show(b.ShowWindow)),
+        ];
     }
 }

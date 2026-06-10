@@ -89,19 +89,11 @@ export interface ActivityDto {
   summary: string
 }
 
-// Config
+// Config (read-only; env-only, applied at startup)
 export interface ConfigItemDto {
-  key: string
-  label: string
-  hint: string
   group: string
-  value: string | null
-  effective: string | null
-  overridden: boolean
-}
-
-export interface PutConfigBody {
-  values: Record<string, string | null>
+  label: string
+  value: string
 }
 
 // Workflows (read-only; MAF pipelines, reflected as a node/edge graph)

@@ -79,7 +79,7 @@ The `whatsapp-bridge` (Go) handles the WhatsApp socket and posts inbound message
 
 ### Control panel (Vue SPA + JSON API)
 
-A single-user, LAN-only web UI replaces the former Blazor Server panel. The backend exposes a JSON API under `/api/*` (minimal-API groups in `Api/`) over the same DB-backed services; the frontend is a Vue 3 SPA in `web/`. v1 behavior is unchanged: **reminders are live** (the scheduler reads the DB each tick), while **prompt + config edits apply on restart** (`POST /api/config/restart` → `IHostApplicationLifetime.StopApplication()`; Docker `restart: unless-stopped` brings it back). Live activity is pushed over **SSE** (`GET /api/activity/stream`), bridging `IActivityRecorder.Recorded`. Auth is **cookie-based, off by default** — open on the LAN unless `Panel:Password` is set; CSRF is guarded by `SameSite=Lax` + a required `X-Requested-With: erda-panel` header on mutations (no `Secure` flag, since the panel is plain-HTTP on the LAN). Dev: Vite (`:5173`) proxies `/api` to the backend (`:5167`); prod: the Vite build is served from `wwwroot` with `MapFallbackToFile("index.html")`, and `/` serves the SPA.
+A single-user, LAN-only web UI replaces the former Blazor Server panel. The backend exposes a JSON API under `/api/*` (minimal-API groups in `Api/`) over the same DB-backed services; the frontend is a Vue 3 SPA in `web/`. **Reminders are live** (the scheduler reads the DB each tick) and **prompt edits apply on restart** (`POST /api/config/restart` → `IHostApplicationLifetime.StopApplication()`; Docker `restart: unless-stopped` brings it back). **Config is env-only and the Config page is read-only** — it surfaces the effective loaded values (secrets masked); to change a setting, edit `.env` and restart. Live activity is pushed over **SSE** (`GET /api/activity/stream`), bridging `IActivityRecorder.Recorded`. Auth is **cookie-based, off by default** — open on the LAN unless `Panel__Password` is set; CSRF is guarded by `SameSite=Lax` + a required `X-Requested-With: erda-panel` header on mutations (no `Secure` flag, since the panel is plain-HTTP on the LAN). Dev: Vite (`:5173`) proxies `/api` to the backend (`:5167`); prod: the Vite build is served from `wwwroot` with `MapFallbackToFile("index.html")`, and `/` serves the SPA.
 
 ### Production deployment
 
@@ -87,12 +87,27 @@ Docker Compose stack on an ARM64 Jetson: `erda` + `whatsapp-bridge` containers. 
 
 ## Configuration reference
 
-`appsettings.json` (`Erda` section) + env vars. Key settings not in README:
+**Env-only, no defaults** — no `appsettings.json`. Every setting is an environment variable
+(`Section__Key` form), kept in `.env` (catalog: `.env.example`); `make dev` sources it, prod
+`docker-compose` loads it via `env_file`. Options bind in `AddErdaCore`; **no setting has an in-code
+default — required values are validated at startup** (`ValidateOnStart`) and a missing one stops the
+app naming the key. Always-required: `CredentialsOptions` (flat `AZURE_OPENAI_*`/`OPENAI_API_KEY`,
+`[Required]`) + all of `ErdaOptions` (`VaultPath`, `DbPath`, the model/codex settings — `[Required]` /
+`[PositiveTimeSpan]`). Feature settings are required only when the feature's `Enabled` switch is on,
+via per-feature `IValidateOptions` (`WhatsApp`/`Browser`/`ErrorWatch`/`Reminder` `OptionsValidator`).
+Bool switches are off when absent (default-true behaviours like `AnalyzeWithCodex`/`NotifyOnError`/
+`IngestToErda` are now switches you set in `.env`). The only non-config values are fixed mechanics
+expressed as read-only constants on `BrowserOptions` (`McpCommand`, `McpArgs`, `MaxSteps`, `OpCommand`,
+`OnePasswordVault`). Key settings:
 
 | Section | Key | Purpose |
 |---|---|---|
-| `WhatsApp` | `OwnerNumber`, `BridgeUrl`, `SharedSecret` | Bridge integration; only messages from `OwnerNumber` are processed |
-| `ErrorWatch` | `Enabled`, `PollInterval`, `MinLevel`, `MaxAlertsPerPoll` | Error-watch scheduler behavior |
-| `Seq` | `ServerUrl`, `ApiKey`, `IngestToErda` | Seq sink for Serilog + OTLP target |
+| (flat) | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `OPENAI_API_KEY` | Credentials (required, validated) |
+| `Erda` | `VaultPath`, `DbPath`, `ChatDeployment`, `TranscribeModel`, `CodexModel`, `CodexReasoningEffort`, `CodexTimeout`, `CodexExecutable`, `VoiceMemoSubfolder` | All required (no default) — vault/db paths + model & codex settings |
+| `WhatsApp` | `Enabled`, `OwnerNumber`, `BridgeUrl`, `SharedSecret`, `MediaTempDir` | Bridge integration (the four required when `Enabled`); only `OwnerNumber` is processed |
+| `ErrorWatch` | `Enabled`, `PollInterval`, `MinLevel`, `MaxAlertsPerPoll`, `AnalyzeWithCodex` | Error-watch scheduler (interval/level/cap required when `Enabled`) |
+| `Reminders` | `Enabled`, `NotePath`, `TimeZone`, `PollInterval`, `OverdueGrace`, `PreScript*` | Reminder scheduler (note/zone/intervals required when `Enabled`; pre-script limits when `PreScriptEnabled`) |
+| `Seq` | `ServerUrl`, `ApiKey`, `IngestToErda` | Seq sink for Serilog + OTLP target (optional; blank ⇒ off) |
 | `Observability` | `Enabled`, `CaptureMessageContent` | OTel master switch; content capture gate |
+| `Erda:Browser` | `Enabled`, `ShowWindow`, `UserDataDir`, `OutputDir` | Agentic browser (`UserDataDir`/`OutputDir` required when `Enabled`; absent `ShowWindow` ⇒ headless) |
 | `Panel` | `Username`, `Password` | Control-panel cookie login; blank `Password` = open (auth off) on the LAN |
