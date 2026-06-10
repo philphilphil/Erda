@@ -14,12 +14,14 @@ namespace Erda.Core.Configuration;
 /// </summary>
 public sealed class CredentialsOptions
 {
-    /// <summary>Azure AI Foundry endpoint for the chat model (e.g. <c>https://…services.ai.azure.com/</c>).</summary>
+    /// <summary>OpenAI-compatible base URL for the chat model. For Azure use the unified v1 surface,
+    /// e.g. <c>https://…services.ai.azure.com/openai/v1</c> (the stock OpenAI SDK is pointed here — see
+    /// <c>ErdaAgent</c>); any other OpenAI-compatible provider's base URL works too.</summary>
     [Required(AllowEmptyStrings = false)]
     [ConfigurationKeyName("AZURE_OPENAI_ENDPOINT")]
     public string AzureOpenAIEndpoint { get; set; } = "";
 
-    /// <summary>Azure AI Foundry API key for the chat model.</summary>
+    /// <summary>API key for the chat model endpoint above (sent by the OpenAI SDK as a bearer token).</summary>
     [Required(AllowEmptyStrings = false)]
     [ConfigurationKeyName("AZURE_OPENAI_API_KEY")]
     public string AzureOpenAIApiKey { get; set; } = "";

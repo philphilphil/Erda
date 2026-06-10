@@ -1,5 +1,5 @@
 using System.ClientModel;
-using Azure.AI.OpenAI;
+using OpenAI;
 using Erda.Agents.Tools;
 using Erda.Core.Configuration;
 using Erda.Core.Services.OnePassword;
@@ -69,8 +69,13 @@ public static class BrowserAgent
         var opCli = services.GetRequiredService<IOpCli>();
         var secretResolver = services.GetRequiredService<IOpSecretResolver>();
 
-        ChatClient chat = new AzureOpenAIClient(new Uri(creds.AzureOpenAIEndpoint), new ApiKeyCredential(creds.AzureOpenAIApiKey))
-            .GetChatClient(deployment);
+        // Same OpenAI-compatible /openai/v1 client as the orchestrator (see ErdaAgent) — no
+        // Azure.AI.OpenAI, no api-version. The sub-agent's model is browser.Deployment (falls back to
+        // ChatDeployment above).
+        ChatClient chat = new ChatClient(
+            model: deployment,
+            credential: new ApiKeyCredential(creds.AzureOpenAIApiKey),
+            options: new OpenAIClientOptions { Endpoint = new Uri(creds.AzureOpenAIEndpoint) });
 
         var tools = new List<AITool>(mcp.Tools) { FindLogin.CreateTool(opCli, browser.OnePasswordVault) };
 

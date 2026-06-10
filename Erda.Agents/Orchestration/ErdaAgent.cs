@@ -1,5 +1,5 @@
 using System.ClientModel;
-using Azure.AI.OpenAI;
+using OpenAI;
 using Erda.Core.Configuration;
 using Erda.Core.Data;
 using Erda.Core.Services;
@@ -31,11 +31,15 @@ public static class ErdaAgent
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
         var recorder = services.GetRequiredService<IActivityRecorder>();
 
-        // Foundry endpoint + key are validated at startup, so they are guaranteed present here.
-        ChatClient chatClient = new AzureOpenAIClient(
-                new Uri(creds.AzureOpenAIEndpoint),
-                new ApiKeyCredential(creds.AzureOpenAIApiKey))
-            .GetChatClient(options.ChatDeployment);
+        // Endpoint + key are validated at startup, so they are guaranteed present here. We use the
+        // stock OpenAI SDK pointed at an OpenAI-compatible base URL (Azure's unified /openai/v1
+        // surface) rather than Azure.AI.OpenAI: there is no dated api-version to track (the reason
+        // newer Azure models rejected the old client), and the same code works against any
+        // OpenAI-compatible provider by swapping AZURE_OPENAI_ENDPOINT + key + ChatDeployment.
+        ChatClient chatClient = new ChatClient(
+            model: options.ChatDeployment,
+            credential: new ApiKeyCredential(creds.AzureOpenAIApiKey),
+            options: new OpenAIClientOptions { Endpoint = new Uri(creds.AzureOpenAIEndpoint) });
 
         var tools = new List<AITool>();
         tools.AddRange(services.GetRequiredService<ObsidianTools>().AsTools());

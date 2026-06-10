@@ -42,7 +42,7 @@ Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 
 | Capability | Client | Key |
 |---|---|---|
-| Chat agent (`gpt-5-mini`) | `AzureOpenAIClient` | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` |
+| Chat agent (`gpt-5.4-mini`) | OpenAI SDK → Azure `/openai/v1` | `AZURE_OPENAI_ENDPOINT` (the `…/openai/v1` URL) + `AZURE_OPENAI_API_KEY` |
 | Transcription (`gpt-4o-transcribe`) | OpenAI SDK | `OPENAI_API_KEY` |
 | Codex (`gpt-5.5`) | `codex` CLI subprocess | ChatGPT subscription session in `~/.codex` |
 
@@ -65,7 +65,7 @@ Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 
 ### MAF-specific patterns
 
-- Chat agent: `new AzureOpenAIClient(uri, new ApiKeyCredential(key)).GetChatClient(deployment).AsAIAgent(...)`. Uses `System.ClientModel.ApiKeyCredential`, **not** `Azure.AzureKeyCredential`.
+- Chat agent: `new ChatClient(model: deployment, credential: new ApiKeyCredential(key), options: new OpenAIClientOptions { Endpoint = new Uri(azureV1Url) }).AsAIAgent(...)`. The stock **OpenAI SDK** (`OpenAI`/`OpenAI.Chat`) pointed at Azure's unified `/openai/v1` surface — **not** `Azure.AI.OpenAI` (dropped: its dated `api-version` made newer Azure models fail, and the OpenAI client is provider-portable). Uses `System.ClientModel.ApiKeyCredential`. We deliberately use **Chat Completions, not the Responses API** — Chat Completions is the universal OpenAI-compatible surface, so swapping providers is just endpoint+key+deployment.
 - Workflow-as-tool: the voice-memo workflow is `workflow.AsAIAgent(...).AsAIFunction(...)`. Its start executor must accept `List<ChatMessage>` + `TurnToken` (a plain `string` start executor fails with "Workflow does not support ChatProtocol").
 - **Agent `name` matches its registration key** (both `"erda"`): registered with `builder.AddAIAgent(ErdaAgent.Name, …)` and resolved by keyed DI via `[FromKeyedServices("erda")]` in `ErdaAgentResponder` and `WebChatService`.
 

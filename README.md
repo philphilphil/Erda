@@ -17,7 +17,7 @@ reason this project exists:
 
 | Capability | Runs on | Auth | Credential |
 |---|---|---|---|
-| **Chat agent** (`gpt-5-mini`) | Azure AI Foundry, via the Azure OpenAI client | API key | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` |
+| **Chat agent** (`gpt-5.4-mini`) | Azure AI Foundry `/openai/v1`, via the stock OpenAI SDK | API key | `AZURE_OPENAI_ENDPOINT` (the `…/openai/v1` URL) + `AZURE_OPENAI_API_KEY` |
 | **Transcription** (`gpt-4o-transcribe`) | OpenAI platform | API key (pay-per-token) | `OPENAI_API_KEY` |
 | **Codex** (`gpt-5.5`) | ChatGPT **subscription**, via the `codex` CLI | logged-in session in `~/.codex` | *(none in this app)* |
 
@@ -159,8 +159,13 @@ Erda/
 MAF is in active preview; a few names differ from older docs/samples. As built here against the
 1.8.0 train (May 2026):
 
-- The chat agent uses `new AzureOpenAIClient(uri, new ApiKeyCredential(key)).GetChatClient(deployment).AsAIAgent(...)`.
-  Azure.AI.OpenAI 2.x uses **`System.ClientModel.ApiKeyCredential`**, not `Azure.AzureKeyCredential`.
+- The chat agent uses the **stock OpenAI SDK** pointed at Azure's unified `/openai/v1` surface:
+  `new ChatClient(model: deployment, credential: new ApiKeyCredential(key), options: new OpenAIClientOptions { Endpoint = new Uri(azureV1Url) }).AsAIAgent(...)`.
+  We dropped `Azure.AI.OpenAI` — its dated `api-version` is what made newer Azure models (e.g.
+  `gpt-5.4-mini`) fail with "API version not supported", and the OpenAI client is provider-portable
+  (swap endpoint+key+deployment for any OpenAI-compatible backend). Uses
+  **`System.ClientModel.ApiKeyCredential`**. We use **Chat Completions, not the Responses API**, because
+  Chat Completions is the universal OpenAI-compatible surface (Responses is OpenAI/Azure-only).
 - **Workflow-as-tool**: the voice-memo workflow is wrapped with `workflow.AsAIAgent(...)` then
   `.AsAIFunction(...)` and attached to Erda as the `process_voice_memo` tool — the orchestrator
   routes to it rather than it being a separate top-level agent.
@@ -182,7 +187,7 @@ MAF is in active preview; a few names differ from older docs/samples. As built h
 
 `Microsoft.Agents.AI` / `.OpenAI` / `.Workflows` `1.8.0` (stable);
 `Microsoft.Agents.AI.Hosting` `1.8.0-preview`; `Microsoft.Extensions.AI` `10.6.0`;
-`Azure.AI.OpenAI` `2.9.0-beta.1`; `OpenAI` `2.10.0`. See the `Erda.*/*.csproj` project files (MAF hosting lives in `Erda.Server`, the MAF agent/Azure packages in `Erda.Agents`, EF/OpenAI in `Erda.Core`).
+`OpenAI` `2.10.0` (the chat client, pointed at Azure `/openai/v1`; `Azure.AI.OpenAI` was removed). See the `Erda.*/*.csproj` project files (MAF hosting lives in `Erda.Server`, the MAF agent packages in `Erda.Agents`, EF/OpenAI in `Erda.Core`).
 
 ## Observability
 
