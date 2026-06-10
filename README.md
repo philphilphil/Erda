@@ -70,8 +70,8 @@ tweaking runtime config — all over a JSON API under `/api`, with a Vue 3 SPA f
 - **Reminders are live** (the scheduler reads the DB each tick); **prompt + config edits apply on
   restart** (a one-click *Restart Erda* button). The activity feed is pushed live over
   Server-Sent Events.
-- **Auth is off by default** — the panel is open on the LAN. Set `Panel:Password` (env
-  `PANEL_PASSWORD`) to require a single-user cookie login.
+- **Auth is off by default** — the panel is open on the LAN. Set `Panel__Password` in `.env` to
+  require a single-user cookie login (`Panel__Username` defaults to `admin`).
 - **Local dev:** run the backend and the Vite dev server together:
 
   ```bash
@@ -115,26 +115,25 @@ answering from memory. This is what keeps notes accurate instead of hallucinated
 
 ## Configuration
 
-`appsettings.json` (`Erda` section) plus the three environment variables above.
+**Env-only.** There is no `appsettings.json` — every setting comes from environment variables, kept
+in `.env` (see [`.env.example`](.env.example) for the full, documented catalog). `make dev` sources
+`.env`; in prod `docker-compose` loads it via `env_file`. **Required values have no default**: if one
+is missing the app refuses to start and names the missing key. Bool switches are **off when absent**.
+Feature settings (WhatsApp, Browser) are only required when that feature's `Enabled` switch is on.
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `Erda:ChatDeployment` | `gpt-5-mini` | Foundry deployment name for the chat model |
-| `Erda:TranscribeModel` | `gpt-4o-transcribe` | OpenAI STT model (`gpt-4o-mini-transcribe` is cheaper) |
-| `Erda:CodexModel` | `gpt-5.5` | Model passed to `codex exec -m` (must be a model the ChatGPT subscription supports; `gpt-5-codex` is API-only) |
-| `Erda:CodexReasoningEffort` | `high` | `codex exec -c model_reasoning_effort` |
-| `Erda:VaultPath` | `/Users/phil/TestingNotes` | Obsidian vault root Erda may read/write |
-| `Erda:VoiceMemoSubfolder` | `VoiceMemos` | Where processed memos are saved |
+Required: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `OPENAI_API_KEY`, `Erda__VaultPath`,
+`Erda__DbPath` (and the WhatsApp/Browser settings when those features are enabled). Everything else is
+either a bool switch (e.g. `ErrorWatch__Enabled`) or a code-level invariant (model names, poll
+intervals, timezone) that is intentionally not configurable. The double underscore is the .NET
+convention for nesting config sections in env vars (`Erda__VaultPath` → `Erda:VaultPath`).
 
 ### Point it at a different vault
 
-Edit `Erda:VaultPath` in `appsettings.json`, or override without editing files:
+Set `Erda__VaultPath` in `.env`, or override ad-hoc:
 
 ```bash
 Erda__VaultPath="/Users/you/MyVault" dotnet run --project Erda.Server
 ```
-
-(The double underscore is the .NET convention for nesting config sections in env vars.)
 
 ## Project layout
 
@@ -201,16 +200,16 @@ in [`Program.cs`](Program.cs).
   (as `tool_call` / `tool_call_response` parts), visible only when content capture is on. `chat`
   spans carry the token counts.
 - **Privacy:** prompt / completion / tool-argument **content** is captured only when
-  `Observability:CaptureMessageContent` is true (which sets the standard env var
-  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`). It is **false in production**
-  (`appsettings.json`) — Seq then gets tool names, timings, and token counts but no message text —
-  and **true in Development**. The Codex launch log follows the same flag: it shows the actual
-  question (not the system-prompt boilerplate) only when content capture is on.
+  `Observability__CaptureMessageContent` is true (which sets the standard env var
+  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`). Leave it unset in production — Seq then gets
+  tool names, timings, and token counts but no message text; the dev `.env` sets it true. The Codex
+  launch log follows the same flag: it shows the actual question (not the system-prompt boilerplate)
+  only when content capture is on.
 
-| Setting | Default | Purpose |
+| Setting | Absent ⇒ | Purpose |
 |---|---|---|
-| `Observability:Enabled` | `true` | Master switch for OpenTelemetry tracing |
-| `Observability:CaptureMessageContent` | `false` (prod) / `true` (dev) | Capture prompts + tool args in spans and the Codex log |
+| `Observability__Enabled` | off | Master switch for OpenTelemetry tracing (set `true` to enable) |
+| `Observability__CaptureMessageContent` | off | Capture prompts + tool args in spans and the Codex log (dev `.env` sets `true`) |
 
 ## Deploy on a Jetson (Docker + Komodo)
 
@@ -248,8 +247,8 @@ Erda logs into sites using credentials it never sees. Set up a dedicated, least-
    2FA). Curating this vault is how you control which sites Erda can sign into — Erda has no write access.
 2. In 1Password → **Developer → Service Accounts**, create a service account with **read-only** access
    to **only** the `Erda` vault. Copy its token into `OP_SERVICE_ACCOUNT_TOKEN` in `.env`.
-3. Set `BROWSER_ENABLED=true`. On the first run for a site, Erda fills the login form from 1Password and
-   the session persists on the `browser-data` volume, so later runs skip the login.
+3. Set `Erda__Browser__Enabled=true`. On the first run for a site, Erda fills the login form from 1Password
+   and the session persists on the `browser-data` volume, so later runs skip the login.
 
 **Hard stops:** a captcha or a push/SMS/email challenge cannot be solved unattended — Erda stops and
 messages you on WhatsApp. As a fallback you can refresh a session manually: run a headed browser against
@@ -280,4 +279,4 @@ to upgrade the CLI. `restart: unless-stopped` keeps both services up across rebo
 - **Voice memos**: forward the audio to Erda over WhatsApp. The bridge downloads it into the
   shared `/media` volume and Erda transcribes it from there.
 - **Seq**: the error-watch scheduler ships inside the `erda` container and reads from the central
-  `SEQ_SERVER_URL` (default `https://seq.phib.io`). No Seq container is included.
+  `Seq__ServerUrl` (e.g. `https://seq.phib.io`); blank disables it. No Seq container is included.

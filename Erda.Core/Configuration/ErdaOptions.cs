@@ -1,12 +1,32 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Erda.Core.Configuration;
 
 /// <summary>
-/// Strongly-typed settings bound from the "Erda" section of configuration.
-/// Secrets (the three API credentials) live in environment variables, NOT here.
+/// Strongly-typed settings bound from the "Erda" section of configuration. The credentials live in
+/// <see cref="CredentialsOptions"/>, NOT here.
+/// <para>
+/// Two kinds of property live here. <b>Required deployment settings</b> (<see cref="VaultPath"/>,
+/// <see cref="DbPath"/>) carry no default and are validated at startup — a missing value stops the
+/// app. Everything else holds an <b>invariant value</b>: it is intentionally absent from every
+/// config file, so the value below is the single source. Change those in code, not via config.
+/// </para>
 /// </summary>
 public sealed class ErdaOptions
 {
     public const string SectionName = "Erda";
+
+    /// <summary>Absolute path to the Obsidian vault root that Erda may read/write. Required.</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string VaultPath { get; set; } = "";
+
+    /// <summary>
+    /// SQLite database file for all runtime state (prompt versions, reminders, error-watch state,
+    /// activity). Required — set to a bind-mounted path in the container (e.g.
+    /// <c>/data/erda/erda.db</c>) so it survives redeploys, or a local path in dev.
+    /// </summary>
+    [Required(AllowEmptyStrings = false)]
+    public string DbPath { get; set; } = "";
 
     /// <summary>Azure AI Foundry deployment name for the chat model (gpt-5-mini).</summary>
     public string ChatDeployment { get; set; } = "gpt-5-mini";
@@ -31,17 +51,6 @@ public sealed class ErdaOptions
     /// <summary>The codex CLI executable (path or name on PATH). Overridable mainly for tests.</summary>
     public string CodexExecutable { get; set; } = "codex";
 
-    /// <summary>Absolute path to the Obsidian vault root that Erda may read/write.</summary>
-    public string VaultPath { get; set; } = "/Users/phil/TestingNotes";
-
     /// <summary>Vault-relative subfolder where processed voice memos are saved.</summary>
     public string VoiceMemoSubfolder { get; set; } = "VoiceMemos";
-
-    /// <summary>
-    /// SQLite database file for all runtime state (prompt versions, reminders, error-watch state,
-    /// activity, config overrides). When unset, defaults to
-    /// <c>LocalApplicationData/erda/erda.db</c>. In the container this is set to a bind-mounted
-    /// path (e.g. <c>/data/erda/erda.db</c>) so it survives redeploys.
-    /// </summary>
-    public string? DbPath { get; set; }
 }

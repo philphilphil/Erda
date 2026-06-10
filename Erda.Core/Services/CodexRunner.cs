@@ -116,9 +116,9 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             psi.ArgumentList.Add(prompt);
 
             // CRITICAL: ensure the platform key is NOT in the child env, so Codex authenticates
-            // with the ChatGPT subscription rather than per-token API billing. (If OPENAI_API_KEY
-            // lives only in appsettings it is in IConfiguration but never in the OS process env,
-            // so it was never inherited and Remove is a no-op.)
+            // with the ChatGPT subscription rather than per-token API billing. Config is env-only now,
+            // so OPENAI_API_KEY is a real OS environment variable on this process and WOULD be
+            // inherited by the subprocess — this Remove is what stops that. Never delete it.
             psi.Environment.Remove("OPENAI_API_KEY");
             var keyAbsentFromChild = !psi.Environment.ContainsKey("OPENAI_API_KEY");
 

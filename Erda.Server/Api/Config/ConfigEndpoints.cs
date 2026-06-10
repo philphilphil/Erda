@@ -1,8 +1,9 @@
 namespace Erda.Server.Api;
 
 /// <summary>
-/// JSON endpoints over <see cref="ConfigPanelService"/> for the panel's Config screen, plus the
-/// one-click restart. Overrides are written to the DB and applied on the next restart (v1).
+/// JSON endpoints over <see cref="ConfigPanelService"/> for the panel's read-only Config screen, plus
+/// the one-click restart. Config is env-only and applied at startup — there is no edit endpoint;
+/// change <c>.env</c> and restart.
 /// </summary>
 public static class ConfigEndpoints
 {
@@ -11,12 +12,6 @@ public static class ConfigEndpoints
         var g = group.MapGroup("/config");
 
         g.MapGet("", (ConfigPanelService svc) => Results.Ok(svc.GetItems()));
-
-        g.MapPut("", (ConfigUpdateRequest req, ConfigPanelService svc) =>
-        {
-            svc.Apply(req.Values ?? new Dictionary<string, string?>());
-            return Results.Ok();
-        });
 
         g.MapPost("/restart", (IHostApplicationLifetime lifetime, ILogger<ConfigPanelService> log) =>
         {

@@ -18,22 +18,28 @@ public sealed class BrowserOptions
     /// <summary>Executable that launches the MCP server (stdio).</summary>
     public string McpCommand { get; set; } = "npx";
 
-    /// <summary>Base arguments for <see cref="McpCommand"/>. Pinned MCP version + persistent profile.
-    /// <c>--headless</c> is appended by the runner when <see cref="Headless"/> is true (so local dev can
-    /// drop it and watch the browser).</summary>
-    public string[] McpArgs { get; set; } = ["@playwright/mcp@0.0.75"];
+    /// <summary>Base arguments for <see cref="McpCommand"/>. Pinned MCP version + browser selection.
+    /// <c>--browser chromium</c> is required: the MCP otherwise defaults to the <c>chrome</c> channel
+    /// (branded Google Chrome), which the runtime image doesn't install and which has no ARM64 Linux
+    /// build — leaving it off fails with "Chromium distribution 'chrome' is not found". This selects the
+    /// bundled Chromium the Dockerfile installs. <c>--no-sandbox</c> is required to launch Chromium in
+    /// the container (per the Playwright MCP Docker docs). <c>--headless</c> is appended by the runner
+    /// when <see cref="Headless"/> is true (so local dev can drop it and watch the browser).</summary>
+    public string[] McpArgs { get; set; } = ["@playwright/mcp@0.0.75", "--browser", "chromium", "--no-sandbox"];
 
-    /// <summary>Run Chromium headless. Default true (the Jetson has no display). Set
-    /// <c>Erda__Browser__Headless=false</c> on the dev Mac to watch the agent browse in a real window.</summary>
-    public bool Headless { get; set; } = true;
+    /// <summary>Show a real browser window instead of headless. Absent ⇒ false ⇒ headless (the safe
+    /// state for the display-less Jetson). Set <c>Erda__Browser__ShowWindow=true</c> on the dev Mac to
+    /// watch the agent browse.</summary>
+    public bool ShowWindow { get; set; }
 
-    /// <summary>Persistent profile directory (kept on the browser-data volume) — the logged-in session.</summary>
-    public string UserDataDir { get; set; } = "/data/browser";
+    /// <summary>Persistent profile directory (the logged-in session) — on the browser-data volume in
+    /// the container. Required when <see cref="Enabled"/>.</summary>
+    public string UserDataDir { get; set; } = "";
 
     /// <summary>Directory the MCP writes output files (screenshots) to (<c>--output-dir</c>). Prod = the
-    /// shared <c>/media</c> volume the WhatsApp bridge sends from; dev points at a gitignored project
-    /// <c>media/</c> folder. Without this the MCP writes into the process working directory.</summary>
-    public string OutputDir { get; set; } = "/media";
+    /// shared <c>/media</c> volume the WhatsApp bridge sends from; dev points at a project folder.
+    /// Required when <see cref="Enabled"/>.</summary>
+    public string OutputDir { get; set; } = "";
 
     /// <summary>Upper bound on tool calls inside a single browse_web run, to bound a runaway loop.</summary>
     public int MaxSteps { get; set; } = 40;

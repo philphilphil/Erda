@@ -2,7 +2,12 @@
 #
 # Erda publishes its control panel on the home LAN (port 5167; the Vue SPA is served at the root,
 # the JSON API under /api); the WhatsApp bridge stays unpublished. Erda runs Production.
-# Copy .env.example to .env and fill it in; docker compose reads .env automatically.
+#
+# Configuration is env-only. `.env` (next to this file; git-ignored) holds every setting using the
+# app's own keys (Erda__…, WhatsApp__…, Seq__…, plus the flat AZURE_OPENAI_*/OPENAI_API_KEY). The
+# erda container loads it verbatim via `env_file`, so there is NO per-variable mapping here. Compose
+# also auto-reads `.env` for the ${…} substitutions below (host paths, bridge secret). Copy
+# .env.example to .env and fill it in; in Komodo, set the same keys as the Stack's environment.
 #
 #   First run only (link WhatsApp):  docker compose run --rm whatsapp-bridge   # scan the QR
 #   Normal:                          docker compose up -d --build
@@ -18,10 +23,11 @@ services:
     environment:
       BRIDGE_LISTEN: 0.0.0.0:8088                                   # all-interfaces INSIDE the container; still unpublished
       ERDA_INBOUND_URL: http://erda:5167/channel/whatsapp/in
-      SHARED_SECRET: ${SHARED_SECRET:?set SHARED_SECRET in .env}
-      OWNER_JID: ${OWNER_JID:?set OWNER_JID in .env}
       SESSION_DB: /data/whatsmeow-session.db
       MEDIA_DIR: /media
+      # The bridge shares Erda's secret (same value) and needs the owner JID (a bridge-only format).
+      SHARED_SECRET: ${WhatsApp__SharedSecret:?set WhatsApp__SharedSecret in .env}
+      OWNER_JID: ${OWNER_JID:?set OWNER_JID in .env}
     volumes:
       - bridge-data:/data            # persistent whatsmeow session — survives rebuilds
       - media:/media                 # SHARED with erda (same path); downloaded media
@@ -40,34 +46,20 @@ services:
     depends_on: [whatsapp-bridge]
     ports:
       - "${PANEL_BIND:-0.0.0.0}:5167:5167"                         # control panel (home LAN; set PANEL_BIND to a LAN IP to restrict)
+    # Every Erda setting comes from .env, using the app's own keys. Missing required values stop the
+    # app at startup with a clear, aggregated error (see CredentialsOptions / the feature validators).
+    env_file:
+      - .env
     environment:
       ASPNETCORE_ENVIRONMENT: Production                           # control panel (SPA + /api) served at the root
       ASPNETCORE_URLS: http://0.0.0.0:5167
-      CODEX_HOME: /codex
-      Erda__VaultPath: /vault
-      Erda__DbPath: /data/erda/erda.db                             # SQLite for all runtime state, on a persistent volume
-      Panel__Username: ${PANEL_USERNAME:-admin}                    # control-panel login (only used when a password is set)
-      Panel__Password: ${PANEL_PASSWORD:-}                         # blank = panel open on the LAN; set to require a cookie login
-      WhatsApp__Enabled: "true"
-      WhatsApp__BridgeUrl: http://whatsapp-bridge:8088
-      WhatsApp__MediaTempDir: /media
-      WhatsApp__SharedSecret: ${SHARED_SECRET:?set SHARED_SECRET in .env}
-      WhatsApp__OwnerNumber: ${OWNER_NUMBER:?set OWNER_NUMBER in .env}
-      Seq__ServerUrl: ${SEQ_SERVER_URL:-https://seq.phib.io}
-      Seq__ApiKey: ${SEQ_API_KEY:-}
-      Seq__IngestToErda: "true"
-      ErrorWatch__Enabled: "true"
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:?set AZURE_OPENAI_ENDPOINT in .env}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:?set AZURE_OPENAI_API_KEY in .env}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}  # transcription only; stripped from the Codex subprocess
-      Erda__Browser__Enabled: ${BROWSER_ENABLED:-false}
-      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:-}   # read-only, scoped to the Erda 1Password vault
+      CODEX_HOME: /codex                                           # codex reads its logged-in session from here
     volumes:
       - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
       - ${VAULT_DIR:?set VAULT_DIR (absolute) in .env}:/vault       # host-synced Obsidian vault, RW
-      - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity, config) — survives redeploys
+      - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity) — survives redeploys
       - media:/media                                                # SHARED with the bridge (same path)
-      - browser-data:/data/browser    # persistent browser profile (logged-in session)
+      - browser-data:/data/browser                                 # persistent browser profile (logged-in session)
     networks: [erdanet]
 
 networks:

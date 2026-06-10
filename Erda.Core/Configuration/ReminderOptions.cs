@@ -9,8 +9,8 @@ public sealed class ReminderOptions
 {
     public const string SectionName = "Reminders";
 
-    /// <summary>Master switch for the background scheduler.</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>Master switch for the background scheduler. Absent ⇒ off; enable explicitly in .env.</summary>
+    public bool Enabled { get; set; }
 
     /// <summary>Vault-relative path to the note that holds the reminder tables.</summary>
     public string NotePath { get; set; } = "Atlas/AI/Erda/Reminders.md";
