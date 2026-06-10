@@ -60,6 +60,13 @@ COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
 # ---- browser (Playwright MCP) ----------------------------------------------
 # Node + the pinned Playwright MCP server + a Chromium build, installed to a world-readable path so
 # the container (running as uid 1000) can launch it. Pin must match BrowserOptions.McpArgs.
+#
+# CRITICAL: install Chromium with the SAME playwright-core the MCP bundles (its own cli.js), NOT
+# `npx playwright install`. `npx --yes playwright` pulls the *latest stable* playwright, whose Chromium
+# revision (e.g. 1223) can differ from the MCP's pinned (alpha) core (which wants e.g. 1224). The
+# server then resolves `--browser chromium` to a build that isn't on disk and fails at runtime with
+# "Chromium distribution 'chrome-for-testing' is not installed". Driving the install through the MCP's
+# own playwright-core keeps the revision locked to whatever @playwright/mcp@${VERSION} expects.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ARG PLAYWRIGHT_MCP_VERSION=0.0.75
 RUN apt-get update \
@@ -67,7 +74,7 @@ RUN apt-get update \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
- && npx --yes playwright install --with-deps chromium \
+ && node "$(npm root -g)/@playwright/mcp/node_modules/playwright-core/cli.js" install --with-deps chromium \
  && chmod -R a+rx /ms-playwright \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
