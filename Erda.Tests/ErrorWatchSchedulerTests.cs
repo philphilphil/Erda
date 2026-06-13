@@ -1,5 +1,6 @@
 using Erda.Core.Configuration;
 using Erda.Core.Scheduling;
+using Erda.Core.Services;
 using Erda.Core.Services.Seq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -21,20 +22,34 @@ public class ErrorWatchSchedulerTests
             Timestamp = ts ?? DateTimeOffset.UtcNow,
         };
 
+    private static SeqError ErrWithVenue(string id, string venue, DateTimeOffset ts) =>
+        new()
+        {
+            Id = id,
+            Level = "Error",
+            MessageTemplate = "scrape_error",
+            RenderedMessage = "scrape_error",
+            Timestamp = ts,
+            Properties = new Dictionary<string, string> { ["venue"] = venue },
+        };
+
+    private static ErrorWatchStateStore TempStore() => new(TestDb.NewFactory());
+
+    private static ErrorWatchScheduler Build(
+        FakeSeqClient seq, FakeWhatsAppSender sender, FakeAnalyzer analyzer, IClock clock) =>
+        new(
+            Options.Create(new ErrorWatchOptions()),
+            Options.Create(new SeqOptions { ServerUrl = "http://seq" }),
+            Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
+            seq, analyzer, sender, TempStore(), new FakeActivityRecorder(), clock, NullLogger<ErrorWatchScheduler>.Instance);
+
     private static (ErrorWatchScheduler Scheduler, FakeSeqClient Seq, FakeAnalyzer Analyzer, FakeWhatsAppSender Sender) Make()
     {
         var seq = new FakeSeqClient();
         var analyzer = new FakeAnalyzer();
         var sender = new FakeWhatsAppSender();
-        var scheduler = new ErrorWatchScheduler(
-            Options.Create(new ErrorWatchOptions()),
-            Options.Create(new SeqOptions { ServerUrl = "http://seq" }),
-            Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            seq, analyzer, sender, TempStore(), new FakeActivityRecorder(), NullLogger<ErrorWatchScheduler>.Instance);
-        return (scheduler, seq, analyzer, sender);
+        return (Build(seq, sender, analyzer, new FakeClock()), seq, analyzer, sender);
     }
-
-    private static ErrorWatchStateStore TempStore() => new(TestDb.NewFactory());
 
     private static ErrorWatchState StateFrom(int minutesAgo = 10) =>
         new() { LastTimestampUtc = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo) };
@@ -64,18 +79,15 @@ public class ErrorWatchSchedulerTests
     [Fact]
     public async Task Respects_MaxAlertsPerPoll_and_sends_a_summary()
     {
-        var (scheduler, _, analyzer, sender) = Make();
         var seq = new FakeSeqClient();
-        var schedulerWithSeq = new ErrorWatchScheduler(
-            Options.Create(new ErrorWatchOptions()),
-            Options.Create(new SeqOptions { ServerUrl = "http://seq" }),
-            Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            seq, analyzer, sender, TempStore(), new FakeActivityRecorder(), NullLogger<ErrorWatchScheduler>.Instance);
+        var analyzer = new FakeAnalyzer();
+        var sender = new FakeWhatsAppSender();
+        var scheduler = Build(seq, sender, analyzer, new FakeClock());
 
         var opts = new ErrorWatchOptions { AnalyzeWithCodex = false, MaxAlertsPerPoll = 2 };
         seq.Responses.Enqueue([Err("e1", "A"), Err("e2", "B"), Err("e3", "C"), Err("e4", "D")]);
 
-        await schedulerWithSeq.PollOnceAsync(opts, TempStore(), StateFrom(), OwnerJid, default);
+        await scheduler.PollOnceAsync(opts, TempStore(), StateFrom(), OwnerJid, default);
 
         // 2 alerts + 1 "more suppressed" summary, no Codex calls.
         Assert.Equal(3, sender.Sent.Count);
@@ -104,5 +116,74 @@ public class ErrorWatchSchedulerTests
         var (scheduler, _, _, sender) = Make();
         await scheduler.PollOnceAsync(new ErrorWatchOptions(), TempStore(), StateFrom(), OwnerJid, default);
         Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Recurring_signature_is_suppressed_within_cooldown_then_re_alerts_after_it()
+    {
+        var clock = new FakeClock();
+        var seq = new FakeSeqClient();
+        var sender = new FakeWhatsAppSender();
+        var scheduler = Build(seq, sender, new FakeAnalyzer(), clock);
+        var opts = new ErrorWatchOptions { MaxAlertsPerPoll = 5, ReAlertAfter = TimeSpan.FromHours(6) };
+        var store = TempStore();
+        var state = new ErrorWatchState { LastTimestampUtc = clock.UtcNow.AddMinutes(-10) };
+
+        // First occurrence -> alert.
+        seq.Responses.Enqueue([Err("e1", "scrape_error", ts: clock.UtcNow)]);
+        await scheduler.PollOnceAsync(opts, store, state, OwnerJid, default);
+        Assert.Single(sender.Sent);
+
+        // Same signature an hour later (new event id) -> within cooldown -> suppressed.
+        clock.UtcNow = clock.UtcNow.AddHours(1);
+        seq.Responses.Enqueue([Err("e2", "scrape_error", ts: clock.UtcNow)]);
+        await scheduler.PollOnceAsync(opts, store, state, OwnerJid, default);
+        Assert.Single(sender.Sent);
+
+        // Same signature past the cooldown -> re-alerts.
+        clock.UtcNow = clock.UtcNow.AddHours(6);
+        seq.Responses.Enqueue([Err("e3", "scrape_error", ts: clock.UtcNow)]);
+        await scheduler.PollOnceAsync(opts, store, state, OwnerJid, default);
+        Assert.Equal(2, sender.Sent.Count);
+    }
+
+    [Fact]
+    public async Task Without_ReAlertAfter_a_recurring_signature_never_re_alerts()
+    {
+        var clock = new FakeClock();
+        var seq = new FakeSeqClient();
+        var sender = new FakeWhatsAppSender();
+        var scheduler = Build(seq, sender, new FakeAnalyzer(), clock);
+        var opts = new ErrorWatchOptions { MaxAlertsPerPoll = 5 }; // ReAlertAfter null
+        var store = TempStore();
+        var state = new ErrorWatchState { LastTimestampUtc = clock.UtcNow.AddMinutes(-10) };
+
+        seq.Responses.Enqueue([Err("e1", "scrape_error", ts: clock.UtcNow)]);
+        await scheduler.PollOnceAsync(opts, store, state, OwnerJid, default);
+
+        clock.UtcNow = clock.UtcNow.AddDays(30);
+        seq.Responses.Enqueue([Err("e2", "scrape_error", ts: clock.UtcNow)]);
+        await scheduler.PollOnceAsync(opts, store, state, OwnerJid, default);
+
+        Assert.Single(sender.Sent);
+    }
+
+    [Fact]
+    public async Task Signature_properties_split_distinct_values_into_separate_alerts()
+    {
+        var clock = new FakeClock();
+        var seq = new FakeSeqClient();
+        var sender = new FakeWhatsAppSender();
+        var scheduler = Build(seq, sender, new FakeAnalyzer(), clock);
+        var opts = new ErrorWatchOptions { MaxAlertsPerPoll = 5, SignatureProperties = "venue" };
+        var state = new ErrorWatchState { LastTimestampUtc = clock.UtcNow.AddMinutes(-10) };
+
+        // Same constant template, different venue -> two signatures -> two alerts, each naming its venue.
+        seq.Responses.Enqueue([ErrWithVenue("e1", "Konzerthaus", clock.UtcNow), ErrWithVenue("e2", "Philharmonie", clock.UtcNow)]);
+        await scheduler.PollOnceAsync(opts, TempStore(), state, OwnerJid, default);
+
+        Assert.Equal(2, sender.Sent.Count);
+        Assert.Contains(sender.Sent, m => m.Text.Contains("Konzerthaus"));
+        Assert.Contains(sender.Sent, m => m.Text.Contains("Philharmonie"));
     }
 }

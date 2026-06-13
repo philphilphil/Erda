@@ -8,7 +8,7 @@ public static class ErrorAlert
 {
     private const int MaxLength = 3500; // WhatsApp hard limit is ~4096; leave headroom.
 
-    public static string Format(SeqError error, string? analysis, int occurrences = 1)
+    public static string Format(SeqError error, string? analysis, int occurrences = 1, IReadOnlyList<string>? propertyNames = null)
     {
         var sb = new StringBuilder();
         sb.Append("🚨 ").Append(error.Level);
@@ -22,6 +22,18 @@ public static class ErrorAlert
         sb.Append(Truncate(error.Display.Trim(), 500));
         if (!string.IsNullOrWhiteSpace(error.ExceptionType))
             sb.Append('\n').Append(error.ExceptionType);
+
+        // Surface the configured signature properties (e.g. venue/error) — for constant-template
+        // events the real detail lives here, not in the rendered message.
+        if (propertyNames is { Count: > 0 })
+        {
+            foreach (var name in propertyNames)
+            {
+                if (error.Properties.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value))
+                    sb.Append('\n').Append(name).Append(": ").Append(Truncate(value.Trim(), 300));
+            }
+        }
+
         sb.Append("\n🕒 ").Append(error.Timestamp.ToString("u"));
 
         if (!string.IsNullOrWhiteSpace(analysis))

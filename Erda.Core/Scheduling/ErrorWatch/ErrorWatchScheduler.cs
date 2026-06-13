@@ -20,6 +20,7 @@ public sealed class ErrorWatchScheduler(
     IWhatsAppSender sender,
     ErrorWatchStateStore store,
     IActivityRecorder recorder,
+    IClock clock,
     ILogger<ErrorWatchScheduler> logger) : BackgroundService
 {
     private const int QueryCount = 200;
@@ -45,7 +46,7 @@ public sealed class ErrorWatchScheduler(
         var state = store.Load();
         if (state.LastTimestampUtc is null)
         {
-            state.LastTimestampUtc = DateTimeOffset.UtcNow; // first run: start from now, don't replay history
+            state.LastTimestampUtc = clock.UtcNow; // first run: start from now, don't replay history
             store.Save(state);
             logger.LogInformation("Error-watch scheduler: first run, watermark set to {Now:u}.", state.LastTimestampUtc);
         }
@@ -88,36 +89,47 @@ public sealed class ErrorWatchScheduler(
         if (ordered.Count == 0)
             return;
 
-        // New signatures only (recurrences of a known signature are not re-alerted).
-        var seen = new HashSet<string>(state.SeenSignatures);
-        var newOnes = ordered.Where(e => seen.Add(ErrorSignature.Compute(e))).ToList();
+        var sigProps = opts.SignaturePropertyNames;
+        var now = clock.UtcNow;
+        var lastAlerted = state.SignatureLastAlerted;
+
+        // Group fresh events by signature (alert at most once per signature this poll), keeping each
+        // group's newest event as the representative. A signature alerts if it's brand-new, or if it
+        // recurred and ReAlertAfter has elapsed since it last alerted.
+        var toAlert = ordered
+            .GroupBy(e => ErrorSignature.Compute(e, sigProps))
+            .Select(g => new { Signature = g.Key, Latest = g.Last(), Count = g.Count() })
+            .Where(g => ShouldAlert(g.Signature, lastAlerted, opts.ReAlertAfter, now))
+            .ToList();
 
         int alertsSent = 0, suppressed = 0;
-        foreach (var e in newOnes)
+        foreach (var g in toAlert)
         {
+            lastAlerted[g.Signature] = now; // record the alert time even if capped/undeliverable, so the cooldown holds
+
             if (alertsSent >= opts.MaxAlertsPerPoll)
             {
                 suppressed++;
                 continue;
             }
 
-            var analysis = opts.AnalyzeWithCodex ? await analyzer.AnalyzeAsync(e, ct) : null;
-            var text = ErrorAlert.Format(e, analysis);
+            var analysis = opts.AnalyzeWithCodex ? await analyzer.AnalyzeAsync(g.Latest, ct) : null;
+            var text = ErrorAlert.Format(g.Latest, analysis, g.Count, sigProps);
 
             if (string.IsNullOrEmpty(ownerJid))
             {
                 logger.LogInformation("Error alert (not delivered — no owner configured):\n{Text}", text);
-                recorder.Record("error_alert", $"New error type {e.Id} (not delivered — no owner)", new { e.Id });
+                recorder.Record("error_alert", $"New error type {g.Latest.Id} (not delivered — no owner)", new { g.Latest.Id });
                 alertsSent++;
             }
             else if (await sender.SendAsync(ownerJid, text, ct))
             {
-                recorder.Record("error_alert", $"Alerted on new error type {e.Id}", new { e.Id });
+                recorder.Record("error_alert", $"Alerted on new error type {g.Latest.Id}", new { g.Latest.Id });
                 alertsSent++;
             }
             else
             {
-                logger.LogWarning("Failed to deliver error alert for {Id}.", e.Id);
+                logger.LogWarning("Failed to deliver error alert for {Id}.", g.Latest.Id);
             }
         }
 
@@ -125,7 +137,6 @@ public sealed class ErrorWatchScheduler(
             await sender.SendAsync(ownerJid, $"…and {suppressed} more new error type(s) this cycle (capped at {opts.MaxAlertsPerPoll}). Check Seq.", ct);
 
         // Commit dedup memory + advance the watermark.
-        state.SeenSignatures = seen.ToList();
         foreach (var e in ordered)
             state.SeenEventIds.Add(e.Id);
         var maxTs = ordered.Max(e => e.Timestamp);
@@ -135,8 +146,17 @@ public sealed class ErrorWatchScheduler(
         store.Save(state);
 
         logger.LogInformation(
-            "Error-watch: {New} new signature(s) from {Total} fresh event(s); {Sent} alerted, {Suppressed} suppressed.",
-            newOnes.Count, ordered.Count, alertsSent, suppressed);
+            "Error-watch: {Alerted} alert(s) from {Total} fresh event(s); {Suppressed} capped.",
+            alertsSent, ordered.Count, suppressed);
+    }
+
+    /// <summary>Alert if the signature is brand-new, or recurred after the re-alert cooldown elapsed.</summary>
+    private static bool ShouldAlert(
+        string signature, IReadOnlyDictionary<string, DateTimeOffset> lastAlerted, TimeSpan? reAlertAfter, DateTimeOffset now)
+    {
+        if (!lastAlerted.TryGetValue(signature, out var last))
+            return true;
+        return reAlertAfter is { } window && now - last >= window;
     }
 
     private static async Task<bool> SafeWaitAsync(PeriodicTimer timer, CancellationToken ct)

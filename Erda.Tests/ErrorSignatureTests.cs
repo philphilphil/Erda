@@ -31,4 +31,44 @@ public class ErrorSignatureTests
         var a = Err("Error", "", rendered: "literal message");
         Assert.Contains("literal message", ErrorSignature.Compute(a));
     }
+
+    private static SeqError ErrWithProps(string template, params (string Key, string Value)[] props) =>
+        new()
+        {
+            Level = "Error",
+            MessageTemplate = template,
+            RenderedMessage = template,
+            Properties = props.ToDictionary(p => p.Key, p => p.Value),
+        };
+
+    [Fact]
+    public void Configured_properties_split_an_otherwise_identical_signature()
+    {
+        // Leporello's scrape_error: a constant template, detail lives in properties.
+        var a = ErrWithProps("scrape_error", ("venue", "A"), ("error", "timeout"));
+        var b = ErrWithProps("scrape_error", ("venue", "B"), ("error", "timeout"));
+        var props = new[] { "venue", "error" };
+
+        Assert.NotEqual(ErrorSignature.Compute(a, props), ErrorSignature.Compute(b, props));
+        // Without the property list, they collapse to one signature (today's behavior).
+        Assert.Equal(ErrorSignature.Compute(a), ErrorSignature.Compute(b));
+    }
+
+    [Fact]
+    public void Same_configured_property_values_share_a_signature()
+    {
+        var a = ErrWithProps("scrape_error", ("venue", "A"), ("error", "timeout"));
+        var b = ErrWithProps("scrape_error", ("venue", "A"), ("error", "timeout"));
+        Assert.Equal(
+            ErrorSignature.Compute(a, new[] { "venue", "error" }),
+            ErrorSignature.Compute(b, new[] { "venue", "error" }));
+    }
+
+    [Fact]
+    public void Missing_configured_property_is_treated_as_empty_and_does_not_throw()
+    {
+        var a = ErrWithProps("scrape_error", ("venue", "A"));
+        var sig = ErrorSignature.Compute(a, new[] { "venue", "error" });
+        Assert.Contains("venue=A", sig);
+    }
 }

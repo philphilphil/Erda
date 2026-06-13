@@ -30,4 +30,24 @@ public sealed class ErrorWatchOptions
 
     /// <summary>Run each new error through Codex for analysis; when off, send the raw error. Absent ⇒ off.</summary>
     public bool AnalyzeWithCodex { get; set; }
+
+    /// <summary>
+    /// How long after alerting on a signature to stay quiet before an ongoing recurrence re-alerts.
+    /// Absent ⇒ never re-alert (a signature alerts at most once, ever — the original behavior).
+    /// </summary>
+    public TimeSpan? ReAlertAfter { get; set; }
+
+    /// <summary>
+    /// Comma-separated property names folded into the error signature (and surfaced in the alert).
+    /// Lets constant-template events whose detail lives in properties (e.g. Leporello's
+    /// <c>scrape_error</c> with <c>venue</c>/<c>error</c>) split per value instead of collapsing to
+    /// one signature. Absent ⇒ signatures use level + template + exception type only.
+    /// </summary>
+    public string? SignatureProperties { get; set; }
+
+    /// <summary><see cref="SignatureProperties"/> parsed into a trimmed, non-empty list.</summary>
+    public IReadOnlyList<string> SignaturePropertyNames =>
+        string.IsNullOrWhiteSpace(SignatureProperties)
+            ? []
+            : SignatureProperties.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
