@@ -40,6 +40,20 @@ public sealed class WhatsAppOptionsValidator : IValidateOptions<WhatsAppOptions>
     }
 }
 
+/// <summary>Requires the bearer key (and a sane size cap) whenever the upload endpoint is enabled. The
+/// cross-feature requirement that WhatsApp also be enabled is enforced where the route is mapped, to
+/// avoid options-validating-options ordering.</summary>
+public sealed class UploadOptionsValidator : IValidateOptions<UploadOptions>
+{
+    public ValidateOptionsResult Validate(string? name, UploadOptions o)
+    {
+        if (!o.Enabled) return ValidateOptionsResult.Success;
+        return RequiredWhenEnabled.Check(UploadOptions.SectionName,
+            (nameof(o.ApiKey), RequiredWhenEnabled.Str(o.ApiKey)),
+            (nameof(o.MaxUploadMb), RequiredWhenEnabled.Pos(o.MaxUploadMb)));
+    }
+}
+
 /// <summary>Requires the browser profile/output dirs whenever the agentic browser is enabled.</summary>
 public sealed class BrowserOptionsValidator : IValidateOptions<BrowserOptions>
 {

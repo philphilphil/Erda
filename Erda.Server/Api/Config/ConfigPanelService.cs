@@ -16,7 +16,8 @@ public sealed class ConfigPanelService(
     IOptions<ErrorWatchOptions> errorWatch,
     IOptions<ReminderOptions> reminders,
     IOptions<ObservabilityOptions> observability,
-    IOptions<BrowserOptions> browser)
+    IOptions<BrowserOptions> browser,
+    IOptions<UploadOptions> upload)
 {
     private static string Show(object? v) => v?.ToString() is { Length: > 0 } s ? s : "(not set)";
     private static string Secret(string? v) => string.IsNullOrWhiteSpace(v) ? "(not set)" : "(set)";
@@ -31,6 +32,7 @@ public sealed class ConfigPanelService(
         var r = reminders.Value;
         var o = observability.Value;
         var b = browser.Value;
+        var up = upload.Value;
 
         return
         [
@@ -64,6 +66,10 @@ public sealed class ConfigPanelService(
 
             new("Browser", "Enabled", Show(b.Enabled)),
             new("Browser", "Show window", Show(b.ShowWindow)),
+
+            new("Upload", "Enabled", Show(up.Enabled)),
+            new("Upload", "Bearer token", Secret(up.ApiKey)),
+            new("Upload", "Max upload MB", Show(up.MaxUploadMb)),
         ];
     }
 }

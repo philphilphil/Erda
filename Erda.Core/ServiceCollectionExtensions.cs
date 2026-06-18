@@ -4,6 +4,7 @@ using Erda.Core.Scheduling;
 using Erda.Core.Services;
 using Erda.Core.Services.OnePassword;
 using Erda.Core.Services.Seq;
+using Erda.Core.Upload;
 using Erda.Core.WhatsApp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -47,6 +48,11 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(BrowserOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<BrowserOptions>, BrowserOptionsValidator>();
+
+        services.AddOptions<UploadOptions>()
+            .Bind(configuration.GetSection(UploadOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<UploadOptions>, UploadOptionsValidator>();
 
         services.AddOptions<ErrorWatchOptions>()
             .Bind(configuration.GetSection(ErrorWatchOptions.SectionName))
@@ -94,6 +100,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<WhatsAppInboundQueue>();
         services.AddSingleton<WhatsAppChannelService>();
         services.AddHostedService<WhatsAppInboundWorker>();
+
+        // --- HTTP upload intake (iOS Shortcut → same voice-memo pipeline) ---
+        // Saves the uploaded audio and enqueues it onto the WhatsApp inbound queue above, so the
+        // worker handles it exactly like a shared Apple Voice Memo. Requires WhatsApp enabled (the
+        // reply goes back over the bridge); enforced where POST /upload is mapped.
+        services.AddSingleton<UploadIntake>();
 
         // --- Error-watch scheduler (Seq -> Codex -> WhatsApp) ---
         services.AddSingleton<ISeqClient, SeqClient>();

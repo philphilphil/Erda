@@ -62,6 +62,7 @@ Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 - `Erda.Agents/Workflows/VoiceMemoWorkflow.cs` — voice memo pipeline (transcribe → Codex → write); wrapped as `process_voice_memo` tool via `AsAIFunction`; implements `IMemoProcessor` via `MemoProcessor`
 - `Erda.Core/Scheduling/ErrorWatch/ErrorWatchScheduler.cs` — background loop: polls Seq for errors, deduplicates by signature, analyzes with Codex, alerts via WhatsApp
 - `Erda.Core/WhatsApp/` — bridge integration: inbound queue, background worker, channel service (dispatches text/voice/image to the agent), sender; the HTTP endpoint is `Erda.Server/WhatsApp/WhatsAppEndpoints.cs`
+- `Erda.Core/Upload/UploadIntake.cs` + `Erda.Server/Upload/UploadEndpoints.cs` — `POST /upload`: a bearer-authenticated multipart audio upload (iOS Shortcut) that is saved and enqueued onto the WhatsApp inbound queue, so it runs the **same** Apple-Voice-Memo pipeline (transcribe → Codex → `1 Inbox/`) and replies over WhatsApp. Returns `202` immediately; gated by `Upload:Enabled` and requires `WhatsApp:Enabled`
 
 ### MAF-specific patterns
 
@@ -105,6 +106,7 @@ expressed as read-only constants on `BrowserOptions` (`McpCommand`, `McpArgs`, `
 | (flat) | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `OPENAI_API_KEY` | Credentials (required, validated) |
 | `Erda` | `VaultPath`, `DbPath`, `ChatDeployment`, `TranscribeModel`, `CodexModel`, `CodexReasoningEffort`, `CodexTimeout`, `CodexExecutable`, `VoiceMemoSubfolder` | All required (no default) — vault/db paths + model & codex settings |
 | `WhatsApp` | `Enabled`, `OwnerNumber`, `BridgeUrl`, `SharedSecret`, `MediaTempDir` | Bridge integration (the four required when `Enabled`); only `OwnerNumber` is processed |
+| `Upload` | `Enabled`, `ApiKey`, `MaxUploadMb` | `POST /upload` HTTP audio intake → same voice-memo pipeline (`ApiKey`/`MaxUploadMb` required when `Enabled`; 50 MB recommended; requires `WhatsApp:Enabled`) |
 | `ErrorWatch` | `Enabled`, `PollInterval`, `MinLevel`, `MaxAlertsPerPoll`, `AnalyzeWithCodex`, `ReAlertAfter`, `SignatureProperties` | Error-watch scheduler (interval/level/cap required when `Enabled`; `ReAlertAfter` re-alerts an ongoing error after a cooldown, absent ⇒ once-ever; `SignatureProperties` folds named properties into the dedup signature for constant-template events) |
 | `Reminders` | `Enabled`, `NotePath`, `TimeZone`, `PollInterval`, `OverdueGrace`, `PreScript*` | Reminder scheduler (note/zone/intervals required when `Enabled`; pre-script limits when `PreScriptEnabled`) |
 | `Seq` | `ServerUrl`, `ApiKey`, `IngestToErda` | Seq sink for Serilog + OTLP target (optional; blank ⇒ off) |

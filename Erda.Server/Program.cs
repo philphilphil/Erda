@@ -4,6 +4,7 @@ using Erda.Core.Configuration;
 using Erda.Core.Data;
 using Erda.Server.Api;
 using Erda.Server.Hosting;
+using Erda.Server.Upload;
 using Erda.Server.WhatsApp;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -128,6 +129,9 @@ app.MapFallbackToFile("index.html");
 
 // Inbound WhatsApp bridge endpoint (only mapped when WhatsApp:Enabled).
 app.MapWhatsAppChannel();
+
+// HTTP audio upload (iOS Shortcut → same voice-memo pipeline; only mapped when Upload:Enabled).
+app.MapUploadEndpoint();
 
 // Connect the browser MCP before the host starts. The orchestrator agent is built when the
 // background services (e.g. ReminderScheduler) are constructed during host start, and it reads
