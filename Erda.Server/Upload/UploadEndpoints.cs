@@ -47,15 +47,27 @@ public static class UploadEndpoints
         {
             var inLog = lf.CreateLogger("UploadInbound");
 
-            // 1) Authenticate before touching the (potentially large) body.
-            if (!intake.IsAuthorized(request.Headers.Authorization.ToString()))
-                return Results.Json(new { error = "unauthorized" }, statusCode: StatusCodes.Status401Unauthorized);
-
-            // Raise Kestrel's per-request body cap above the configured max so a clean JSON 413 is
-            // returned for an oversize body (rather than a mid-upload connection reset).
+            // Raise Kestrel's per-request body cap above the configured max so reads/drains are bounded
+            // and an oversize body yields a clean JSON 413 rather than a mid-upload connection reset.
             var sizeFeature = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
             if (sizeFeature is { IsReadOnly: false })
                 sizeFeature.MaxRequestBodySize = maxBytes + multipartSlack;
+
+            // Return an error only AFTER draining any unread request body. A client still uploading when
+            // the server responds early (notably iOS Shortcuts) otherwise sees the early response as a
+            // dropped connection — "The network connection was lost." — instead of the real status code.
+            // Bounded by the cap above, and only on the reject paths, so the cost is acceptable for a
+            // single-user, bearer-protected endpoint.
+            async Task<IResult> Reject(int status, string error)
+            {
+                try { await request.Body.CopyToAsync(Stream.Null, ct); }
+                catch { /* already consumed, reset, or over-cap — nothing more to drain */ }
+                return Results.Json(new { error }, statusCode: status);
+            }
+
+            // Authenticate before reading the (potentially large) body.
+            if (!intake.IsAuthorized(request.Headers.Authorization.ToString()))
+                return await Reject(StatusCodes.Status401Unauthorized, "unauthorized");
 
             // Two accepted request shapes:
             //   • raw body  — iOS Shortcut "Request Body: File" posts the audio bytes directly.
@@ -76,12 +88,12 @@ public static class UploadEndpoints
                 }
                 catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
                 {
-                    return Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge);
+                    return await Reject(StatusCodes.Status413PayloadTooLarge, "file too large");
                 }
                 catch (Exception ex)
                 {
                     inLog.LogWarning(ex, "Rejected malformed /upload form.");
-                    return Results.Json(new { error = "invalid form data" }, statusCode: StatusCodes.Status400BadRequest);
+                    return await Reject(StatusCodes.Status400BadRequest, "invalid form data");
                 }
 
                 var file = form.Files.GetFile("audio");
@@ -103,15 +115,15 @@ public static class UploadEndpoints
                 var outcome = await intake.IngestAsync(declaredLength, audio, ct);
                 return outcome switch
                 {
-                    UploadOutcome.TooLarge => Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge),
-                    UploadOutcome.NoFile => Results.Json(new { error = "no audio (empty body)" }, statusCode: StatusCodes.Status400BadRequest),
+                    UploadOutcome.TooLarge => await Reject(StatusCodes.Status413PayloadTooLarge, "file too large"),
+                    UploadOutcome.NoFile => await Reject(StatusCodes.Status400BadRequest, "no audio (empty body)"),
                     _ => Results.Json(new { status = "accepted" }, statusCode: StatusCodes.Status202Accepted),
                 };
             }
             catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
             {
                 // Kestrel cut off a raw body that overran the cap mid-read.
-                return Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge);
+                return await Reject(StatusCodes.Status413PayloadTooLarge, "file too large");
             }
             finally
             {
