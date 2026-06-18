@@ -6,9 +6,10 @@ using Microsoft.Extensions.Options;
 namespace Erda.Server.Upload;
 
 /// <summary>
-/// Maps <c>POST /upload</c>: an authenticated multipart audio upload (e.g. an iOS Shortcut) that is fed
-/// into the same Apple-Voice-Memo pipeline as a WhatsApp share. The endpoint authenticates with a
-/// bearer token, validates size, hands the file to <see cref="UploadIntake"/> (which enqueues it onto
+/// Maps <c>POST /upload</c>: an authenticated audio upload (e.g. an iOS Shortcut) that is fed into the
+/// same Apple-Voice-Memo pipeline as a WhatsApp share. Accepts either a raw audio body (iOS Shortcut
+/// "Request Body: File") or <c>multipart/form-data</c> with a file field named <c>audio</c>. The
+/// endpoint authenticates with a bearer token, validates size, hands the file to <see cref="UploadIntake"/> (which enqueues it onto
 /// the WhatsApp inbound queue), and returns <c>202</c> immediately — the memo result is delivered over
 /// WhatsApp and saved to <c>1 Inbox/</c> by the existing worker.
 ///
@@ -50,48 +51,72 @@ public static class UploadEndpoints
             if (!intake.IsAuthorized(request.Headers.Authorization.ToString()))
                 return Results.Json(new { error = "unauthorized" }, statusCode: StatusCodes.Status401Unauthorized);
 
-            if (!request.HasFormContentType)
-                return Results.Json(new { error = "expected multipart/form-data" }, statusCode: StatusCodes.Status400BadRequest);
-
-            // Raise Kestrel's per-request body cap above the configured max so our own size check below
-            // returns a clean JSON 413; bodies beyond even the slack are cut off by Kestrel (413, caught).
+            // Raise Kestrel's per-request body cap above the configured max so a clean JSON 413 is
+            // returned for an oversize body (rather than a mid-upload connection reset).
             var sizeFeature = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
             if (sizeFeature is { IsReadOnly: false })
                 sizeFeature.MaxRequestBodySize = maxBytes + multipartSlack;
 
-            // Raise the multipart length limit to match (default 128 MB), so an over-cap body is rejected
-            // by Kestrel as a clean 413 rather than tripping the form reader's own limit (which surfaces
-            // as a 400). Without this, a MaxUploadMb above ~128 would misreport oversize bodies as 400.
-            request.HttpContext.Features.Set<IFormFeature>(
-                new FormFeature(request, new FormOptions { MultipartBodyLengthLimit = maxBytes + multipartSlack }));
+            // Two accepted request shapes:
+            //   • raw body  — iOS Shortcut "Request Body: File" posts the audio bytes directly.
+            //   • multipart — curl -F / Shortcut "Form" with a file field named "audio".
+            Stream audio;
+            long? declaredLength;
+            if (request.HasFormContentType)
+            {
+                // Match the multipart length limit to the body cap so an over-cap part is a clean 413,
+                // not the form reader's own limit (which would surface as a 400).
+                request.HttpContext.Features.Set<IFormFeature>(
+                    new FormFeature(request, new FormOptions { MultipartBodyLengthLimit = maxBytes + multipartSlack }));
 
-            IFormCollection form;
+                IFormCollection form;
+                try
+                {
+                    form = await request.ReadFormAsync(ct);
+                }
+                catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+                {
+                    return Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge);
+                }
+                catch (Exception ex)
+                {
+                    inLog.LogWarning(ex, "Rejected malformed /upload form.");
+                    return Results.Json(new { error = "invalid form data" }, statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                var file = form.Files.GetFile("audio");
+                if (file is null)
+                    return Results.Json(new { error = "no audio file (expected a raw body or a form field named 'audio')" }, statusCode: StatusCodes.Status400BadRequest);
+                audio = file.OpenReadStream();
+                declaredLength = file.Length;
+            }
+            else
+            {
+                // Raw audio body. Content-Length (iOS sets it) gives the size up front; when absent the
+                // bounded save in UploadIntake still enforces the cap against the bytes written.
+                audio = request.Body;
+                declaredLength = request.ContentLength;
+            }
+
             try
             {
-                form = await request.ReadFormAsync(ct);
+                var outcome = await intake.IngestAsync(declaredLength, audio, ct);
+                return outcome switch
+                {
+                    UploadOutcome.TooLarge => Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge),
+                    UploadOutcome.NoFile => Results.Json(new { error = "no audio (empty body)" }, statusCode: StatusCodes.Status400BadRequest),
+                    _ => Results.Json(new { status = "accepted" }, statusCode: StatusCodes.Status202Accepted),
+                };
             }
             catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
             {
+                // Kestrel cut off a raw body that overran the cap mid-read.
                 return Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge);
             }
-            catch (Exception ex)
+            finally
             {
-                inLog.LogWarning(ex, "Rejected malformed /upload form.");
-                return Results.Json(new { error = "invalid form data" }, statusCode: StatusCodes.Status400BadRequest);
+                await audio.DisposeAsync();
             }
-
-            var file = form.Files.GetFile("audio");
-            if (file is null || file.Length == 0)
-                return Results.Json(new { error = "no audio file" }, statusCode: StatusCodes.Status400BadRequest);
-
-            await using var stream = file.OpenReadStream();
-            var outcome = await intake.IngestAsync(file.Length, stream, ct);
-            return outcome switch
-            {
-                UploadOutcome.TooLarge => Results.Json(new { error = "file too large" }, statusCode: StatusCodes.Status413PayloadTooLarge),
-                UploadOutcome.NoFile => Results.Json(new { error = "no audio file" }, statusCode: StatusCodes.Status400BadRequest),
-                _ => Results.Json(new { status = "accepted" }, statusCode: StatusCodes.Status202Accepted),
-            };
         });
     }
 }

@@ -63,6 +63,63 @@ public class UploadIntakeTests
     }
 
     [Fact]
+    public async Task IngestAsync_accepts_a_raw_body_of_unknown_length()
+    {
+        var mediaDir = Path.Combine(Path.GetTempPath(), "erda-upload-raw-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(mediaDir);
+        try
+        {
+            var intake = Make(out var queue, mediaDir);
+            var bytes = new byte[] { 9, 8, 7 };
+
+            // declaredLength null mimics a raw body with no Content-Length.
+            var outcome = await intake.IngestAsync(null, new MemoryStream(bytes));
+
+            Assert.Equal(UploadOutcome.Accepted, outcome);
+            var msg = await Dequeue(queue);
+            Assert.Equal("audio/mp4", msg.MimeType);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(msg.MediaPath!));
+        }
+        finally
+        {
+            if (Directory.Exists(mediaDir))
+                Directory.Delete(mediaDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IngestAsync_enforces_the_cap_against_bytes_written_when_length_is_unknown()
+    {
+        var mediaDir = Path.Combine(Path.GetTempPath(), "erda-upload-rawbig-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(mediaDir);
+        try
+        {
+            var intake = Make(out var queue, mediaDir, maxMb: 1);
+
+            // No declared length, but the actual bytes exceed the 1 MB cap — caught after the save.
+            var outcome = await intake.IngestAsync(null, new MemoryStream(new byte[2 * 1024 * 1024]));
+
+            Assert.Equal(UploadOutcome.TooLarge, outcome);
+            Assert.False(await HasQueued(queue));
+            Assert.Empty(Directory.GetFiles(mediaDir)); // the oversize file was cleaned up
+        }
+        finally
+        {
+            if (Directory.Exists(mediaDir))
+                Directory.Delete(mediaDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IngestAsync_treats_an_unknown_length_empty_body_as_NoFile()
+    {
+        var intake = Make(out var queue, Path.GetTempPath());
+        var outcome = await intake.IngestAsync(null, new MemoryStream());
+        Assert.Equal(UploadOutcome.NoFile, outcome);
+        Assert.False(await HasQueued(queue));
+    }
+
+    [Fact]
     public async Task IngestAsync_saves_the_audio_and_enqueues_a_voice_memo_addressed_to_the_owner()
     {
         var mediaDir = Path.Combine(Path.GetTempPath(), "erda-upload-test-" + Guid.NewGuid().ToString("N"));

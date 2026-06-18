@@ -55,20 +55,42 @@ public sealed class UploadIntake(
     /// <summary>
     /// Validates size, persists the audio to the media temp dir, and enqueues the pipeline job. Assumes
     /// the caller has already authorized the request (see <see cref="IsAuthorized"/>).
+    /// <paramref name="declaredLength"/> is the size if known up front (a multipart file length, or a
+    /// raw body's Content-Length) — used to reject a too-large upload before reading it; <c>null</c>
+    /// when unknown (a raw body with no Content-Length), in which case the cap is enforced against the
+    /// bytes actually written.
     /// </summary>
-    public async Task<UploadOutcome> IngestAsync(long length, Stream content, CancellationToken cancellationToken = default)
+    public async Task<UploadOutcome> IngestAsync(long? declaredLength, Stream content, CancellationToken cancellationToken = default)
     {
-        if (length <= 0)
-            return UploadOutcome.NoFile;
-        if (length > (long)uploadOptions.Value.MaxUploadMb * 1024 * 1024)
+        var maxBytes = (long)uploadOptions.Value.MaxUploadMb * 1024 * 1024;
+
+        // Fast reject when the size is known up front, so a too-large upload is refused without reading
+        // the whole body.
+        if (declaredLength is > 0 && declaredLength.Value > maxBytes)
             return UploadOutcome.TooLarge;
 
         var mediaDir = whatsAppOptions.Value.MediaTempDir;
         Directory.CreateDirectory(mediaDir);
         var path = Path.Combine(mediaDir, $"upload_{Guid.NewGuid():N}.m4a");
 
+        long written;
         await using (var file = File.Create(path))
+        {
             await content.CopyToAsync(file, cancellationToken);
+            written = file.Length;
+        }
+
+        // Re-check against what actually landed on disk — covers a raw body with no Content-Length.
+        if (written == 0)
+        {
+            TryDelete(path);
+            return UploadOutcome.NoFile;
+        }
+        if (written > maxBytes)
+        {
+            TryDelete(path);
+            return UploadOutcome.TooLarge;
+        }
 
         var ownerJid = WhatsAppJid.FromNumber(whatsAppOptions.Value.OwnerNumber);
         await queue.EnqueueAsync(new InboundMessage
@@ -84,7 +106,20 @@ public sealed class UploadIntake(
             Timestamp = 0,
         }, cancellationToken);
 
-        logger.LogInformation("Upload accepted: {Bytes} bytes saved to {Path}, enqueued for the voice-memo pipeline.", length, path);
+        logger.LogInformation("Upload accepted: {Bytes} bytes saved to {Path}, enqueued for the voice-memo pipeline.", written, path);
         return UploadOutcome.Accepted;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // best-effort cleanup of a rejected upload
+        }
     }
 }

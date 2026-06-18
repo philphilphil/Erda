@@ -62,7 +62,7 @@ Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 - `Erda.Agents/Workflows/VoiceMemoWorkflow.cs` — voice memo pipeline (transcribe → Codex → write); wrapped as `process_voice_memo` tool via `AsAIFunction`; implements `IMemoProcessor` via `MemoProcessor`
 - `Erda.Core/Scheduling/ErrorWatch/ErrorWatchScheduler.cs` — background loop: polls Seq for errors, deduplicates by signature, analyzes with Codex, alerts via WhatsApp
 - `Erda.Core/WhatsApp/` — bridge integration: inbound queue, background worker, channel service (dispatches text/voice/image to the agent), sender; the HTTP endpoint is `Erda.Server/WhatsApp/WhatsAppEndpoints.cs`
-- `Erda.Core/Upload/UploadIntake.cs` + `Erda.Server/Upload/UploadEndpoints.cs` — `POST /upload`: a bearer-authenticated multipart audio upload (iOS Shortcut) that is saved and enqueued onto the WhatsApp inbound queue, so it runs the **same** Apple-Voice-Memo pipeline (transcribe → Codex → `1 Inbox/`) and replies over WhatsApp. Returns `202` immediately; gated by `Upload:Enabled` and requires `WhatsApp:Enabled`
+- `Erda.Core/Upload/UploadIntake.cs` + `Erda.Server/Upload/UploadEndpoints.cs` — `POST /upload`: a bearer-authenticated audio upload (iOS Shortcut) accepting either a **raw body** (Shortcut "Request Body: File") or `multipart/form-data` with a field named `audio`. The file is saved and enqueued onto the WhatsApp inbound queue, so it runs the **same** Apple-Voice-Memo pipeline (transcribe → Codex → `1 Inbox/`) and replies over WhatsApp. Returns `202` immediately; gated by `Upload:Enabled` and requires `WhatsApp:Enabled`
 
 ### MAF-specific patterns
 
