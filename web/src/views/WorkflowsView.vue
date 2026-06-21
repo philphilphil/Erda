@@ -233,4 +233,23 @@ onMounted(async () => {
   overflow: auto;
   color: var(--text);
 }
+
+/* phones: a left-to-right node chain doesn't fit, so stack the pipeline
+   vertically with the connector arrows pointing down */
+@media (max-width: 768px) {
+  .flow {
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: visible;
+  }
+  .wf-node {
+    max-width: none;
+    width: 100%;
+  }
+  .wf-arrow {
+    justify-content: center;
+    padding: 4px 0;
+    transform: rotate(90deg);
+  }
+}
 </style>

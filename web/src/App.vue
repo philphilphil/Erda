@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
+import MobileNav from './components/MobileNav.vue'
 import { getStatus, getReminders } from './api/client'
 
 const route = useRoute()
@@ -72,6 +73,13 @@ onUnmounted(() => {
   </main>
   <div v-else class="app">
     <Sidebar
+      :online="online"
+      :started-at-utc="startedAtUtc"
+      :active-reminder-count="activeReminderCount"
+      :theme="theme"
+      @toggle-theme="toggleTheme"
+    />
+    <MobileNav
       :online="online"
       :started-at-utc="startedAtUtc"
       :active-reminder-count="activeReminderCount"

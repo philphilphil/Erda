@@ -147,10 +147,7 @@ async function restore(id: number) {
     </Banner>
 
     <!-- SYSTEM TAB -->
-    <div
-      v-if="isSystem"
-      style="display: grid; grid-template-columns: 1fr 320px; gap: var(--gap); align-items: start"
-    >
+    <div v-if="isSystem" class="prompt-cols">
       <Card title="erda.system.md" icon="code" :sub="`${lines} lines`" flush>
         <template #actions>
           <span class="faint mono" style="font-size: var(--fs-xs)">{{ chars.toLocaleString() }} chars</span>
@@ -289,3 +286,18 @@ async function restore(id: number) {
     </Card>
   </div>
 </template>
+
+<style scoped>
+/* editor + version history side by side on desktop, stacked on phones */
+.prompt-cols {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: var(--gap);
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .prompt-cols {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

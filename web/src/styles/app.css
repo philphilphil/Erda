@@ -440,3 +440,231 @@
 
 /* live toggle */
 .live-toggle { display: inline-flex; align-items: center; gap: 7px; }
+
+/* ============================================================
+   mobile navigation chrome — hidden on desktop
+   A slim top bar + a fixed bottom tab bar + a "More" sheet replace the
+   sidebar below the breakpoint. Default display:none; the media query
+   turns them on (and hides the sidebar). Top/bottom pinning is done with
+   flex `order` so the single MobileNav fragment can live anywhere in .app.
+   ============================================================ */
+.m-topbar,
+.m-tabbar,
+.m-sheet,
+.m-sheet-backdrop { display: none; }
+
+/* ============================================================
+   responsive — phones / narrow viewports
+   The desktop layout is a fixed two-column grid; below this width the
+   sidebar is swapped for top/bottom bars and content goes single-column.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* tighter spacing tokens so content isn't crushed on small screens */
+  :root,
+  :root[data-density="compact"],
+  :root[data-density="balanced"] {
+    --pad-x: 16px;
+    --pad-card: 14px;
+  }
+
+  /* app shell: top bar (order -1) · scrolling main (0) · tab bar (1) */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .sidebar { display: none; }
+  .main { flex: 1; min-height: 0; order: 0; }
+
+  /* ---- top bar ---- */
+  .m-topbar {
+    order: -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: 0 0 52px;
+    padding: 0 14px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    z-index: 20;
+  }
+  .m-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .m-brand .m-mark {
+    width: 24px; height: 24px; flex: 0 0 24px;
+    border-radius: var(--r);
+    background: var(--accent); color: var(--accent-fg);
+    display: grid; place-items: center;
+  }
+  .m-brand .m-mark svg { width: 15px; height: 15px; }
+  .m-brand .m-name { font-weight: 600; letter-spacing: -.01em; font-size: var(--fs-md); }
+  .m-actions { display: flex; align-items: center; gap: 8px; }
+  .m-status { display: grid; place-items: center; width: 18px; height: 18px; }
+
+  /* ---- bottom tab bar ---- */
+  .m-tabbar {
+    order: 1;
+    display: flex;
+    flex: 0 0 auto;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    z-index: 20;
+  }
+  .m-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 56px;
+    padding: 6px 2px;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-tab .m-tab-ico { position: relative; display: grid; place-items: center; }
+  .m-tab svg { opacity: .9; }
+  .m-tab-label {
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    letter-spacing: -.01em;
+  }
+  .m-tab.active { color: var(--text); }
+  .m-tab.active svg { opacity: 1; }
+  .m-tab:active { background: var(--surface); }
+  .m-tab-badge {
+    position: absolute;
+    top: -5px; left: 100%;
+    transform: translateX(-7px);
+    min-width: 15px; height: 15px;
+    padding: 0 4px;
+    border-radius: 99px;
+    background: var(--accent); color: var(--accent-fg);
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    line-height: 15px; text-align: center;
+  }
+
+  /* ---- More sheet ---- */
+  .m-sheet-backdrop {
+    display: block;
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(0, 0, 0, .5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  .m-sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+  .m-sheet {
+    display: block;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: var(--surface);
+    border-top: 1px solid var(--border-strong);
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0));
+    transform: translateY(110%);
+    transition: transform .26s cubic-bezier(.2, .7, .3, 1);
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, .35);
+  }
+  .m-sheet.open { transform: none; }
+  .m-sheet-grab {
+    width: 36px; height: 4px; border-radius: 99px;
+    background: var(--border-strong);
+    margin: 2px auto 10px;
+  }
+  .m-sheet-label {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-faint); font-weight: 600;
+    padding: 0 6px 6px;
+  }
+  .m-sheet-nav { display: flex; flex-direction: column; gap: 2px; }
+  .m-sheet-item {
+    display: flex; align-items: center; gap: 12px;
+    height: 48px; padding: 0 10px;
+    border-radius: var(--r);
+    color: var(--text-muted);
+    font-size: var(--fs-md); font-weight: 500;
+    text-decoration: none;
+  }
+  .m-sheet-item svg { width: 18px; height: 18px; flex: 0 0 18px; opacity: .85; }
+  .m-sheet-item:active { background: var(--surface-2); }
+  .m-sheet-item.active { background: var(--surface-2); color: var(--text); }
+  .m-sheet-foot {
+    display: flex; align-items: center; gap: 9px;
+    margin-top: 8px; padding: 12px 10px 4px;
+    border-top: 1px solid var(--border);
+  }
+  .m-sheet-status { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--mono); }
+
+  /* keep the page header inset: the desktop rule full-bleeds it with a negative
+     margin + padding-inline, so the override must re-apply the horizontal
+     padding (a `padding: 16px 0 14px` shorthand would zero it → edge-to-edge) */
+  .page-header { flex-wrap: wrap; gap: 12px; padding: 16px var(--pad-x) 14px; }
+  .page-header .h-sub { max-width: none; }
+
+  /* multi-column form/content grids collapse to a single column */
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-form { grid-template-columns: 1fr; }
+  .grid-form > * { grid-column: 1 / -1 !important; }
+
+  /* card headers: let actions (e.g. the activity filter chips) wrap below the
+     title instead of crushing against it */
+  .card-head { flex-wrap: wrap; }
+  .card-head > .row { flex-wrap: wrap; }
+
+  /* stat strip: stay one compact row of small counts rather than a tall 2×2 grid */
+  .stat-strip { flex-wrap: nowrap; }
+  .stat { flex: 1 1 0; min-width: 0; padding: 8px 10px; }
+  .stat .s-label { font-size: 9px; letter-spacing: .03em; line-height: 1.25; }
+  .stat .s-val { font-size: var(--fs-md); margin-top: 2px; }
+
+  /* tables → stacked cards. The desktop grid can't shrink to a phone without
+     either crushing columns or scrolling sideways, so each row becomes a card:
+     schedule on top, message prominent, status + next-fire on a meta line, and
+     the actions pinned to the corner (always visible — there's no hover on touch) */
+  .card-body.flush { overflow-x: visible; }
+  .tbl { display: block; min-width: 0; }
+  .tbl colgroup,
+  .tbl thead { display: none; }
+  .tbl tbody { display: block; }
+  .tbl tbody tr {
+    display: block;
+    position: relative;
+    margin: 10px var(--pad-card);
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    background: var(--surface-2);
+  }
+  .tbl tbody tr:hover { background: var(--surface-2); }
+  .tbl tbody td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: none;
+  }
+  .tbl tbody td:first-child { padding-right: 76px; }   /* clear of the corner actions */
+  .tbl tbody td.cell-msg { margin: 7px 0; font-weight: 500; }
+  .tbl tbody td.cell-msg .truncate { white-space: normal; overflow: visible; }
+  .tbl tbody td.cell-msg .msg-cell { flex-wrap: wrap; }
+  /* status + next-fire share one meta line */
+  .tbl tbody td:nth-child(3),
+  .tbl tbody td:nth-child(4) { display: inline-flex; align-items: center; vertical-align: middle; }
+  .tbl tbody td:nth-child(3) { margin-right: 10px; }
+  .tbl tbody td.col-actions { position: absolute; top: 8px; right: 8px; width: auto; }
+  .tbl .row-actions { opacity: 1; }
+
+  /* activity feed: time + type on one line, summary spans full width below */
+  .feed-row {
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+  }
+  .feed-summary { grid-column: 1 / -1; }
+}
