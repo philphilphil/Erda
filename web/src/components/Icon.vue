@@ -44,7 +44,7 @@ const PATHS: Record<string, string[]> = {
   pencil: ['M4 20h4L18.5 9.5l-4-4L4 16z', 'M13.5 6.5l4 4'],
   workflow: ['M4 5h6v5H4z', 'M14 14h6v5h-6z', 'M9 7.5h4a2 2 0 0 1 2 2V14'],
   arrowright: ['M5 12h14', 'M13 6l6 6-6 6'],
-  menu: ['M4 7h16', 'M4 12h16', 'M4 17h16'],
+  more: ['circle::5,12,1.5', 'circle::12,12,1.5', 'circle::19,12,1.5'],
 }
 
 interface CircleSpec {

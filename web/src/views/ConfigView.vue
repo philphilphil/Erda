@@ -121,4 +121,18 @@ async function handleRestart() {
   text-align: right;
   word-break: break-all;
 }
+
+/* phones: stack the value under its label so long paths/values aren't crushed
+   into a narrow right-aligned column that breaks mid-word */
+@media (max-width: 768px) {
+  .config-row {
+    flex-direction: column;
+    gap: 2px;
+    align-items: stretch;
+  }
+  .config-row dd {
+    text-align: left;
+    word-break: break-word;
+  }
+}
 </style>
