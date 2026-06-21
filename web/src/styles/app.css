@@ -539,7 +539,9 @@
 
   /* tables: scroll horizontally rather than crushing columns to nothing */
   .card-body.flush { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .tbl { min-width: 560px; }
+  /* wide enough that the fixed percentage columns don't collide (the mono
+     schedule cell needs ~150px); narrower than this the card scrolls. */
+  .tbl { min-width: 700px; }
   /* row actions are hover-revealed on desktop; no hover on touch, so show them */
   .tbl .row-actions { opacity: 1; }
 
