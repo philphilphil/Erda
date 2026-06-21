@@ -2,6 +2,8 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
+import BrandMark from './components/BrandMark.vue'
+import Icon from './components/Icon.vue'
 import { getStatus, getReminders } from './api/client'
 
 const route = useRoute()
@@ -23,6 +25,17 @@ watch(
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
 }
+
+// ── Mobile nav drawer ───────────────────────────────────────────────────────
+// The sidebar collapses into an off-canvas drawer on narrow screens. Closing on
+// every route change means tapping a nav link dismisses the drawer automatically.
+const navOpen = ref(false)
+watch(
+  () => route.path,
+  () => {
+    navOpen.value = false
+  },
+)
 
 // ── Agent status + nav badge ───────────────────────────────────────────────
 const online = ref(false)
@@ -70,7 +83,17 @@ onUnmounted(() => {
   <main v-if="route.path === '/login'" class="login-main">
     <RouterView />
   </main>
-  <div v-else class="app">
+  <div v-else class="app" :class="{ 'nav-open': navOpen }">
+    <header class="mobile-topbar">
+      <button class="mobile-menu-btn" aria-label="Open menu" @click="navOpen = true">
+        <Icon name="menu" :size="18" />
+      </button>
+      <div class="mobile-brand">
+        <span class="mb-mark"><BrandMark /></span>
+        <span class="mb-name">Erda</span>
+      </div>
+    </header>
+    <div class="nav-backdrop" @click="navOpen = false" />
     <Sidebar
       :online="online"
       :started-at-utc="startedAtUtc"

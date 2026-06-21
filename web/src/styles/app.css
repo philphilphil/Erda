@@ -440,3 +440,113 @@
 
 /* live toggle */
 .live-toggle { display: inline-flex; align-items: center; gap: 7px; }
+
+/* ============================================================
+   mobile top bar + off-canvas drawer
+   Hidden on desktop; the media query below turns them on.
+   ============================================================ */
+.mobile-topbar { display: none; }
+.nav-backdrop { display: none; }
+
+/* ============================================================
+   responsive — phones / narrow viewports
+   The desktop layout is a fixed two-column grid; below this width the
+   sidebar becomes a slide-in drawer and content goes single-column.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* tighter spacing tokens so content isn't crushed on small screens */
+  :root,
+  :root[data-density="compact"],
+  :root[data-density="balanced"] {
+    --pad-x: 16px;
+    --pad-card: 14px;
+  }
+
+  /* app frame: stack top bar + scrolling main; sidebar/backdrop are fixed */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .main { flex: 1; min-height: 0; }
+
+  /* top bar with the hamburger */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 52px;
+    flex: 0 0 52px;
+    padding: 0 14px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    z-index: 30;
+  }
+  .mobile-menu-btn {
+    width: 36px; height: 36px; flex: 0 0 36px;
+    display: grid; place-items: center;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    border-radius: var(--r);
+    cursor: pointer;
+  }
+  .mobile-menu-btn:active { transform: translateY(.5px); }
+  .mobile-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .mobile-brand .mb-mark {
+    width: 24px; height: 24px; flex: 0 0 24px;
+    border-radius: var(--r);
+    background: var(--accent); color: var(--accent-fg);
+    display: grid; place-items: center;
+  }
+  .mobile-brand .mb-mark svg { width: 15px; height: 15px; }
+  .mobile-brand .mb-name { font-weight: 600; letter-spacing: -.01em; font-size: var(--fs-md); }
+
+  /* sidebar → off-canvas drawer */
+  .sidebar {
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    width: 264px; max-width: 82vw;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+    border-right: 1px solid var(--border);
+  }
+  .app.nav-open .sidebar { transform: none; }
+
+  /* dim backdrop behind the open drawer */
+  .nav-backdrop {
+    display: block;
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0, 0, 0, .5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .22s ease;
+  }
+  .app.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
+
+  /* page header: let the actions wrap under the title instead of squeezing */
+  .page-header { flex-wrap: wrap; gap: 12px; padding: 16px 0 14px; }
+  .page-header .h-sub { max-width: none; }
+
+  /* multi-column form/content grids collapse to a single column */
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-form { grid-template-columns: 1fr; }
+  .grid-form > * { grid-column: 1 / -1 !important; }
+
+  /* stat strips wrap to a 2×N layout instead of overflowing */
+  .stat-strip { flex-wrap: wrap; }
+  .stat { flex: 1 0 40%; }
+
+  /* tables: scroll horizontally rather than crushing columns to nothing */
+  .card-body.flush { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tbl { min-width: 560px; }
+  /* row actions are hover-revealed on desktop; no hover on touch, so show them */
+  .tbl .row-actions { opacity: 1; }
+
+  /* activity feed: time + type on one line, summary spans full width below */
+  .feed-row {
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+  }
+  .feed-summary { grid-column: 1 / -1; }
+}
