@@ -240,12 +240,14 @@ obsidian-git to set up). Requires an **Obsidian Sync** subscription.
 - [`whatsapp-bridge/Dockerfile`](whatsapp-bridge/Dockerfile) — the Go bridge (static →
   distroless).
 - [`obsidian-sync/`](obsidian-sync/) — the Obsidian Sync sidecar (Node + the official
-  `obsidian-headless` client); keeps the shared `vault` volume synced. See its
+  `obsidian-headless` client); keeps the shared `vault` dir synced. See its
   [`entrypoint.sh`](obsidian-sync/entrypoint.sh) for the `setup` / `login` / `sync` modes.
-- [`docker-compose.yml`](docker-compose.yml) — the stack: a private network, a **shared `/media`**
-  volume (the bridge writes downloaded media and hands Erda the absolute path), a shared **`vault`**
-  volume (Erda reads/writes notes; `obsidian-sync` keeps it synced), persistent `bridge-data` /
-  `obsidian-config` volumes (the WhatsApp + Obsidian sessions), and a host bind-mount for `~/.codex`.
+- [`docker-compose.yml`](docker-compose.yml) — the stack: a private network and all persistent state
+  in **flat bind-mount dirs next to the compose file** (`vault`, `erda-data`, `media`, `browser`,
+  `bridge`, `obsidian-config`) instead of named volumes — so it's all covered by whatever backs up
+  this directory. `media` is shared bridge⇄erda; `vault` is shared erda⇄obsidian-sync. The dirs are
+  git-ignored and chowned to `1000:1000` automatically by the `init-perms` one-shot on first `up`.
+  Codex stays a host bind-mount of `~/.codex` (`CODEX_DIR`).
 - [`.env.example`](.env.example) — copy to `.env` and fill in paths + secrets.
 
 ### Three credential contexts in the container
@@ -265,7 +267,7 @@ Erda logs into sites using credentials it never sees. Set up a dedicated, least-
 2. In 1Password → **Developer → Service Accounts**, create a service account with **read-only** access
    to **only** the `Erda` vault. Copy its token into `OP_SERVICE_ACCOUNT_TOKEN` in `.env`.
 3. Set `Erda__Browser__Enabled=true`. On the first run for a site, Erda fills the login form from 1Password
-   and the session persists on the `browser-data` volume, so later runs skip the login.
+   and the session persists in the `browser/` dir, so later runs skip the login.
 
 **Hard stops:** a captcha or a push/SMS/email challenge cannot be solved unattended — Erda stops and
 messages you on WhatsApp. As a fallback you can refresh a session manually: run a headed browser against
@@ -278,12 +280,12 @@ the same profile and log in once, then let Erda reuse the persisted session.
 2. **Configure**: `cp .env.example .env` and fill in. `CODEX_DIR` must be an **absolute** path
    (compose does not expand `~`), and set `OBSIDIAN_VAULT_NAME` to your exact Obsidian Sync vault name.
 3. **Link WhatsApp** (first run only): `docker compose run --rm whatsapp-bridge`, then scan the
-   QR via *WhatsApp → Linked devices → Link a device*. The session persists in the `bridge-data`
-   volume; later starts connect silently. Ctrl-C once linked.
+   QR via *WhatsApp → Linked devices → Link a device*. The session persists in the `bridge/`
+   dir; later starts connect silently. Ctrl-C once linked.
 4. **Link Obsidian Sync** (first run only): `docker compose run --rm obsidian-sync setup` — logs in
    (email/password/MFA, or skipped if `OBSIDIAN_AUTH_TOKEN` is set) and links the vault, prompting for
-   the E2E password if the vault is encrypted. State persists in the `obsidian-config` volume.
-5. **Up**: `docker compose up -d --build`. On first start the vault volume fills from Obsidian Sync.
+   the E2E password if the vault is encrypted. State persists in the `obsidian-config/` dir.
+5. **Up**: `docker compose up -d --build`. On first start the `vault/` dir fills from Obsidian Sync.
 
 ### Komodo
 

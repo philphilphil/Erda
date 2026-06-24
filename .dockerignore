@@ -23,3 +23,11 @@ docs/
 
 # Local runtime state.
 errorwatch-state.json
+
+# Docker stack persistent state (flat bind mounts) — never bake the vault/DB/sessions into the image.
+vault/
+obsidian-config/
+erda-data/
+media/
+browser/
+bridge/
