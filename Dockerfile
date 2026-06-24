@@ -1,4 +1,6 @@
-# Erda (.NET 10) image for the Jetson (ARM64) deployment.
+# Erda (.NET 10) image for the homeserver (amd64) deployment.
+# Arch defaults below target amd64; for an ARM64 host (e.g. the old Jetson) override the *_TARGET /
+# *_ARCH build ARGs (aarch64-unknown-linux-musl / arm64).
 #
 # Three stages:
 #   build   – restore + publish the Erda web app
@@ -27,11 +29,11 @@ RUN dotnet publish Erda.Server/Erda.Server.csproj -c Release -o /app/publish /p:
 
 # ---- codex ------------------------------------------------------------------
 # Fetch the prebuilt codex CLI. Bump CODEX_VERSION to upgrade. The musl build is a static
-# binary and runs fine on the Debian-based runtime image. Building natively on the Jetson,
-# the target is aarch64; override CODEX_TARGET for an x86_64 host.
+# binary and runs fine on the Debian-based runtime image. Default target is x86_64 (homeserver);
+# override CODEX_TARGET=aarch64-unknown-linux-musl for an ARM64 host.
 FROM alpine:3.21 AS codex
 ARG CODEX_VERSION=0.135.0
-ARG CODEX_TARGET=aarch64-unknown-linux-musl
+ARG CODEX_TARGET=x86_64-unknown-linux-musl
 RUN apk add --no-cache curl tar \
  && curl -fsSL -o /tmp/codex.tar.gz \
       "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${CODEX_TARGET}.tar.gz" \
@@ -80,10 +82,10 @@ RUN apt-get update \
 
 # ---- 1Password CLI (op) ----------------------------------------------------
 # The op binary resolves op://… secret references and lists the scoped Erda vault for the browser
-# sub-agent. Authenticated by OP_SERVICE_ACCOUNT_TOKEN (read-only, one vault) from compose. ARM64
-# build for the Jetson; override OP_VERSION/OP_ARCH for another host.
+# sub-agent. Authenticated by OP_SERVICE_ACCOUNT_TOKEN (read-only, one vault) from compose. Default
+# amd64 build for the homeserver; override OP_VERSION/OP_ARCH=arm64 for an ARM64 host.
 ARG OP_VERSION=2.31.1
-ARG OP_ARCH=arm64
+ARG OP_ARCH=amd64
 RUN curl -fsSL -o /tmp/op.zip \
       "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VERSION}/op_linux_${OP_ARCH}_v${OP_VERSION}.zip" \
  && (cd /tmp && unzip -o op.zip op) \

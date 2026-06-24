@@ -1,7 +1,9 @@
-# Erda stack for the Jetson (ARM64) deployment — built and deployed by Komodo.
+# Erda stack for the homeserver (amd64) deployment — self-contained, built and deployed by Komodo.
 #
-# Erda publishes its control panel on the home LAN (port 5167; the Vue SPA is served at the root,
-# the JSON API under /api); the WhatsApp bridge stays unpublished. Erda runs Production.
+# Three services: erda, the whatsapp-bridge, and obsidian-sync (keeps the vault synced from inside
+# the stack, so nothing relies on host-side sync). Erda publishes its control panel on the home LAN
+# (port 5167; the Vue SPA at the root, the JSON API under /api); the bridge and sync stay unpublished.
+# Erda runs Production. For an ARM64 host (e.g. the old Jetson), override the arch ARGs in Dockerfile.
 #
 # Configuration is env-only. `.env` (next to this file; git-ignored) holds every setting using the
 # app's own keys (Erda__…, WhatsApp__…, Seq__…, plus the flat AZURE_OPENAI_*/OPENAI_API_KEY). The
@@ -9,7 +11,8 @@
 # also auto-reads `.env` for the ${…} substitutions below (host paths, bridge secret). Copy
 # .env.example to .env and fill it in; in Komodo, set the same keys as the Stack's environment.
 #
-#   First run only (link WhatsApp):  docker compose run --rm whatsapp-bridge   # scan the QR
+#   First run (link WhatsApp):       docker compose run --rm whatsapp-bridge   # scan the QR
+#   First run (link Obsidian Sync):  docker compose run --rm obsidian-sync setup   # login + pick vault
 #   Normal:                          docker compose up -d --build
 
 name: erda
@@ -33,17 +36,41 @@ services:
       - media:/media                 # SHARED with erda (same path); downloaded media
     networks: [erdanet]
 
-  # One-shot: Docker creates named volumes root-owned, but erda runs as 1000:1000. Chown the volumes
-  # erda must write — the SQLite DB (/data/erda), screenshots into the shared /media dir, and the
-  # browser profile (/data/browser) — then exit. Runs as root (no `user:`), replacing the former
-  # manual one-time chown deploy step so a fresh or recreated volume self-heals.
+  # Obsidian Sync sidecar: keeps the shared `vault` volume continuously synced from inside the stack
+  # (official headless client). Replaces the old host-side sync requirement, so the homeserver needs
+  # nothing but Docker. Shares the `vault` volume with erda and runs as 1000:1000 so both write with
+  # the same owner. Bootstrap once: `docker compose run --rm obsidian-sync setup` (or set
+  # OBSIDIAN_AUTH_TOKEN in .env for fully non-interactive auth). See obsidian-sync/entrypoint.sh.
+  obsidian-sync:
+    build:
+      context: ./obsidian-sync
+    image: erda/obsidian-sync:local
+    restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+    # OBSIDIAN_VAULT_NAME (required) + OBSIDIAN_AUTH_TOKEN (optional, non-interactive auth) come from .env.
+    env_file:
+      - .env
+    volumes:
+      - vault:/vault                 # SHARED with erda (same path)
+      - obsidian-config:/config      # persisted login token + sync-setup state — survives rebuilds
+    networks: [erdanet]
+
+  # One-shot: Docker creates named volumes root-owned, but erda + obsidian-sync run as 1000:1000.
+  # Chown the volumes they must write — the SQLite DB (/data/erda), the shared /media dir, the browser
+  # profile (/data/browser), the synced vault (/vault), and the Obsidian session (/config) — then exit.
+  # Runs as root (no `user:`), so a fresh or recreated volume self-heals with no manual chown step.
   init-perms:
     image: alpine:3.21
-    command: ["chown", "1000:1000", "/data/erda", "/media", "/data/browser"]
+    command: ["chown", "1000:1000", "/data/erda", "/media", "/data/browser", "/vault", "/config"]
     volumes:
       - erda-data:/data/erda
       - media:/media
       - browser-data:/data/browser
+      - vault:/vault
+      - obsidian-config:/config
 
   erda:
     build:
@@ -57,6 +84,8 @@ services:
     user: "1000:1000"
     depends_on:
       whatsapp-bridge:
+        condition: service_started
+      obsidian-sync:
         condition: service_started
       init-perms:
         condition: service_completed_successfully
@@ -72,7 +101,7 @@ services:
       CODEX_HOME: /codex                                           # codex reads its logged-in session from here
     volumes:
       - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
-      - ${VAULT_DIR:?set VAULT_DIR (absolute) in .env}:/vault       # host-synced Obsidian vault, RW
+      - vault:/vault                                               # Obsidian vault, kept synced by the obsidian-sync sidecar
       - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity) — survives redeploys
       - media:/media                                                # SHARED with the bridge (same path)
       - browser-data:/data/browser                                 # persistent browser profile (logged-in session)
@@ -87,3 +116,5 @@ volumes:
   erda-data:
   media:
   browser-data:
+  vault:                 # Obsidian vault — written by erda, kept in sync by obsidian-sync
+  obsidian-config:       # Obsidian Sync session (auth token + sync-setup state)

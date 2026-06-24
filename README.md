@@ -219,24 +219,33 @@ in [`Program.cs`](Program.cs).
 | `Observability__Enabled` | off | Master switch for OpenTelemetry tracing (set `true` to enable) |
 | `Observability__CaptureMessageContent` | off | Capture prompts + tool args in spans and the Codex log (dev `.env` sets `true`) |
 
-## Deploy on a Jetson (Docker + Komodo)
+## Deploy on a homeserver (Docker + Komodo)
 
-Erda runs on an always-on ARM64 Linux box (e.g. an NVIDIA Jetson) as a two-container Compose
-stack: **`erda`** + **`whatsapp-bridge`**. Nothing here uses the GPU — every model call is cloud
-— so no `nvidia-docker` runtime is needed. In production Erda runs
-`ASPNETCORE_ENVIRONMENT=Production`; you interact with Erda over WhatsApp and through the
-**LAN control panel** (published on port 5167 — see below).
+Erda runs on an always-on Linux box as a self-contained three-container Compose stack: **`erda`** +
+**`whatsapp-bridge`** + **`obsidian-sync`**. Nothing here uses the GPU — every model call is cloud —
+so no `nvidia-docker` runtime is needed. In production Erda runs `ASPNETCORE_ENVIRONMENT=Production`;
+you interact with Erda over WhatsApp and through the **LAN control panel** (published on port 5167 —
+see below).
+
+The image arch defaults target **amd64**; for an ARM64 host (e.g. the old Jetson) override the build
+ARGs in [`Dockerfile`](Dockerfile) (`CODEX_TARGET=aarch64-unknown-linux-musl`, `OP_ARCH=arm64`).
+**The vault syncs inside the stack** — the `obsidian-sync` sidecar runs Obsidian's official headless
+Sync client against a shared `vault` volume, so the host needs nothing but Docker (no Syncthing /
+obsidian-git to set up). Requires an **Obsidian Sync** subscription.
 
 ### Files
 
-- [`Dockerfile`](Dockerfile) — Erda image; installs the `codex` `aarch64` binary and sets
+- [`Dockerfile`](Dockerfile) — Erda image; installs the `codex` binary (amd64 by default) and sets
   `CODEX_HOME=/codex`.
 - [`whatsapp-bridge/Dockerfile`](whatsapp-bridge/Dockerfile) — the Go bridge (static →
   distroless).
-- [`docker-compose.yml`](docker-compose.yml) — the stack: a private network, a **shared
-  `/media`** volume (the bridge writes downloaded media and hands Erda the absolute path), a
-  persistent `bridge-data` volume (the WhatsApp session), and host bind-mounts for `~/.codex`
-  and the vault.
+- [`obsidian-sync/`](obsidian-sync/) — the Obsidian Sync sidecar (Node + the official
+  `obsidian-headless` client); keeps the shared `vault` volume synced. See its
+  [`entrypoint.sh`](obsidian-sync/entrypoint.sh) for the `setup` / `login` / `sync` modes.
+- [`docker-compose.yml`](docker-compose.yml) — the stack: a private network, a **shared `/media`**
+  volume (the bridge writes downloaded media and hands Erda the absolute path), a shared **`vault`**
+  volume (Erda reads/writes notes; `obsidian-sync` keeps it synced), persistent `bridge-data` /
+  `obsidian-config` volumes (the WhatsApp + Obsidian sessions), and a host bind-mount for `~/.codex`.
 - [`.env.example`](.env.example) — copy to `.env` and fill in paths + secrets.
 
 ### Three credential contexts in the container
@@ -262,28 +271,33 @@ Erda logs into sites using credentials it never sees. Set up a dedicated, least-
 messages you on WhatsApp. As a fallback you can refresh a session manually: run a headed browser against
 the same profile and log in once, then let Erda reuse the persisted session.
 
-### One-time bootstrap on the Jetson
+### One-time bootstrap on the homeserver
 
 1. **Codex login** (host): `codex login` — opens a device-code flow (prints a URL to open on
    another machine over SSH) and populates `~/.codex`. Point `CODEX_DIR` in `.env` at it.
-2. **Configure**: `cp .env.example .env` and fill in. `CODEX_DIR` and `VAULT_DIR` must be
-   **absolute** paths (compose does not expand `~`).
+2. **Configure**: `cp .env.example .env` and fill in. `CODEX_DIR` must be an **absolute** path
+   (compose does not expand `~`), and set `OBSIDIAN_VAULT_NAME` to your exact Obsidian Sync vault name.
 3. **Link WhatsApp** (first run only): `docker compose run --rm whatsapp-bridge`, then scan the
    QR via *WhatsApp → Linked devices → Link a device*. The session persists in the `bridge-data`
    volume; later starts connect silently. Ctrl-C once linked.
-4. **Up**: `docker compose up -d --build`.
+4. **Link Obsidian Sync** (first run only): `docker compose run --rm obsidian-sync setup` — logs in
+   (email/password/MFA, or skipped if `OBSIDIAN_AUTH_TOKEN` is set) and links the vault, prompting for
+   the E2E password if the vault is encrypted. State persists in the `obsidian-config` volume.
+5. **Up**: `docker compose up -d --build`. On first start the vault volume fills from Obsidian Sync.
 
 ### Komodo
 
 Point a Komodo **Stack** at this repo and let it run `docker compose up -d --build` on push
-(webhook). Images build natively on the Jetson (arm64); bump `CODEX_VERSION` in the `Dockerfile`
-to upgrade the CLI. `restart: unless-stopped` keeps both services up across reboots. Provide the
-`.env` values as Komodo environment/secrets.
+(webhook). Images build natively on the homeserver (amd64); bump `CODEX_VERSION` (or
+`OBSIDIAN_HEADLESS_VERSION` in `obsidian-sync/Dockerfile`) to upgrade the CLIs. `restart:
+unless-stopped` keeps the services up across reboots. Provide the `.env` values as Komodo
+environment/secrets.
 
 ### Notes
 
-- **Obsidian sync** must run on the host (Syncthing / obsidian-git / etc.) into `VAULT_DIR`; the
-  container only reads/writes files — it does not sync them.
+- **Obsidian sync** runs inside the stack: the `obsidian-sync` sidecar keeps the shared `vault`
+  volume continuously synced via Obsidian's official headless client. Erda just reads/writes the
+  files; the sidecar uploads/downloads changes. (No more host-side Syncthing / obsidian-git.)
 - **Voice memos**: forward the audio to Erda over WhatsApp. The bridge downloads it into the
   shared `/media` volume and Erda transcribes it from there.
 - **Seq**: the error-watch scheduler ships inside the `erda` container and reads from the central

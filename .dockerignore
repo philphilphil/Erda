@@ -16,6 +16,7 @@ appsettings.Development.json
 # Not needed by the Erda image.
 Erda.Tests/
 whatsapp-bridge/
+obsidian-sync/
 docs/
 *.md
 .DS_Store
