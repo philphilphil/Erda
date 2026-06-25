@@ -86,6 +86,76 @@ public class CodexRunnerTests
         Assert.DoesNotContain("codex login", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task RunVaultTaskAsync_runs_in_the_vault_with_scratch_writable_no_shell_egress_and_cleans_only_scratch()
+    {
+        // A real vault with a note in it. The scary failure mode is the temp-dir cleanup in the
+        // finally block deleting the working root — so we assert the vault and its note survive.
+        var vault = Directory.CreateTempSubdirectory("erda-test-vault-").FullName;
+        var note = Path.Combine(vault, "note.md");
+        await File.WriteAllTextAsync(note, "keep me");
+
+        // Fake codex dumps the full argv it received into the -o output file, so the test can verify
+        // exactly how the vault path was invoked (and that the -o roundtrip actually works).
+        var script = WriteArgvDumpCodex();
+        var runner = new CodexRunner(
+            Options.Create(new ErdaOptions
+            {
+                CodexExecutable = script,
+                CodexTimeout = TimeSpan.FromSeconds(10),
+                VaultPath = vault,
+            }),
+            NullLogger<CodexRunner>.Instance);
+
+        var args = (await runner.RunVaultTaskAsync("review my notes"))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var outFile = ArgAfter(args, "-o");
+        var scratchDir = Path.GetDirectoryName(outFile)!;
+
+        Assert.Equal(vault, ArgAfter(args, "--cd"));        // codex's working root IS the vault
+        Assert.Equal(scratchDir, ArgAfter(args, "--add-dir")); // the scratch dir (holding -o) is writable, and lives outside the vault
+        Assert.Contains("sandbox_workspace_write.network_access=false", args); // no shell egress for a vault task
+        Assert.True(Directory.Exists(vault));               // the vault was NOT deleted by the scratch-dir cleanup
+        Assert.True(File.Exists(note));                     // notes survive
+        Assert.False(Directory.Exists(scratchDir));         // the scratch dir IS removed (the other half of the cleanup contract)
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_oracle_runs_in_a_throwaway_dir_with_no_vault_access_and_keeps_shell_egress()
+    {
+        var vault = Directory.CreateTempSubdirectory("erda-test-vault-").FullName;
+
+        var script = WriteArgvDumpCodex();
+        var runner = new CodexRunner(
+            Options.Create(new ErdaOptions
+            {
+                CodexExecutable = script,
+                CodexTimeout = TimeSpan.FromSeconds(10),
+                VaultPath = vault,
+            }),
+            NullLogger<CodexRunner>.Instance);
+
+        var args = (await runner.RunPromptAsync("hello"))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var cd = ArgAfter(args, "--cd");
+        var scratchDir = Path.GetDirectoryName(ArgAfter(args, "-o"))!;
+
+        Assert.Null(ArgAfter(args, "--add-dir"));           // the oracle gets no extra writable root
+        Assert.Equal(scratchDir, cd);                       // the oracle's working root is the throwaway scratch dir...
+        Assert.NotEqual(vault, cd);                         // ...never the vault
+        Assert.Contains("sandbox_workspace_write.network_access=true", args); // the oracle keeps shell egress (unchanged behavior)
+        Assert.False(Directory.Exists(scratchDir));         // the scratch dir IS removed
+    }
+
+    /// <summary>Find the argument immediately following <paramref name="flag"/> in <paramref name="args"/>,
+    /// or null if the flag is absent.</summary>
+    private static string? ArgAfter(string[] args, string flag)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+            if (args[i] == flag) return args[i + 1];
+        return null;
+    }
+
     /// <summary>Write an executable fake-codex shell script: run <paramref name="preamble"/>, then write
     /// "FAKE_OK" to the file named by the <c>-o</c> argument and exit 0.</summary>
     private static string WriteFakeCodex(string preamble)
@@ -97,6 +167,24 @@ public class CodexRunnerTests
             "out=\"\"; prev=\"\"\n" +
             "for a in \"$@\"; do [ \"$prev\" = \"-o\" ] && out=\"$a\"; prev=\"$a\"; done\n" +
             "[ -n \"$out\" ] && printf 'FAKE_OK' > \"$out\"\n" +
+            "exit 0\n");
+        File.SetUnixFileMode(path,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
+
+    /// <summary>Write an executable fake-codex that drains stdin, then dumps its full argv (one
+    /// argument per line) into the <c>-o</c> output file and exits 0. Lets a test assert exactly how
+    /// codex was invoked (--cd, --add-dir, sandbox config) AND exercises the real -o output roundtrip.</summary>
+    private static string WriteArgvDumpCodex()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "argv-codex-" + Guid.NewGuid().ToString("N") + ".sh");
+        File.WriteAllText(path,
+            "#!/bin/bash\n" +
+            "cat >/dev/null\n" +                 // drain stdin to EOF
+            "out=\"\"; prev=\"\"\n" +
+            "for a in \"$@\"; do [ \"$prev\" = \"-o\" ] && out=\"$a\"; prev=\"$a\"; done\n" +
+            "[ -n \"$out\" ] && printf '%s\\n' \"$@\" > \"$out\"\n" +
             "exit 0\n");
         File.SetUnixFileMode(path,
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);

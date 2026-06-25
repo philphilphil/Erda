@@ -58,21 +58,58 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
 
     /// <summary>
     /// Runs <c>codex exec</c> on an already-built prompt and returns Codex's final message.
-    /// General-purpose entry point. <paramref name="enableWebSearch"/> turns on Codex's native
-    /// web_search tool (for grounding answers in current sources). We always run with the
-    /// <c>workspace-write</c> sandbox plus <c>network_access=true</c> so model-run shell commands can
-    /// reach the network (curl/fetch); file writes stay confined to the throwaway temp work dir.
+    /// General-purpose entry point — a STATELESS oracle: codex runs in a throwaway temp dir with no
+    /// access to Erda's vault, so file writes stay confined to that dir and are discarded after.
+    /// <paramref name="enableWebSearch"/> turns on Codex's native web_search tool (for grounding
+    /// answers in current sources). We always run with the <c>workspace-write</c> sandbox plus
+    /// <c>network_access=true</c> so model-run shell commands can reach the network (curl/fetch).
     /// </summary>
-    public async Task<string> RunPromptAsync(
+    public Task<string> RunPromptAsync(
         string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default,
         string? logLabel = null, string? reasoningEffort = null)
+        // Oracle: shell network egress on, so model-run curl/fetch can reach URLs (its only "input"
+        // is the pasted context, so the exfiltration surface is small).
+        => RunCoreAsync(prompt, workingRoot: null, shellNetworkAccess: true, enableWebSearch, cancellationToken, logLabel, reasoningEffort);
+
+    /// <summary>
+    /// Runs <c>codex exec</c> with the Obsidian vault (<see cref="ErdaOptions.VaultPath"/>) as the
+    /// working root, so codex can read, search, create, and edit notes directly with its own shell
+    /// instead of having note contents passed in. Web search defaults on (review tasks may need
+    /// fact-checking). The <c>-o</c> output file still lives in a throwaway scratch dir, and ONLY
+    /// that scratch dir is cleaned up — the vault is never deleted (see <see cref="RunCoreAsync"/>).
+    /// Shell network egress is DISABLED here: a vault task reads the whole vault, so leaving curl/POST
+    /// enabled would let an injected note exfiltrate vault contents. Web search (the Responses tool)
+    /// still works for fact-checking — it does not route through the sandboxed shell.
+    /// </summary>
+    public Task<string> RunVaultTaskAsync(
+        string prompt, bool enableWebSearch = true, CancellationToken cancellationToken = default,
+        string? logLabel = null, string? reasoningEffort = null)
+        => RunCoreAsync(prompt, workingRoot: options.Value.VaultPath, shellNetworkAccess: false, enableWebSearch, cancellationToken, logLabel, reasoningEffort);
+
+    /// <summary>
+    /// Shared implementation behind <see cref="RunPromptAsync"/> (oracle) and
+    /// <see cref="RunVaultTaskAsync"/> (vault). A fresh temp <c>scratchDir</c> always holds the
+    /// <c>-o</c> output file and is the ONLY directory deleted in the <c>finally</c>. The codex
+    /// working root (<c>--cd</c>) is <paramref name="workingRoot"/> when given (the vault) or the
+    /// scratch dir otherwise (the oracle's throwaway sandbox). This separation makes it structurally
+    /// impossible for the cleanup to delete the vault.
+    /// </summary>
+    private async Task<string> RunCoreAsync(
+        string prompt, string? workingRoot, bool shellNetworkAccess, bool enableWebSearch,
+        CancellationToken cancellationToken, string? logLabel, string? reasoningEffort)
     {
         var opts = options.Value;
         var effort = NormalizeReasoningEffort(reasoningEffort, opts.CodexReasoningEffort);
-        var workDir = Directory.CreateTempSubdirectory("erda-codex-").FullName;
-        var outputFile = Path.Combine(workDir, "codex-final.txt");
+        // The scratch dir is ALWAYS a fresh throwaway and the ONLY thing the finally deletes.
+        var scratchDir = Directory.CreateTempSubdirectory("erda-codex-").FullName;
+        var outputFile = Path.Combine(scratchDir, "codex-final.txt");
+        // When a working root is supplied (the vault) codex runs there; otherwise the scratch dir is
+        // both the working root and the sandbox (the stateless-oracle case).
+        var cwd = workingRoot ?? scratchDir;
+        var isVaultTask = workingRoot is not null;
         // workspace-write (not read-only) is required for network_access to take effect; read-only
-        // blocks all egress, which broke prompts that need to fetch URLs.
+        // blocks all egress, which broke prompts that need to fetch URLs. It also makes the working
+        // root (the vault, for a vault task) writable so codex can edit notes.
         const string sandbox = "workspace-write";
 
         try
@@ -84,7 +121,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                WorkingDirectory = workDir,
+                WorkingDirectory = cwd,
             };
 
             // Note: arguments go through ArgumentList (no shell), so config values keep their
@@ -96,10 +133,11 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             psi.ArgumentList.Add($"model_reasoning_effort=\"{effort}\"");
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add("preferred_auth_method=\"chatgpt\"");
-            // Allow model-run shell commands full network egress (verified: workspace-write blocks
-            // the network by default; this override re-enables it). Erda runs on a trusted LAN host.
+            // Gate model-run shell network egress (workspace-write blocks it by default). The oracle
+            // re-enables it so prompts can curl/fetch URLs; a vault task keeps it OFF so an injected
+            // note cannot exfiltrate vault contents over the network. Erda runs on a trusted LAN host.
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add("sandbox_workspace_write.network_access=true");
+            psi.ArgumentList.Add($"sandbox_workspace_write.network_access={(shellNetworkAccess ? "true" : "false")}");
             if (enableWebSearch)
             {
                 // Enable Codex's native Responses web_search tool.
@@ -107,7 +145,14 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
                 psi.ArgumentList.Add("tools.web_search=true");
             }
             psi.ArgumentList.Add("--cd");
-            psi.ArgumentList.Add(workDir);
+            psi.ArgumentList.Add(cwd);
+            // For a vault task the cwd is the vault; the scratch dir holding the -o output sits
+            // outside it, so make it writable too (the cwd is already writable under workspace-write).
+            if (isVaultTask)
+            {
+                psi.ArgumentList.Add("--add-dir");
+                psi.ArgumentList.Add(scratchDir);
+            }
             psi.ArgumentList.Add("--sandbox");
             psi.ArgumentList.Add(sandbox);
             psi.ArgumentList.Add("--skip-git-repo-check");
@@ -134,8 +179,8 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
                 : "(hidden; set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true)";
 
             logger.LogInformation(
-                "Codex exec: model={Model} effort={Effort} webSearch={Web} sandbox={Sandbox} promptChars={Chars} | task={Task} | OPENAI_API_KEY absent from child: {Absent}",
-                opts.CodexModel, effort, enableWebSearch, sandbox, prompt.Length, task, keyAbsentFromChild);
+                "Codex exec: model={Model} effort={Effort} webSearch={Web} sandbox={Sandbox} vaultTask={Vault} promptChars={Chars} | task={Task} | OPENAI_API_KEY absent from child: {Absent}",
+                opts.CodexModel, effort, enableWebSearch, sandbox, isVaultTask, prompt.Length, task, keyAbsentFromChild);
 
             var sw = Stopwatch.StartNew();
 
@@ -214,7 +259,8 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
         }
         finally
         {
-            try { Directory.Delete(workDir, recursive: true); }
+            // Only ever the throwaway scratch dir — NEVER the working root (which may be the vault).
+            try { Directory.Delete(scratchDir, recursive: true); }
             catch { /* best-effort temp cleanup */ }
         }
     }
