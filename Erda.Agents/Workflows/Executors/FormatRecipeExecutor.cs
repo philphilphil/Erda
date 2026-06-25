@@ -3,8 +3,8 @@ using Microsoft.Agents.AI.Workflows;
 
 namespace Erda.Agents.Workflows.Executors;
 
-/// <summary>Recipe importer, step 3 (terminal): readable page text → a clean Markdown recipe, via Codex.</summary>
-internal sealed class FormatRecipeExecutor(ICodexRunner codex) : Executor<string, string>("format")
+/// <summary>Recipe importer, step 3 (terminal): readable page text → a clean Markdown recipe, via the reasoner.</summary>
+internal sealed class FormatRecipeExecutor(IReasoner reasoner) : Executor<string, string>("format")
 {
     private const string Instruction = """
         You are given text scraped from a recipe web page (it may include embedded JSON-LD recipe data).
@@ -30,6 +30,6 @@ internal sealed class FormatRecipeExecutor(ICodexRunner codex) : Executor<string
 
     public override async ValueTask<string> HandleAsync(
         string pageText, IWorkflowContext context, CancellationToken cancellationToken = default)
-        => await codex.RunPromptAsync(
-            $"{Instruction}\n\n---\n{pageText}", enableWebSearch: false, cancellationToken, logLabel: "recipe import");
+        => await reasoner.ReasonAsync(
+            $"{Instruction}\n\n---\n{pageText}", webSearch: false, cancellationToken, logLabel: "recipe import");
 }

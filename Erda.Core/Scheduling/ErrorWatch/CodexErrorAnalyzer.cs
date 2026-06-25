@@ -15,13 +15,13 @@ public interface IErrorAnalyzer
 /// by default; this is local reasoning over the error text. Failures degrade to a short note rather
 /// than throwing, so one bad analysis never stops the scheduler.
 /// </summary>
-public sealed class CodexErrorAnalyzer(CodexRunner codex, ILogger<CodexErrorAnalyzer> logger) : IErrorAnalyzer
+public sealed class CodexErrorAnalyzer(IReasoner reasoner, ILogger<CodexErrorAnalyzer> logger) : IErrorAnalyzer
 {
     public async Task<string> AnalyzeAsync(SeqError error, CancellationToken cancellationToken = default)
     {
         try
         {
-            return (await codex.RunPromptAsync(BuildPrompt(error), enableWebSearch: false, cancellationToken)).Trim();
+            return (await reasoner.ReasonAsync(BuildPrompt(error), webSearch: false, cancellationToken)).Trim();
         }
         catch (Exception ex)
         {

@@ -18,7 +18,7 @@ public sealed class BrowserOptions
     /// <summary>Master switch. When false, no MCP child process and no <c>browse_web</c> tool.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>Azure AI Foundry deployment for the browser sub-agent. Null/blank => use ErdaOptions.ChatDeployment.</summary>
+    /// <summary>Model id for the browser sub-agent. Null/blank => use ErdaOptions.ChatModel.</summary>
     public string? Deployment { get; set; }
 
     /// <summary>Show a real browser window instead of headless. Absent ⇒ false ⇒ headless (the safe

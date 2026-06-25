@@ -35,7 +35,7 @@ public sealed class FakeAgentResponder : IAgentResponder
     public List<IReadOnlyList<ChatMessage>> Calls { get; } = [];
     public List<IReadOnlyList<ChatMessage>> RunOnceCalls { get; } = [];
     public int Resets { get; private set; }
-    public AgentReply Reply { get; set; } = new("ok", 10, 5, 15, ["consult_codex"]);
+    public AgentReply Reply { get; set; } = new("ok", 10, 5, 15, []);
 
     public Task<AgentReply> RespondAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
     {
@@ -61,18 +61,23 @@ public sealed class FakeClock : IClock
     public DateTimeOffset UtcNow { get; set; } = new(2026, 6, 15, 8, 0, 0, TimeSpan.Zero);
 }
 
-public sealed class FakeCodexRunner : ICodexRunner
+public sealed class FakeReasoner : IReasoner
 {
-    public List<(string Prompt, bool WebSearch)> Calls { get; } = [];
-    public string Result { get; set; } = "codex says hi";
+    public List<(string Prompt, bool WebSearch, string? ReasoningEffort, string? LogLabel)> Calls { get; } = [];
+    public string Result { get; set; } = "reasoner says hi";
     public Exception? Throw { get; set; }
 
-    public Task<string> RunPromptAsync(string prompt, bool enableWebSearch = false,
+    public Task<string> ReasonAsync(string prompt, bool webSearch = false,
         CancellationToken cancellationToken = default, string? logLabel = null, string? reasoningEffort = null)
     {
-        Calls.Add((prompt, enableWebSearch));
+        Calls.Add((prompt, webSearch, reasoningEffort, logLabel));
         return Throw is not null ? Task.FromException<string>(Throw) : Task.FromResult(Result);
     }
+
+    // Mirrors ResponsesReasoner.RunAsync: webSearch ON, the voice-memo log label.
+    public Task<string> RunAsync(string developerInstruction, string transcript, CancellationToken cancellationToken = default)
+        => ReasonAsync($"{developerInstruction}\n\nTranscript:\n{transcript}",
+            webSearch: true, cancellationToken, logLabel: "voice-memo processing");
 }
 
 public sealed class FakePreScriptRunner : IPreScriptRunner
@@ -105,12 +110,19 @@ public sealed class FakeWhatsAppSender : IWhatsAppSender
 {
     public List<(string To, string Text)> Sent { get; } = [];
     public List<(string To, string FilePath, string? Caption)> SentImages { get; } = [];
+    public List<(string To, string State)> Presence { get; } = [];
     public bool Result { get; set; } = true;
 
     public Task<bool> SendAsync(string toJid, string text, CancellationToken cancellationToken = default)
     {
         Sent.Add((toJid, text));
         return Task.FromResult(Result);
+    }
+
+    public Task SetPresenceAsync(string chatJid, string state, CancellationToken cancellationToken = default)
+    {
+        Presence.Add((chatJid, state));
+        return Task.CompletedTask;
     }
 
     public Task<bool> SendImageAsync(string toJid, string filePath, string? caption, CancellationToken cancellationToken = default)

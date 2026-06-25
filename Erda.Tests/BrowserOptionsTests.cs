@@ -36,7 +36,7 @@ public class BrowserOptionsTests
     {
         var opts = new BrowserOptions();
         Assert.False(opts.Enabled);
-        Assert.Null(opts.Deployment);          // null => fall back to ChatDeployment
+        Assert.Null(opts.Deployment);          // null => fall back to ChatModel
         Assert.Equal("", opts.UserDataDir);    // required when enabled; no default (validated at startup)
         Assert.Equal("", opts.OutputDir);      // required when enabled; no default
         Assert.True(opts.MaxSteps > 0);

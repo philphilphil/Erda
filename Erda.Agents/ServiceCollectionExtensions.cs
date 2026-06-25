@@ -1,7 +1,9 @@
+using Erda.Agents.Services;
 using Erda.Agents.Tools;
 using Erda.Agents.WebChat;
 using Erda.Agents.Workflows;
 using Erda.Core.Abstractions;
+using Erda.Core.Services;
 
 namespace Erda.Agents;
 
@@ -17,12 +19,16 @@ public static class ServiceCollectionExtensions
     {
         // Tools — the agent's capability surface.
         services.AddSingleton<ObsidianTools>();
-        services.AddSingleton<ReasoningTools>();
         services.AddSingleton<NotifyTools>();
         services.AddSingleton<ReminderTools>();
 
         // Browser MCP: Playwright stdio child process, connected once at startup.
         services.AddSingleton<IBrowserMcp, PlaywrightMcp>();
+
+        // The in-process reasoner — the streamed Responses replacement for the old codex subprocess.
+        // Lives in this (MAF) layer, not Core, because it builds AIAgents; every former Codex consumer
+        // (voice-memo, recipe, error-watch) takes the Erda.Core.Services.IReasoner seam.
+        services.AddSingleton<IReasoner, ResponsesReasoner>();
 
         // Voice-memo workflow, exposed to the WhatsApp channel via IMemoProcessor.
         services.AddSingleton<MemoProcessor>();

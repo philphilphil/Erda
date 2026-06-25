@@ -23,6 +23,12 @@ type sendRequest struct {
 	Text string `json:"text"` // message body
 }
 
+// presenceRequest is the body of POST /presence.
+type presenceRequest struct {
+	To    string `json:"to"`    // destination JID
+	State string `json:"state"` // "composing" (typing…) or "paused" (cleared)
+}
+
 // newServer builds the outbound HTTP server (Erda -> WhatsApp).
 //
 // Routes:
@@ -30,6 +36,7 @@ type sendRequest struct {
 //	GET  /healthz     -> 200 "ok"  (no auth)
 //	POST /send        -> send a WhatsApp text message (requires X-Bridge-Secret)
 //	POST /send-media  -> upload + send an image from the shared media volume (requires X-Bridge-Secret)
+//	POST /presence    -> set the chat typing indicator (requires X-Bridge-Secret)
 func newServer(cfg Config, client *whatsmeow.Client) *http.Server {
 	mux := http.NewServeMux()
 
@@ -40,6 +47,7 @@ func newServer(cfg Config, client *whatsmeow.Client) *http.Server {
 
 	mux.HandleFunc("/send", sendHandler(cfg, client))
 	mux.HandleFunc("/send-media", sendMediaHandler(cfg, client))
+	mux.HandleFunc("/presence", presenceHandler(cfg, client))
 
 	return &http.Server{
 		Addr:              cfg.Listen,
@@ -97,6 +105,60 @@ func sendHandler(cfg Config, client *whatsmeow.Client) http.HandlerFunc {
 // secretEqual compares two secrets in constant time.
 func secretEqual(got, want string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+// presenceHandler returns the handler for POST /presence: it sets the chat presence (typing
+// indicator) for a JID. Erda drives this around an agent turn so the owner sees Erda "typing…"
+// while it generates. Mirror of sendHandler's auth + decode flow.
+func presenceHandler(cfg Config, client *whatsmeow.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !secretEqual(req.Header.Get("X-Bridge-Secret"), cfg.SharedSecret) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var body presenceRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, req.Body, 1<<20)) // 1 MiB cap
+		if err := dec.Decode(&body); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(body.To) == "" {
+			http.Error(w, "field 'to' is required", http.StatusBadRequest)
+			return
+		}
+
+		to, err := types.ParseJID(body.To)
+		if err != nil {
+			http.Error(w, "invalid 'to' JID: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var state types.ChatPresence
+		switch body.State {
+		case "composing":
+			state = types.ChatPresenceComposing
+		case "paused":
+			state = types.ChatPresencePaused
+		default:
+			http.Error(w, "field 'state' must be 'composing' or 'paused'", http.StatusBadRequest)
+			return
+		}
+
+		if err := client.SendChatPresence(req.Context(), to, state, types.ChatPresenceMediaText); err != nil {
+			slog.Warn("send presence failed", "to", to.String(), "error", err)
+			http.Error(w, "send presence failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}
 }
 
 // sendMediaRequest is the body of POST /send-media. mediaPath must point at a file inside MEDIA_DIR

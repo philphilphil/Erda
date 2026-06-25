@@ -8,7 +8,7 @@ namespace Erda.Core.Configuration;
 /// <para>
 /// Every value is required and carries no default — it must be set in <c>.env</c>, and a missing one
 /// stops the app at startup (validated via DataAnnotations). The values shown in <c>.env.example</c>
-/// are the conventional ones (model names, the codex binary), not in-code fallbacks.
+/// are the conventional ones (model names, the local endpoint URL), not in-code fallbacks.
 /// </para>
 /// </summary>
 public sealed class ErdaOptions
@@ -27,34 +27,28 @@ public sealed class ErdaOptions
     [Required(AllowEmptyStrings = false)]
     public string DbPath { get; set; } = "";
 
-    /// <summary>Azure AI Foundry deployment name for the chat model (e.g. <c>gpt-5-mini</c>).</summary>
+    /// <summary>OpenAI-compatible base URL for the chat/reasoning model (e.g. the local proxy's
+    /// <c>http://127.0.0.1:10531/v1</c>). The OpenAI SDK is pointed here for both the Erda agent and the
+    /// in-process reasoner; any OpenAI-compatible provider's base URL works.</summary>
     [Required(AllowEmptyStrings = false)]
-    public string ChatDeployment { get; set; } = "";
+    public string ChatBaseUrl { get; set; } = "";
+
+    /// <summary>Model id for the chat/reasoning calls against <see cref="ChatBaseUrl"/> (e.g. <c>gpt-5.5</c>).</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string ChatModel { get; set; } = "";
+
+    /// <summary>Default reasoning effort for the chat/reasoning model (minimal/low/medium/high).</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string ChatReasoningEffort { get; set; } = "";
+
+    /// <summary>Optional API key for <see cref="ChatBaseUrl"/>. The loopback proxy needs no real auth,
+    /// but the OpenAI SDK still requires a non-empty credential string — blank falls back to the dummy
+    /// <c>"local"</c>. Not required.</summary>
+    public string ChatApiKey { get; set; } = "local";
 
     /// <summary>OpenAI-platform model used for speech-to-text (e.g. <c>gpt-4o-transcribe</c>).</summary>
     [Required(AllowEmptyStrings = false)]
     public string TranscribeModel { get; set; } = "";
-
-    /// <summary>
-    /// Model passed to <c>codex exec -m</c> (runs on the ChatGPT subscription).
-    /// NOTE: must be a model the ChatGPT subscription supports. <c>gpt-5-codex</c> is API-only
-    /// ("not supported when using Codex with a ChatGPT account"); <c>gpt-5.5</c> is the newest
-    /// model available on the subscription (matches ~/.codex/config.toml).
-    /// </summary>
-    [Required(AllowEmptyStrings = false)]
-    public string CodexModel { get; set; } = "";
-
-    /// <summary>Reasoning effort passed to <c>codex exec -c model_reasoning_effort</c> (low/medium/high).</summary>
-    [Required(AllowEmptyStrings = false)]
-    public string CodexReasoningEffort { get; set; } = "";
-
-    /// <summary>Max wall-clock time for a single <c>codex exec</c> before it is killed (guards against hangs).</summary>
-    [PositiveTimeSpan]
-    public TimeSpan CodexTimeout { get; set; }
-
-    /// <summary>The codex CLI executable (path or name on PATH; normally <c>codex</c>).</summary>
-    [Required(AllowEmptyStrings = false)]
-    public string CodexExecutable { get; set; } = "";
 
     /// <summary>Vault-relative subfolder where processed voice memos are saved.</summary>
     [Required(AllowEmptyStrings = false)]

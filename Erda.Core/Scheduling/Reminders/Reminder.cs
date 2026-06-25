@@ -31,5 +31,4 @@ public sealed record Reminder(
     string Text,
     ReminderStatus Status,
     WhenSpec Spec,
-    bool DirectToCodex = false,
     string? PreScript = null);

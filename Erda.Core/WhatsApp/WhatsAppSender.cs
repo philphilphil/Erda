@@ -11,6 +11,11 @@ public interface IWhatsAppSender
     /// <summary>Sends an image file (read by the bridge from the shared media volume) to a JID,
     /// with an optional caption. Returns whether the bridge accepted it.</summary>
     Task<bool> SendImageAsync(string toJid, string filePath, string? caption, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the chat presence (typing indicator) for a JID via the bridge's <c>/presence</c>
+    /// endpoint. <paramref name="state"/> is <c>"composing"</c> (shows "typing…") or <c>"paused"</c>
+    /// (clears it). Best-effort: failures are swallowed and logged at Debug, never blocking the reply.</summary>
+    Task SetPresenceAsync(string chatJid, string state, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -61,6 +66,32 @@ public sealed class WhatsAppSender(
         {
             logger.LogWarning(ex, "Failed to POST to the WhatsApp bridge at {Url}.", url);
             return false;
+        }
+    }
+
+    public async Task SetPresenceAsync(string chatJid, string state, CancellationToken cancellationToken = default)
+    {
+        var o = options.Value;
+        if (string.IsNullOrWhiteSpace(o.BridgeUrl))
+            return;
+
+        var url = $"{o.BridgeUrl.TrimEnd('/')}/presence";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(new { to = chatJid, state }),
+        };
+        request.Headers.TryAddWithoutValidation("X-Bridge-Secret", o.SharedSecret);
+
+        try
+        {
+            using var response = await http.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                logger.LogDebug("Bridge /presence returned {Status} for {To} ({State}).", (int)response.StatusCode, chatJid, state);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort only: a typing indicator must never block or break the reply path.
+            logger.LogDebug(ex, "Failed to POST presence to the WhatsApp bridge at {Url}.", url);
         }
     }
 

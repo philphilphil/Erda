@@ -29,7 +29,7 @@ public class ReminderSchedulerTests
         PreScriptMaxOutputChars = 8000,
     };
 
-    private static (ReminderScheduler Scheduler, ReminderStore Store, FakeWhatsAppSender Sender, FakeAgentResponder Responder, ReminderStateStore StateStore, VaultService Vault, FakeCodexRunner Codex, FakePreScriptRunner Script) Make(ReminderOptions? opts = null)
+    private static (ReminderScheduler Scheduler, ReminderStore Store, FakeWhatsAppSender Sender, FakeAgentResponder Responder, ReminderStateStore StateStore, VaultService Vault, FakeReasoner Reasoner, FakePreScriptRunner Script) Make(ReminderOptions? opts = null)
     {
         var dbf = TestDb.NewFactory();
         var vaultDir = Path.Combine(Path.GetTempPath(), "erda-sched-" + Guid.NewGuid().ToString("N"));
@@ -40,14 +40,14 @@ public class ReminderSchedulerTests
         var stateStore = new ReminderStateStore(dbf);
         var sender = new FakeWhatsAppSender();
         var responder = new FakeAgentResponder();
-        var codex = new FakeCodexRunner();
+        var reasoner = new FakeReasoner();
         var script = new FakePreScriptRunner();
         var timeContext = new CurrentTimeContext(new FakeClock(), rOpts);
         var scheduler = new ReminderScheduler(
             rOpts, Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            store, stateStore, vault, responder, codex, script, sender, new FakeClock(), timeContext,
+            store, stateStore, vault, responder, script, sender, new FakeClock(), timeContext,
             new FakeActivityRecorder(), NullLogger<ReminderScheduler>.Instance);
-        return (scheduler, store, sender, responder, stateStore, vault, codex, script);
+        return (scheduler, store, sender, responder, stateStore, vault, reasoner, script);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class ReminderSchedulerTests
         Assert.Contains("parse", sender.Sent[0].Text, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ---- F1: Direct-to-Codex ----
+    // ---- shared helpers for the recurring-prompt tests ----
 
     private static ReminderState SeededRecurring(string id) =>
         new() { LastFiredUtc = { [id] = new DateTimeOffset(2026, 6, 15, 3, 0, 0, TimeSpan.Zero) } };
@@ -224,49 +224,7 @@ public class ReminderSchedulerTests
     private static string UserText(FakeAgentResponder responder) =>
         responder.RunOnceCalls[0].First(m => m.Role == ChatRole.User).Text;
 
-    [Fact]
-    public async Task Direct_to_codex_prompt_runs_codex_with_web_search_not_the_agent()
-    {
-        var (s, store, sender, responder, ss, _, codex, _) = Make();
-        store.Append(ReminderKind.Prompt, "news", "0 6 * * *", "Daily news?", directToCodex: true);
-
-        await s.PollOnceAsync(Opts(), ss, SeededRecurring("news"), Berlin, OwnerJid, Now, default);
-
-        Assert.Single(codex.Calls);
-        Assert.True(codex.Calls[0].WebSearch);
-        Assert.Empty(responder.RunOnceCalls); // agent skipped
-        Assert.Single(sender.Sent);
-        Assert.StartsWith("⏰", sender.Sent[0].Text);
-        Assert.Contains(codex.Result, sender.Sent[0].Text);
-    }
-
-    [Fact]
-    public async Task Non_direct_prompt_uses_the_agent_not_codex()
-    {
-        var (s, store, _, responder, ss, _, codex, _) = Make();
-        store.Append(ReminderKind.Prompt, "weather", "0 6 * * *", "Weather?"); // directToCodex default false
-
-        await s.PollOnceAsync(Opts(), ss, SeededRecurring("weather"), Berlin, OwnerJid, Now, default);
-
-        Assert.Single(responder.RunOnceCalls);
-        Assert.Empty(codex.Calls);
-    }
-
-    [Fact]
-    public async Task Direct_to_codex_failure_notifies_and_does_not_send_a_reply()
-    {
-        var (s, store, sender, _, ss, _, codex, _) = Make();
-        codex.Throw = new InvalidOperationException("codex down");
-        store.Append(ReminderKind.Prompt, "news", "0 6 * * *", "Daily news?", directToCodex: true);
-
-        await s.PollOnceAsync(Opts(), ss, SeededRecurring("news"), Berlin, OwnerJid, Now, default);
-
-        Assert.Single(codex.Calls);
-        Assert.Single(sender.Sent);
-        Assert.Contains("failed", sender.Sent[0].Text); // failure notice, no ⏰ reply
-    }
-
-    // ---- F2: pre-run context script ----
+    // ---- pre-run context script ----
 
     [Fact]
     public async Task Prescript_output_is_prepended_to_the_agent_prompt()
@@ -321,20 +279,5 @@ public class ReminderSchedulerTests
 
         Assert.Empty(script.Scripts); // not run
         Assert.Equal("Plain prompt", UserText(responder));
-    }
-
-    [Fact]
-    public async Task Prescript_context_composes_with_direct_to_codex()
-    {
-        var (s, store, _, responder, ss, _, codex, script) = Make();
-        script.Output = "WX";
-        store.Append(ReminderKind.Prompt, "news", "0 6 * * *", "Report {{context}}",
-            directToCodex: true, preScript: "echo WX");
-
-        await s.PollOnceAsync(Opts(), ss, SeededRecurring("news"), Berlin, OwnerJid, Now, default);
-
-        Assert.Single(codex.Calls);
-        Assert.Contains("WX", codex.Calls[0].Prompt);
-        Assert.Empty(responder.RunOnceCalls);
     }
 }

@@ -14,6 +14,7 @@ public class NotifyToolsTests
     {
         public (string Jid, string Path, string? Caption)? ImageCall { get; private set; }
         public Task<bool> SendAsync(string toJid, string text, CancellationToken ct = default) => Task.FromResult(true);
+        public Task SetPresenceAsync(string chatJid, string state, CancellationToken ct = default) => Task.CompletedTask;
         public Task<bool> SendImageAsync(string toJid, string filePath, string? caption, CancellationToken ct = default)
         {
             ImageCall = (toJid, filePath, caption);

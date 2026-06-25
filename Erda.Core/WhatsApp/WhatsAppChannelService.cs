@@ -104,6 +104,11 @@ public sealed class WhatsAppChannelService(
             return;
         }
 
+        // Keep the "typing…" indicator alive while Erda generates. WhatsApp's composing presence
+        // auto-expires (~25s) and a gpt-5.5 streamed run can take longer, so renew it on a cadence;
+        // the finally cancels the loop and clears back to "paused".
+        using var typingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task? typing = null;
         try
         {
             var messages = await BuildMessagesAsync(message, cancellationToken);
@@ -116,6 +121,8 @@ public sealed class WhatsAppChannelService(
             // Prepend the current local time so the agent can resolve relative schedules ("tomorrow 9am").
             var turn = new List<ChatMessage>(messages.Count + 1) { timeContext.Message() };
             turn.AddRange(messages);
+
+            typing = KeepComposingAsync(replyTarget, typingCts.Token);
 
             var sw = Stopwatch.StartNew();
             var reply = await responder.RespondAsync(turn, cancellationToken);
@@ -135,8 +142,35 @@ public sealed class WhatsAppChannelService(
         }
         finally
         {
+            // Stop renewing, then always clear the typing indicator, even on error/cancellation.
+            typingCts.Cancel();
+            if (typing is not null)
+            {
+                try { await typing; } catch { /* best-effort: presence cleanup never fails the turn */ }
+            }
+            // Use None, not cancellationToken: on cancellation the token is already tripped, so passing it
+            // would abort the "paused" POST mid-flight and leave WhatsApp stuck showing "typing…".
+            await sender.SetPresenceAsync(replyTarget, "paused", CancellationToken.None);
             CleanupMedia(message, o.MediaTempDir);
         }
+    }
+
+    /// <summary>
+    /// Re-sends the "composing" (typing…) presence on a fixed cadence until cancelled — WhatsApp
+    /// expires it after ~25s, so a long gpt-5.5 turn needs it refreshed. Best-effort: the sender
+    /// swallows errors and cancellation ends the loop quietly.
+    /// </summary>
+    private async Task KeepComposingAsync(string target, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await sender.SetPresenceAsync(target, "composing", ct);
+                await Task.Delay(TimeSpan.FromSeconds(12), ct);
+            }
+        }
+        catch (OperationCanceledException) { /* turn finished */ }
     }
 
     /// <summary>

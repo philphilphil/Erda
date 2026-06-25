@@ -7,26 +7,15 @@ namespace Erda.Core.Configuration;
 /// <b>validated at startup</b> — a missing or blank value stops the app from booting (see the
 /// <c>ValidateOnStart</c> wiring in <c>AddErdaCore</c>) rather than failing later on the first call.
 /// <para>
-/// These are the two of the three-credential model that are plain keys; Codex authenticates via the
-/// mounted ChatGPT session, not a key here. Names are kept identical to the env vars via
-/// <see cref="ConfigurationKeyNameAttribute"/> so <c>.env</c> / compose stay unchanged.
+/// Only transcription needs a real platform key here; the chat model now runs against the local
+/// OpenAI-compatible endpoint (its base URL/key live in <see cref="ErdaOptions"/>). The name is kept
+/// identical to the env var via <see cref="ConfigurationKeyNameAttribute"/> so <c>.env</c> / compose
+/// stay unchanged.
 /// </para>
 /// </summary>
 public sealed class CredentialsOptions
 {
-    /// <summary>OpenAI-compatible base URL for the chat model. For Azure use the unified v1 surface,
-    /// e.g. <c>https://…services.ai.azure.com/openai/v1</c> (the stock OpenAI SDK is pointed here — see
-    /// <c>ErdaAgent</c>); any other OpenAI-compatible provider's base URL works too.</summary>
-    [Required(AllowEmptyStrings = false)]
-    [ConfigurationKeyName("AZURE_OPENAI_ENDPOINT")]
-    public string AzureOpenAIEndpoint { get; set; } = "";
-
-    /// <summary>API key for the chat model endpoint above (sent by the OpenAI SDK as a bearer token).</summary>
-    [Required(AllowEmptyStrings = false)]
-    [ConfigurationKeyName("AZURE_OPENAI_API_KEY")]
-    public string AzureOpenAIApiKey { get; set; } = "";
-
-    /// <summary>OpenAI-platform key used for speech-to-text (stripped from the Codex subprocess).</summary>
+    /// <summary>OpenAI-platform key used for speech-to-text.</summary>
     [Required(AllowEmptyStrings = false)]
     [ConfigurationKeyName("OPENAI_API_KEY")]
     public string OpenAIApiKey { get; set; } = "";

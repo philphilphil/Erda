@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
         // instead of failing later. Feature settings (WhatsApp, Browser) are only required when their
         // Enabled switch is on — see the IValidateOptions validators below.
 
-        // Credentials are flat env vars (AZURE_OPENAI_*, OPENAI_API_KEY), so bind the config root.
+        // Credentials are flat env vars (OPENAI_API_KEY for transcription), so bind the config root.
         services.AddOptions<CredentialsOptions>()
             .Bind(configuration)
             .ValidateDataAnnotations()
@@ -76,10 +76,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<VaultService>();
         services.AddSingleton<Transcriber>();
         services.AddSingleton<ITranscriber>(sp => sp.GetRequiredService<Transcriber>());
-        services.AddSingleton<CodexRunner>();
-        // Other consumers use the concrete CodexRunner; the reminder scheduler takes the interface
-        // so its Codex-direct branch is unit-testable with a fake.
-        services.AddSingleton<ICodexRunner>(sp => sp.GetRequiredService<CodexRunner>());
         services.AddSingleton<PreScriptRunner>();
         services.AddSingleton<IPreScriptRunner>(sp => sp.GetRequiredService<PreScriptRunner>());
         // --- 1Password (op CLI + secret resolver) ---

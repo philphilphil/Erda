@@ -25,7 +25,7 @@ public class ConfigValidationTests
     public void Credentials_missing_keys_throw_on_access()
     {
         var ex = Assert.Throws<OptionsValidationException>(() => BindCredentials(new()));
-        Assert.Contains(nameof(CredentialsOptions.AzureOpenAIApiKey), string.Join(" ", ex.Failures));
+        Assert.Contains(nameof(CredentialsOptions.OpenAIApiKey), string.Join(" ", ex.Failures));
     }
 
     [Fact]
@@ -33,13 +33,9 @@ public class ConfigValidationTests
     {
         var creds = BindCredentials(new()
         {
-            ["AZURE_OPENAI_ENDPOINT"] = "https://x.services.ai.azure.com/",
-            ["AZURE_OPENAI_API_KEY"] = "key1",
             ["OPENAI_API_KEY"] = "key2",
         });
 
-        Assert.Equal("https://x.services.ai.azure.com/", creds.AzureOpenAIEndpoint);
-        Assert.Equal("key1", creds.AzureOpenAIApiKey);
         Assert.Equal("key2", creds.OpenAIApiKey);
     }
 
@@ -120,13 +116,13 @@ public class ConfigValidationTests
     }
 
     [Fact]
-    public void Erda_options_require_models_and_a_positive_codex_timeout()
+    public void Erda_options_require_models_and_chat_settings()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Erda:VaultPath"] = "/vault",
             ["Erda:DbPath"] = "/db",
-            // models + codex settings deliberately omitted
+            // models + chat settings deliberately omitted
         }).Build();
         var services = new ServiceCollection();
         services.AddOptions<ErdaOptions>().Bind(config.GetSection(ErdaOptions.SectionName)).ValidateDataAnnotations();
@@ -134,8 +130,8 @@ public class ConfigValidationTests
         var ex = Assert.Throws<OptionsValidationException>(
             () => services.BuildServiceProvider().GetRequiredService<IOptions<ErdaOptions>>().Value);
         var failures = string.Join(" ", ex.Failures);
-        Assert.Contains(nameof(ErdaOptions.ChatDeployment), failures);
-        Assert.Contains(nameof(ErdaOptions.CodexModel), failures);
-        Assert.Contains(nameof(ErdaOptions.CodexTimeout), failures); // unset TimeSpan rejected by [PositiveTimeSpan]
+        Assert.Contains(nameof(ErdaOptions.ChatBaseUrl), failures);
+        Assert.Contains(nameof(ErdaOptions.ChatModel), failures);
+        Assert.Contains(nameof(ErdaOptions.ChatReasoningEffort), failures);
     }
 }

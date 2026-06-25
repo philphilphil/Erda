@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -53,10 +54,18 @@ func newRelay(cfg Config, client *whatsmeow.Client) *relay {
 	}
 }
 
-// handleEvent is the whatsmeow event handler. We only care about *events.Message.
+// handleEvent is the whatsmeow event handler: inbound messages, plus re-announcing presence on every
+// (re)connect so the typing indicator keeps working after a dropped-socket auto-reconnect.
 func (r *relay) handleEvent(evt any) {
-	if msg, ok := evt.(*events.Message); ok {
-		r.handleMessage(msg)
+	switch e := evt.(type) {
+	case *events.Message:
+		r.handleMessage(e)
+	case *events.Connected:
+		// whatsmeow auto-reconnects on a network blip; re-announce availability so chat presence
+		// (typing…) survives it. ErrNoPushName only occurs on a brand-new unpaired session.
+		if err := r.client.SendPresence(context.Background(), types.PresenceAvailable); err != nil && !errors.Is(err, whatsmeow.ErrNoPushName) {
+			slog.Warn("re-announce presence on connect failed", "error", err)
+		}
 	}
 }
 

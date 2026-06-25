@@ -47,9 +47,9 @@ public static class ReminderEndpoints
     /// <summary>Map a reminder to its wire DTO, computing the next-fire string in <paramref name="zone"/>.</summary>
     internal static ReminderDto Map(Reminder r, DateTimeOffset now, TimeZoneInfo zone) => new(
         r.Id, r.Kind.ToString(), r.When, r.Text, r.Status.ToString(),
-        ReminderView.NextFire(r.Spec, now, zone), r.DirectToCodex, r.PreScript);
+        ReminderView.NextFire(r.Spec, now, zone), r.PreScript);
 
-    /// <summary>Create a reminder or scheduled prompt. Codex-direct/pre-script apply only to prompts.</summary>
+    /// <summary>Create a reminder or scheduled prompt. The pre-script applies only to prompts.</summary>
     internal static IResult CreateReminder(
         CreateReminderRequest req, ReminderStore store, IClock clock, IOptions<ReminderOptions> opts)
     {
@@ -63,17 +63,16 @@ public static class ReminderEndpoints
         if (!WhenSpec.TryParse(when, out var spec))
             return TypedResults.BadRequest(new ErrorResponse("Couldn't parse that schedule."));
 
-        // Codex-direct and pre-scripts are prompt-only; blank them for verbatim reminders.
-        var directToCodex = kind == ReminderKind.Prompt && (req.DirectToCodex ?? false);
+        // Pre-scripts are prompt-only; blank them for verbatim reminders.
         var preScript = kind == ReminderKind.Prompt ? Blank(req.PreScript) : null;
 
         var existing = store.LoadAll().Reminders.Select(r => r.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var id = ReminderView.UniqueId(ReminderView.Slugify(text), existing);
-        store.Append(kind, id, when, text, directToCodex, preScript);
+        store.Append(kind, id, when, text, preScript);
 
         var zone = ReminderView.ResolveZone(opts.Value.TimeZone);
         var dto = new ReminderDto(id, kind.ToString(), when, text, ReminderStatus.Active.ToString(),
-            ReminderView.NextFire(spec!, clock.UtcNow, zone), directToCodex, preScript);
+            ReminderView.NextFire(spec!, clock.UtcNow, zone), preScript);
         return TypedResults.Ok(dto);
     }
 
@@ -89,7 +88,7 @@ public static class ReminderEndpoints
         if (!WhenSpec.TryParse(when, out var spec))
             return TypedResults.BadRequest(new ErrorResponse("Couldn't parse that schedule."));
 
-        if (!store.Update(id, when, text, req.DirectToCodex ?? false, Blank(req.PreScript)))
+        if (!store.Update(id, when, text, Blank(req.PreScript)))
             return TypedResults.NotFound();
 
         var zone = ReminderView.ResolveZone(opts.Value.TimeZone);
@@ -98,7 +97,7 @@ public static class ReminderEndpoints
         var dto = row is not null
             ? Map(row, clock.UtcNow, zone)
             : new ReminderDto(id, ReminderKind.Prompt.ToString(), when, text, ReminderStatus.Active.ToString(),
-                ReminderView.NextFire(spec!, clock.UtcNow, zone), req.DirectToCodex ?? false, Blank(req.PreScript));
+                ReminderView.NextFire(spec!, clock.UtcNow, zone), Blank(req.PreScript));
         return TypedResults.Ok(dto);
     }
 

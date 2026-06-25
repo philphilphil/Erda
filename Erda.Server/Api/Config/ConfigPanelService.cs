@@ -39,10 +39,10 @@ public sealed class ConfigPanelService(
             new("Vault & data", "Vault path", Show(e.VaultPath)),
             new("Vault & data", "Database path", Show(e.DbPath)),
 
-            new("Model & reasoning", "Chat deployment", Show(e.ChatDeployment)),
+            new("Model & reasoning", "Chat base URL", Show(e.ChatBaseUrl)),
+            new("Model & reasoning", "Chat model", Show(e.ChatModel)),
+            new("Model & reasoning", "Chat reasoning effort", Show(e.ChatReasoningEffort)),
             new("Model & reasoning", "Transcribe model", Show(e.TranscribeModel)),
-            new("Model & reasoning", "Codex model", Show(e.CodexModel)),
-            new("Model & reasoning", "Codex reasoning effort", Show(e.CodexReasoningEffort)),
 
             new("WhatsApp", "Enabled", Show(w.Enabled)),
             new("WhatsApp", "Owner number", Show(w.OwnerNumber)),

@@ -25,7 +25,7 @@ public sealed class ReminderStore(IDbContextFactory<ErdaDbContext> dbFactory, IL
         {
             if (WhenSpec.TryParse(row.When, out var spec))
                 reminders.Add(new Reminder(row.Id, row.Kind, row.When, row.Text, row.Status, spec!,
-                    row.DirectToCodex, row.PreScript));
+                    row.PreScript));
             else
                 malformed.Add($"{row.Id} | {row.When} | {row.Text}");
         }
@@ -36,12 +36,12 @@ public sealed class ReminderStore(IDbContextFactory<ErdaDbContext> dbFactory, IL
 
     /// <summary>
     /// Insert a reminder (or update it in place if the id already exists), leaving it active. The
-    /// <paramref name="directToCodex"/>/<paramref name="preScript"/> options are meaningful only for
-    /// scheduled prompts and default to off, so callers that don't care (e.g. the agent's
-    /// <c>schedule_prompt</c> tool) keep working unchanged and never plant a script.
+    /// <paramref name="preScript"/> option is meaningful only for scheduled prompts and defaults to
+    /// off, so callers that don't care (e.g. the agent's <c>schedule_prompt</c> tool) keep working
+    /// unchanged and never plant a script.
     /// </summary>
     public void Append(ReminderKind kind, string id, string when, string text,
-        bool directToCodex = false, string? preScript = null)
+        string? preScript = null)
     {
         using var db = dbFactory.CreateDbContext();
         var row = db.Reminders.FirstOrDefault(r => r.Id == id);
@@ -50,7 +50,7 @@ public sealed class ReminderStore(IDbContextFactory<ErdaDbContext> dbFactory, IL
             db.Reminders.Add(new ReminderRow
             {
                 Id = id, Kind = kind, When = when, Text = text, Status = ReminderStatus.Active,
-                DirectToCodex = directToCodex, PreScript = preScript,
+                PreScript = preScript,
             });
         }
         else
@@ -59,20 +59,18 @@ public sealed class ReminderStore(IDbContextFactory<ErdaDbContext> dbFactory, IL
             row.When = when;
             row.Text = text;
             row.Status = ReminderStatus.Active;
-            row.DirectToCodex = directToCodex;
             row.PreScript = preScript;
         }
         db.SaveChanges();
     }
 
     /// <summary>
-    /// Update only a row's definition columns (<c>When</c>, <c>Text</c>, <c>DirectToCodex</c>,
-    /// <c>PreScript</c>) in place, leaving <c>Kind</c>, <c>Status</c> and the run-state
-    /// (<c>LastFiredUtc</c>/<c>Fired</c>) untouched — unlike <see cref="Append"/>, which forces the
-    /// row active. The id is stable, so the scheduler keeps tracking the same row. Returns false if
-    /// no row matched.
+    /// Update only a row's definition columns (<c>When</c>, <c>Text</c>, <c>PreScript</c>) in place,
+    /// leaving <c>Kind</c>, <c>Status</c> and the run-state (<c>LastFiredUtc</c>/<c>Fired</c>)
+    /// untouched — unlike <see cref="Append"/>, which forces the row active. The id is stable, so the
+    /// scheduler keeps tracking the same row. Returns false if no row matched.
     /// </summary>
-    public bool Update(string id, string when, string text, bool directToCodex, string? preScript = null)
+    public bool Update(string id, string when, string text, string? preScript = null)
     {
         using var db = dbFactory.CreateDbContext();
         var row = db.Reminders.FirstOrDefault(r => r.Id == id);
@@ -80,7 +78,6 @@ public sealed class ReminderStore(IDbContextFactory<ErdaDbContext> dbFactory, IL
             return false;
         row.When = when;
         row.Text = text;
-        row.DirectToCodex = directToCodex;
         row.PreScript = preScript;
         db.SaveChanges();
         return true;

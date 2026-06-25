@@ -148,6 +148,6 @@ static void LogStartupConfig(WebApplication app)
     var opts = app.Services.GetRequiredService<IOptions<ErdaOptions>>().Value;
 
     log.LogInformation(
-        "Erda config: vault={Vault}, db={Db}, chatDeployment={Deployment}, transcribeModel={Transcribe}, codex={Codex}/{Effort}, voiceMemoSubfolder={Sub}",
-        opts.VaultPath, opts.DbPath, opts.ChatDeployment, opts.TranscribeModel, opts.CodexModel, opts.CodexReasoningEffort, opts.VoiceMemoSubfolder);
+        "Erda config: vault={Vault}, db={Db}, chatBaseUrl={ChatBaseUrl}, chatModel={ChatModel}/{Effort}, transcribeModel={Transcribe}, voiceMemoSubfolder={Sub}",
+        opts.VaultPath, opts.DbPath, opts.ChatBaseUrl, opts.ChatModel, opts.ChatReasoningEffort, opts.TranscribeModel, opts.VoiceMemoSubfolder);
 }

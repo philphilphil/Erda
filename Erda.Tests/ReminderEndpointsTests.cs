@@ -11,7 +11,7 @@ namespace Erda.Tests;
 
 /// <summary>
 /// Tests for the create/update reminder endpoint handlers (the internal static methods the minimal-API
-/// lambdas delegate to), exercising validation and the new Codex-direct / pre-script fields.
+/// lambdas delegate to), exercising validation and the pre-script field.
 /// </summary>
 public class ReminderEndpointsTests
 {
@@ -59,13 +59,12 @@ public class ReminderEndpointsTests
     {
         var store = SeededPromptStore();
         var result = ReminderEndpoints.UpdateReminder(
-            "news", new UpdateReminderRequest("0 7 * * *", "New", true, "echo hi"), store, Clock(), Opts());
+            "news", new UpdateReminderRequest("0 7 * * *", "New", "echo hi"), store, Clock(), Opts());
 
         var ok = Assert.IsType<Ok<ReminderDto>>(result);
         Assert.NotNull(ok.Value);
         Assert.Equal("0 7 * * *", ok.Value!.When);
         Assert.Equal("New", ok.Value.Text);
-        Assert.True(ok.Value.DirectToCodex);
         Assert.Equal("echo hi", ok.Value.PreScript);
         Assert.Equal("Prompt", ok.Value.Kind); // kind preserved
     }
@@ -73,18 +72,16 @@ public class ReminderEndpointsTests
     // ---- POST /reminders ----
 
     [Fact]
-    public void Create_prompt_persists_codex_and_prescript()
+    public void Create_prompt_persists_prescript()
     {
         var store = EmptyStore();
         var result = ReminderEndpoints.CreateReminder(
-            new CreateReminderRequest("Prompt", "0 6 * * *", "Daily news", true, "curl x"), store, Clock(), Opts());
+            new CreateReminderRequest("Prompt", "0 6 * * *", "Daily news", "curl x"), store, Clock(), Opts());
 
         var ok = Assert.IsType<Ok<ReminderDto>>(result);
-        Assert.True(ok.Value!.DirectToCodex);
-        Assert.Equal("curl x", ok.Value.PreScript);
+        Assert.Equal("curl x", ok.Value!.PreScript);
 
         var row = store.LoadAll().Reminders.Single();
-        Assert.True(row.DirectToCodex);
         Assert.Equal("curl x", row.PreScript);
     }
 
@@ -93,10 +90,9 @@ public class ReminderEndpointsTests
     {
         var store = EmptyStore();
         var result = ReminderEndpoints.CreateReminder(
-            new CreateReminderRequest("Reminder", "2026-06-15 09:00", "Call mom", true, "curl x"), store, Clock(), Opts());
+            new CreateReminderRequest("Reminder", "2026-06-15 09:00", "Call mom", "curl x"), store, Clock(), Opts());
 
         var ok = Assert.IsType<Ok<ReminderDto>>(result);
-        Assert.False(ok.Value!.DirectToCodex);
-        Assert.Null(ok.Value.PreScript);
+        Assert.Null(ok.Value!.PreScript);
     }
 }

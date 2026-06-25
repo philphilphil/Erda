@@ -9,7 +9,7 @@ namespace Erda.Agents.Workflows;
 /// The "recipe importer" workflow: a recipe URL → a clean Markdown recipe. Web-only — it's run from
 /// the control panel and is deliberately NOT exposed as an agent tool.
 ///
-///   Fetch (url → HTML) → Extract (HTML → readable text) → Format (text → Markdown, via Codex)
+///   Fetch (url → HTML) → Extract (HTML → readable text) → Format (text → Markdown, via the reasoner)
 /// </summary>
 public static class RecipeWorkflow
 {
@@ -19,7 +19,7 @@ public static class RecipeWorkflow
     {
         var fetch = new FetchPageExecutor(services.GetRequiredService<IUrlFetcher>());
         var extract = new ExtractRecipeTextExecutor();
-        var format = new FormatRecipeExecutor(services.GetRequiredService<ICodexRunner>());
+        var format = new FormatRecipeExecutor(services.GetRequiredService<IReasoner>());
 
         return new WorkflowBuilder(fetch)
             .AddEdge(fetch, extract)

@@ -67,21 +67,21 @@ public class WorkflowCatalogTests
             Html = "<html><head><script type=\"application/ld+json\">{\"@type\":\"Recipe\",\"name\":\"Tomato Soup\"}</script>" +
                    "</head><body><h1>Tomato Soup</h1><p>Cozy and quick.</p></body></html>",
         };
-        var codex = new FakeCodexRunner { Result = "# Tomato Soup\n## Ingredients\n- tomatoes\n## Preparation\n1. Simmer." };
+        var reasoner = new FakeReasoner { Result = "# Tomato Soup\n## Ingredients\n- tomatoes\n## Preparation\n1. Simmer." };
         var sp = new ServiceCollection()
             .AddSingleton<IUrlFetcher>(fetcher)
-            .AddSingleton<ICodexRunner>(codex)
+            .AddSingleton<IReasoner>(reasoner)
             .BuildServiceProvider();
         var catalog = new WorkflowCatalog(sp, [new RecipeWorkflowProvider()]);
 
         var output = await catalog.RunAsync("recipe", "https://example.com/soup");
 
-        Assert.Equal(codex.Result, output);
+        Assert.Equal(reasoner.Result, output);
         Assert.Equal("https://example.com/soup", Assert.Single(fetcher.Urls));
-        // The fetched page (JSON-LD + visible text) reached Codex.
-        Assert.Contains("structured recipe data", codex.Calls[0].Prompt);
-        Assert.Contains("Tomato Soup", codex.Calls[0].Prompt);
-        Assert.False(codex.Calls[0].WebSearch); // we already have the page; no search needed
+        // The fetched page (JSON-LD + visible text) reached the reasoner.
+        Assert.Contains("structured recipe data", reasoner.Calls[0].Prompt);
+        Assert.Contains("Tomato Soup", reasoner.Calls[0].Prompt);
+        Assert.False(reasoner.Calls[0].WebSearch); // we already have the page; no search needed
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class WorkflowCatalogTests
         services.AddSingleton(Options.Create(new ErdaOptions { VaultPath = vaultDir }));
         services.AddSingleton<VaultService>();
         services.AddSingleton<Transcriber>();
-        services.AddSingleton<CodexRunner>();
+        services.AddSingleton<IReasoner, FakeReasoner>();
         services.AddDbContextFactory<ErdaDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
         services.AddSingleton<IPromptStore, PromptStore>();
         var sp = services.BuildServiceProvider();

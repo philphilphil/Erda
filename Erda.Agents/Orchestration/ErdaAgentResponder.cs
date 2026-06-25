@@ -25,7 +25,11 @@ public sealed class ErdaAgentResponder(
         try
         {
             _session ??= await agent.CreateSessionAsync(cancellationToken);
-            var response = await agent.RunAsync(messages, _session, cancellationToken: cancellationToken);
+            // Stream the run and aggregate it back to a single AgentResponse: the Responses endpoint
+            // only returns a usable result in streaming mode (its non-streamed surface is broken),
+            // and aggregating keeps token usage + ToolsUsed intact for ToReply.
+            var response = await agent.RunStreamingAsync(messages, _session, null, cancellationToken)
+                .ToAgentResponseAsync(cancellationToken);
             var reply = ToReply(response);
             recorder.Record("agent_run", Summarize(reply), new { reply.InputTokens, reply.OutputTokens, reply.ToolsUsed });
             return reply;
@@ -50,7 +54,8 @@ public sealed class ErdaAgentResponder(
         // A fresh session, independent of the live conversation's _session/_gate, so background
         // prompts don't block or pollute the live WhatsApp turn.
         var session = await agent.CreateSessionAsync(cancellationToken);
-        var response = await agent.RunAsync(messages, session, cancellationToken: cancellationToken);
+        var response = await agent.RunStreamingAsync(messages, session, null, cancellationToken)
+            .ToAgentResponseAsync(cancellationToken);
         return ToReply(response);
     }
 

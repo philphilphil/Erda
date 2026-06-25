@@ -20,7 +20,6 @@ public sealed class ReminderScheduler(
     ReminderStateStore stateStore,
     VaultService vault,
     IAgentResponder responder,
-    ICodexRunner codex,
     IPreScriptRunner scriptRunner,
     IWhatsAppSender sender,
     IClock clock,
@@ -218,8 +217,8 @@ public sealed class ReminderScheduler(
         }
 
         // Optional pre-run context script: run it and splice its stdout into the prompt. Sits before
-        // the agent-vs-Codex fork, so it composes with both routes. Fail-safe: any script failure
-        // aborts dispatch (→ NotifyFailureAsync) rather than running the model on missing context.
+        // the agent run, so its output is part of the prompt. Fail-safe: any script failure aborts
+        // dispatch (→ NotifyFailureAsync) rather than running the model on missing context.
         if (!string.IsNullOrWhiteSpace(r.PreScript))
         {
             if (!options.Value.PreScriptEnabled)
@@ -246,26 +245,6 @@ public sealed class ReminderScheduler(
                 }
                 promptText = InjectContext(promptText, context);
             }
-        }
-
-        // Codex-direct: skip the agent and run the prompt straight through Codex (web search on),
-        // prepending the current time so a daily-news-style prompt knows the date.
-        if (r.DirectToCodex)
-        {
-            string text;
-            try
-            {
-                text = await codex.RunPromptAsync($"{timeContext.Text()}\n\n{promptText}", enableWebSearch: true, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Reminder {Id}: Codex-direct run failed.", r.Id);
-                return false;
-            }
-            var sentCodex = await sender.SendAsync(ownerJid, $"⏰ {text}", ct);
-            if (sentCodex)
-                recorder.Record("scheduled_fire", $"Prompt '{r.Id}' ran (codex)", new { r.Id, r.When });
-            return sentCodex;
         }
 
         var reply = await responder.RunOnceAsync([timeContext.Message(), new ChatMessage(ChatRole.User, promptText)], ct);

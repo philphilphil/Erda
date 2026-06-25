@@ -4,16 +4,16 @@ using Microsoft.Agents.AI.Workflows;
 
 namespace Erda.Agents.Workflows.Executors;
 
-/// <summary>Step 2: transcript -> structured Markdown note (Codex on the ChatGPT subscription). The
+/// <summary>Step 2: transcript -> structured Markdown note (the reasoner on the Responses endpoint). The
 /// voice-memo prompt is read from the store (authored in the control panel); empty when none has been
 /// saved yet (fresh DB).</summary>
-internal sealed class CodexExecutor(CodexRunner codex, IPromptStore prompts)
+internal sealed class CodexExecutor(IReasoner reasoner, IPromptStore prompts)
     : Executor<string, string>("codex")
 {
     public override async ValueTask<string> HandleAsync(
         string transcript, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
         var instruction = prompts.GetActiveContent(PromptKind.Voice) ?? "";
-        return await codex.RunAsync(instruction, transcript, cancellationToken);
+        return await reasoner.RunAsync(instruction, transcript, cancellationToken);
     }
 }

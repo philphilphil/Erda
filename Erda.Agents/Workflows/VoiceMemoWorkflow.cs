@@ -14,8 +14,8 @@ namespace Erda.Agents.Workflows;
 ///
 ///   Input (chat -> path) -> Transcribe (.m4a -> text) -> Codex (text -> note) -> ObsidianWrite (note -> ChatMessage)
 ///
-/// The three middle steps are plain string executors (Codex is shelled out, not an AIAgent
-/// node). But when a workflow is hosted as an AIAgent (here: wrapped as the process_voice_memo
+/// The three middle steps are plain string executors (the reasoner makes an in-process HTTP call,
+/// not an AIAgent node). But when a workflow is hosted as an AIAgent (here: wrapped as the process_voice_memo
 /// tool via AsAIFunction), its START executor must speak the chat protocol (accept
 /// List&lt;ChatMessage&gt; + TurnToken) and its OUTPUT must be a ChatMessage to surface in the
 /// response. So the chain is bookended by
@@ -31,7 +31,7 @@ public static class VoiceMemoWorkflow
         var input = new VoiceMemoInputExecutor();
         var transcribe = new TranscribeExecutor(services.GetRequiredService<Transcriber>());
         var codex = new CodexExecutor(
-            services.GetRequiredService<CodexRunner>(),
+            services.GetRequiredService<IReasoner>(),
             services.GetRequiredService<IPromptStore>());
         var write = new ObsidianWriteExecutor(
             services.GetRequiredService<VaultService>(),
@@ -48,7 +48,7 @@ public static class VoiceMemoWorkflow
 
     /// <summary>Description shown to the orchestrator for the process_voice_memo tool.</summary>
     public const string ToolDescription =
-        "Transcribe an Apple Voice Memo (.m4a), process the transcript with Codex, and save the " +
+        "Transcribe an Apple Voice Memo (.m4a), process the transcript with the reasoner, and save the " +
         "result as a structured note in the vault. Pass the absolute path to the .m4a file. " +
         "Returns a confirmation of where the note was saved.";
 

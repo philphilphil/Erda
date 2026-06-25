@@ -138,6 +138,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Announce availability once so the server has our pushname; chat-presence (typing) indicators
+	// can't be sent otherwise. A brand-new session may not have a pushname yet — that's fine, it's
+	// set on a later connect, so we ignore ErrNoPushName instead of failing.
+	if err := client.SendPresence(ctx, types.PresenceAvailable); err != nil && !errors.Is(err, whatsmeow.ErrNoPushName) {
+		slog.Warn("could not send initial presence", "error", err)
+	}
+
 	// Start the outbound HTTP server (Erda -> WhatsApp).
 	srv := newServer(cfg, client)
 	go func() {

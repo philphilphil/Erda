@@ -6,14 +6,14 @@ namespace Erda.Agents.Workflows;
 
 /// <summary>
 /// Processes a text transcript (already transcribed) as a Voice Memo:
-/// Codex with the voice-memo prompt → write to "1 Inbox/" in the vault.
+/// the reasoner with the voice-memo prompt → write to "1 Inbox/" in the vault.
 /// Used by the WhatsApp channel when an Apple Voice Memo (.m4a) is shared, so the audio is
 /// transcribed once and the memo pipeline runs on the text — no double-transcription.
 /// The voice-memo prompt is read from the store (authored in the control panel); empty when none has
 /// been saved yet (fresh DB).
 /// </summary>
 public sealed class MemoProcessor(
-    CodexRunner codex,
+    IReasoner reasoner,
     VaultService vault,
     IPromptStore prompts,
     ILogger<MemoProcessor> logger) : IMemoProcessor
@@ -24,7 +24,7 @@ public sealed class MemoProcessor(
     {
         logger.LogInformation("MemoProcessor: processing {Chars}-char transcript.", transcript.Length);
         var instruction = prompts.GetActiveContent(PromptKind.Voice) ?? "";
-        var note = await codex.RunAsync(instruction, transcript, cancellationToken);
+        var note = await reasoner.RunAsync(instruction, transcript, cancellationToken);
         var relative = WriteToInbox(note);
         logger.LogInformation("MemoProcessor: saved {Chars} chars to {Path}.", note.Length, relative);
         return $"Saved voice memo to {relative} ({note.Length} chars).";

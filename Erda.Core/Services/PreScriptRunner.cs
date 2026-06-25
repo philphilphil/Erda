@@ -7,14 +7,13 @@ namespace Erda.Core.Services;
 
 /// <summary>
 /// Runs a scheduled prompt's optional pre-run shell command and returns its stdout, to be injected
-/// into the prompt as context. Mirrors <see cref="CodexRunner"/>'s subprocess handling (fresh temp
-/// working directory, closed stdin, bounded timeout, process-tree kill).
+/// into the prompt as context. Careful subprocess handling: a fresh temp working directory, closed
+/// stdin, a bounded timeout, and a process-tree kill.
 ///
 /// The command is taken verbatim from a reminder row that only Phil can edit via the panel — never
 /// the agent — so this is deliberate, bounded code execution inside the panel's trust boundary.
-/// Unlike <see cref="CodexRunner"/>, OPENAI_API_KEY is intentionally NOT stripped: that stripping is
-/// specific to keeping Codex on subscription billing, and a context script may legitimately need
-/// already-configured secrets from the environment.
+/// OPENAI_API_KEY is intentionally NOT stripped from the environment: a context script may legitimately
+/// need already-configured secrets.
 /// </summary>
 public sealed class PreScriptRunner(IOptions<ReminderOptions> options, ILogger<PreScriptRunner> logger)
     : IPreScriptRunner
@@ -37,7 +36,7 @@ public sealed class PreScriptRunner(IOptions<ReminderOptions> options, ILogger<P
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add(script);
 
-            // Log the script text only when message-content capture is on (same gate as CodexRunner).
+            // Log the script text only when message-content capture is on.
             var captureContent = string.Equals(
                 Environment.GetEnvironmentVariable("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"),
                 "true", StringComparison.OrdinalIgnoreCase);
@@ -64,7 +63,7 @@ public sealed class PreScriptRunner(IOptions<ReminderOptions> options, ILogger<P
             proc.BeginErrorReadLine();
 
             // Close stdin immediately to send EOF; otherwise the child can inherit a never-closing
-            // stdin and block in read() forever (same reasoning as CodexRunner).
+            // stdin and block in read() forever.
             proc.StandardInput.Close();
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

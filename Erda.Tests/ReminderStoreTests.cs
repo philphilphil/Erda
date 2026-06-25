@@ -127,14 +127,12 @@ public class ReminderStoreTests
     }
 
     [Fact]
-    public void Append_round_trips_direct_to_codex_and_prescript()
+    public void Append_round_trips_prescript()
     {
         var store = MakeStore();
-        store.Append(ReminderKind.Prompt, "news", "0 6 * * *", "Top headlines?",
-            directToCodex: true, preScript: "curl x");
+        store.Append(ReminderKind.Prompt, "news", "0 6 * * *", "Top headlines?", preScript: "curl x");
 
         var r = store.LoadAll().Reminders.Single();
-        Assert.True(r.DirectToCodex);
         Assert.Equal("curl x", r.PreScript);
     }
 
@@ -145,7 +143,6 @@ public class ReminderStoreTests
         store.Append(ReminderKind.Prompt, "x", "0 6 * * *", "hi");
 
         var r = store.LoadAll().Reminders.Single();
-        Assert.False(r.DirectToCodex);
         Assert.Null(r.PreScript);
     }
 
@@ -155,12 +152,11 @@ public class ReminderStoreTests
         var store = MakeStore();
         store.Append(ReminderKind.Prompt, "news", "0 6 * * *", "Old text");
 
-        Assert.True(store.Update("news", "0 7 * * *", "New text", directToCodex: true, preScript: "echo hi"));
+        Assert.True(store.Update("news", "0 7 * * *", "New text", preScript: "echo hi"));
 
         var r = store.LoadAll().Reminders.Single(r => r.Id == "news");
         Assert.Equal("0 7 * * *", r.When);
         Assert.Equal("New text", r.Text);
-        Assert.True(r.DirectToCodex);
         Assert.Equal("echo hi", r.PreScript);
         Assert.Equal(ReminderKind.Prompt, r.Kind); // kind unchanged
     }
@@ -176,7 +172,7 @@ public class ReminderStoreTests
         var lastFired = new DateTimeOffset(2026, 6, 1, 5, 0, 0, TimeSpan.Zero);
         stateStore.Save(new ReminderState { LastFiredUtc = { ["news"] = lastFired } });
 
-        Assert.True(store.Update("news", "0 7 * * *", "New text", directToCodex: false));
+        Assert.True(store.Update("news", "0 7 * * *", "New text"));
 
         Assert.Equal(ReminderStatus.Paused, store.LoadAll().Reminders.Single(r => r.Id == "news").Status);
         Assert.Equal(lastFired, stateStore.Load().LastFiredUtc["news"]); // run-state untouched
@@ -185,6 +181,6 @@ public class ReminderStoreTests
     [Fact]
     public void Update_returns_false_for_unknown_id()
     {
-        Assert.False(MakeStore().Update("nope", "0 6 * * *", "x", directToCodex: false));
+        Assert.False(MakeStore().Update("nope", "0 6 * * *", "x"));
     }
 }

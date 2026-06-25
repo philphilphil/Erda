@@ -1,12 +1,12 @@
 using System.ClientModel;
 using OpenAI;
+using OpenAI.Responses;
 using Erda.Agents.Tools;
 using Erda.Core.Configuration;
 using Erda.Core.Services.OnePassword;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
-using OpenAI.Chat;
 
 namespace Erda.Agents;
 
@@ -15,7 +15,7 @@ namespace Erda.Agents;
 /// tool (agent-as-tool, like <see cref="Erda.Agents.Workflows.VoiceMemoWorkflow.CreateTool"/>). The
 /// sub-agent runs its own multi-step loop with the Playwright MCP tools, so the page snapshots stay
 /// out of the orchestrator's context. Its model is <c>Browser:Deployment</c>, defaulting to the
-/// orchestrator's <c>ChatDeployment</c>.
+/// orchestrator's <c>ChatModel</c>.
 /// </summary>
 public static class BrowserAgent
 {
@@ -26,8 +26,8 @@ public static class BrowserAgent
         "return the result. Provide the task in plain language, e.g. 'open example.com and tell me the " +
         "main heading'. For a screenshot, say so explicitly (e.g. 'open example.com and take a full-page " +
         "screenshot'); the browser saves the image to the media directory and returns its absolute file " +
-        "path, which you can then send to Phil with send_image. Use this — not consult_codex — for " +
-        "anything that needs a live page rendered.";
+        "path, which you can then send to Phil with send_image. Use this for anything that needs a " +
+        "live page rendered.";
 
     // outputDir is injected so the screenshot guidance names the one writable, allow-listed directory
     // (the MCP's --output-dir). A bare/relative screenshot filename resolves against the MCP's CWD
@@ -56,32 +56,32 @@ public static class BrowserAgent
 
     /// <summary>
     /// Build the <c>browse_web</c> function, or null when <see cref="ShouldExpose"/> is false.
-    /// Requires Azure credentials (same as the orchestrator); returns null if unconfigured.
+    /// Uses the same Responses endpoint as the orchestrator.
     /// </summary>
     public static AIFunction? TryCreateTool(IServiceProvider services)
     {
         var mcp = services.GetRequiredService<IBrowserMcp>();
         if (!ShouldExpose(mcp)) return null;
 
-        var creds = services.GetRequiredService<IOptions<CredentialsOptions>>().Value;
         var erda = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
         var browser = services.GetRequiredService<IOptions<BrowserOptions>>().Value;
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
 
-        // Credentials are validated at startup, so they're guaranteed present here.
-        // falls back to the orchestrator's deployment (ChatDeployment) when no browser-specific one is set
-        var deployment = string.IsNullOrWhiteSpace(browser.Deployment) ? erda.ChatDeployment : browser.Deployment!;
+        // Endpoint settings are validated at startup, so they're guaranteed present here.
+        // falls back to the orchestrator's model (ChatModel) when no browser-specific one is set
+        var deployment = string.IsNullOrWhiteSpace(browser.Deployment) ? erda.ChatModel : browser.Deployment!;
 
         var opCli = services.GetRequiredService<IOpCli>();
         var secretResolver = services.GetRequiredService<IOpSecretResolver>();
 
-        // Same OpenAI-compatible /openai/v1 client as the orchestrator (see ErdaAgent) — no
-        // Azure.AI.OpenAI, no api-version. The sub-agent's model is browser.Deployment (falls back to
-        // ChatDeployment above).
-        ChatClient chat = new ChatClient(
-            model: deployment,
-            credential: new ApiKeyCredential(creds.AzureOpenAIApiKey),
-            options: new OpenAIClientOptions { Endpoint = new Uri(creds.AzureOpenAIEndpoint) });
+        // Same Responses client as the orchestrator (see ErdaAgent), pointed at the local
+        // OpenAI-compatible endpoint. The sub-agent's model is browser.Deployment (falls back to
+        // ChatModel above); the key defaults to "local" since the loopback proxy needs no real one.
+#pragma warning disable OPENAI001 // Responses surface is [Experimental]
+        OpenAI.Responses.ResponsesClient chat = new OpenAI.Responses.ResponsesClient(
+            credential: new ApiKeyCredential(string.IsNullOrWhiteSpace(erda.ChatApiKey) ? "local" : erda.ChatApiKey),
+            options: new OpenAIClientOptions { Endpoint = new Uri(erda.ChatBaseUrl) });
+#pragma warning restore OPENAI001
 
         var tools = new List<AITool>(mcp.Tools) { FindLogin.CreateTool(opCli, browser.OnePasswordVault) };
 
@@ -90,7 +90,9 @@ public static class BrowserAgent
         // model's window with context_length_exceeded), and StepLimit caps a runaway loop at MaxSteps.
         var reducer = new BrowserSnapshotReducer();
 
+#pragma warning disable OPENAI001 // ResponsesClient.AsAIAgent is [Experimental]
         AIAgent agent = chat.AsAIAgent(
+                model: deployment,
                 instructions: BuildSystemPrompt(browser.OutputDir),
                 name: "browser",
                 tools: tools,
@@ -108,6 +110,7 @@ public static class BrowserAgent
             // records the top-level browse_web call; recording every inner navigate/click would flood the
             // LAN activity feed. Granular browser steps live in OTel/Seq instead.
             .Build();
+#pragma warning restore OPENAI001
 
         return agent.AsAIFunction(new AIFunctionFactoryOptions
         {

@@ -34,7 +34,6 @@ const newKind = ref<ReminderKind>('Reminder')
 const newSchedKind = ref<'datetime' | 'cron'>('datetime')
 const newWhen = ref('')
 const newText = ref('')
-const newDirectToCodex = ref(false)
 const newPreScript = ref('')
 const addError = ref<string | null>(null)
 const submitting = ref(false)
@@ -44,7 +43,6 @@ const editing = ref<ReminderDto | null>(null)
 const editSchedKind = ref<'datetime' | 'cron'>('cron')
 const editWhen = ref('')
 const editText = ref('')
-const editDirectToCodex = ref(false)
 const editPreScript = ref('')
 const editError = ref<string | null>(null)
 const savingEdit = ref(false)
@@ -109,7 +107,6 @@ onMounted(async () => {
 function resetAddForm() {
   newWhen.value = ''
   newText.value = ''
-  newDirectToCodex.value = false
   newPreScript.value = ''
 }
 
@@ -134,7 +131,6 @@ async function handleAdd() {
       kind: newKind.value,
       when: String(newWhen.value ?? '').trim(),
       text: newText.value.trim(),
-      directToCodex: isPrompt ? newDirectToCodex.value : undefined,
       preScript: isPrompt ? newPreScript.value.trim() || null : undefined,
     })
     resetAddForm()
@@ -184,7 +180,6 @@ function openEdit(r: ReminderDto) {
     editWhen.value = r.when.replace(' ', 'T')
   }
   editText.value = r.text
-  editDirectToCodex.value = r.directToCodex
   editPreScript.value = r.preScript ?? ''
 }
 
@@ -204,7 +199,6 @@ async function saveEdit() {
     await updateReminder(editing.value.id, {
       when: String(editWhen.value ?? '').trim(),
       text: editText.value.trim(),
-      directToCodex: editDirectToCodex.value,
       preScript: editPreScript.value.trim() || null,
     })
     await load()
@@ -324,15 +318,6 @@ async function saveEdit() {
         </div>
 
         <template v-if="newKind === 'Prompt'">
-          <div class="field" style="grid-column: span 12">
-            <label class="check-row">
-              <input v-model="newDirectToCodex" type="checkbox" />
-              Run directly via Codex (skip the agent)
-            </label>
-            <span class="hint">
-              Good for big prompts (e.g. a daily news digest); web search is on.
-            </span>
-          </div>
           <div class="field" style="grid-column: span 12">
             <label>Pre-run script <span class="faint">(optional)</span></label>
             <textarea
@@ -486,12 +471,6 @@ async function saveEdit() {
               <div class="msg-cell">
                 <span class="truncate" :title="r.text">{{ r.text }}</span>
                 <span
-                  v-if="r.directToCodex"
-                  class="badge sq b-blue"
-                  title="Runs directly via Codex (skips the agent)"
-                  >Codex</span
-                >
-                <span
                   v-if="r.preScript"
                   class="badge sq b-muted"
                   title="Runs a pre-run script before the prompt"
@@ -625,13 +604,6 @@ async function saveEdit() {
         </div>
 
         <div class="field" style="grid-column: span 12">
-          <label class="check-row">
-            <input v-model="editDirectToCodex" type="checkbox" />
-            Run directly via Codex (skip the agent)
-          </label>
-        </div>
-
-        <div class="field" style="grid-column: span 12">
           <label>Pre-run script <span class="faint">(optional)</span></label>
           <textarea
             v-model="editPreScript"
@@ -668,23 +640,6 @@ async function saveEdit() {
   align-items: center;
   gap: 7px;
   min-width: 0;
-}
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-direction: row !important;
-  cursor: pointer;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: var(--fs-sm);
-  color: var(--text);
-}
-.check-row input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--blue);
-  cursor: pointer;
 }
 .sys-list {
   display: flex;
