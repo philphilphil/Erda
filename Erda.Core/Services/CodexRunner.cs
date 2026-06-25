@@ -165,6 +165,14 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             // so OPENAI_API_KEY is a real OS environment variable on this process and WOULD be
             // inherited by the subprocess — this Remove is what stops that. Never delete it.
             psi.Environment.Remove("OPENAI_API_KEY");
+
+            // Give codex a guaranteed-writable HOME. In the Docker image we run as a bare numeric
+            // user ("1000:1000") with no /etc/passwd home entry, so HOME defaults to "/" — unwritable.
+            // codex then fails trying to write its shell-init/PATH shim ("could not update PATH:
+            // Permission denied (os error 13)") and exits 1. Point HOME at the throwaway scratch dir
+            // (never the vault, even for a vault task) so those writes land somewhere writable and are
+            // cleaned up. Auth/session still come from CODEX_HOME, which is untouched.
+            psi.Environment["HOME"] = scratchDir;
             var keyAbsentFromChild = !psi.Environment.ContainsKey("OPENAI_API_KEY");
 
             // Log WHAT was asked (logLabel = the question/task), not a preview of the raw prompt —

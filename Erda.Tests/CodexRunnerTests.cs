@@ -115,6 +115,7 @@ public class CodexRunnerTests
         Assert.Equal(vault, ArgAfter(args, "--cd"));        // codex's working root IS the vault
         Assert.Equal(scratchDir, ArgAfter(args, "--add-dir")); // the scratch dir (holding -o) is writable, and lives outside the vault
         Assert.Contains("sandbox_workspace_write.network_access=false", args); // no shell egress for a vault task
+        Assert.Contains($"HOME={scratchDir}", args);        // codex gets a writable HOME (the scratch dir), not the container's unwritable "/"
         Assert.True(Directory.Exists(vault));               // the vault was NOT deleted by the scratch-dir cleanup
         Assert.True(File.Exists(note));                     // notes survive
         Assert.False(Directory.Exists(scratchDir));         // the scratch dir IS removed (the other half of the cleanup contract)
@@ -184,7 +185,7 @@ public class CodexRunnerTests
             "cat >/dev/null\n" +                 // drain stdin to EOF
             "out=\"\"; prev=\"\"\n" +
             "for a in \"$@\"; do [ \"$prev\" = \"-o\" ] && out=\"$a\"; prev=\"$a\"; done\n" +
-            "[ -n \"$out\" ] && printf '%s\\n' \"$@\" > \"$out\"\n" +
+            "[ -n \"$out\" ] && { printf '%s\\n' \"$@\"; printf 'HOME=%s\\n' \"$HOME\"; } > \"$out\"\n" +
             "exit 0\n");
         File.SetUnixFileMode(path,
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
