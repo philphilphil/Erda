@@ -10,7 +10,7 @@
 # Configuration is env-only. `.env` (next to this file; git-ignored) holds every setting using the
 # app's own keys (Erda__…, WhatsApp__…, Seq__…, plus the flat AZURE_OPENAI_*/OPENAI_API_KEY). The
 # erda container loads it verbatim via `env_file`, so there is NO per-variable mapping here. Compose
-# also auto-reads `.env` for the ${…} substitutions below (host paths, bridge secret). Copy
+# also auto-reads `.env` for the ${…} substitutions below (CODEX_DIR, bridge secret). Copy
 # .env.example to .env and fill it in; in Komodo, set the same keys as the Stack's environment.
 #
 #   First run (link WhatsApp):       docker compose run --rm whatsapp-bridge   # scan the QR
@@ -35,14 +35,14 @@ services:
       SHARED_SECRET: ${WhatsApp__SharedSecret:?set WhatsApp__SharedSecret in .env}
       OWNER_JID: ${OWNER_JID:?set OWNER_JID in .env}
     volumes:
-      - ./bridge:/data         # persistent whatsmeow session — survives rebuilds
-      - ./media:/media          # SHARED with erda (same path); downloaded media
+      - bridge-data:/data            # persistent whatsmeow session — survives rebuilds
+      - media:/media                 # SHARED with erda (same path); downloaded media
     networks: [erdanet]
 
-  # Obsidian Sync sidecar: keeps the shared ./vault dir continuously synced from inside the stack
+  # Obsidian Sync sidecar: keeps the shared `vault` volume continuously synced from inside the stack
   # (official headless client). Replaces the old host-side sync requirement, so the homeserver needs
-  # nothing but Docker. Shares ./vault with erda and runs as 1000:1000 so both write with the
-  # same owner. Bootstrap once: `docker compose run --rm obsidian-sync setup` (or set
+  # nothing but Docker. Shares the `vault` volume with erda and runs as 1000:1000 so both write with
+  # the same owner. Bootstrap once: `docker compose run --rm obsidian-sync setup` (or set
   # OBSIDIAN_AUTH_TOKEN in .env for fully non-interactive auth). See obsidian-sync/entrypoint.sh.
   obsidian-sync:
     build:
@@ -57,24 +57,23 @@ services:
     env_file:
       - .env
     volumes:
-      - ./vault:/vault          # SHARED with erda (same path)
-      - ./obsidian-config:/config   # persisted login token + sync-setup state — survives rebuilds
+      - vault:/vault                 # SHARED with erda (same path)
+      - obsidian-config:/config      # persisted login token + sync-setup state — survives rebuilds
     networks: [erdanet]
 
-  # One-shot: Docker auto-creates missing bind-mount dirs root-owned, but erda + obsidian-sync run as
-  # 1000:1000. Chown the dirs they must write — the SQLite DB (/data/erda), the shared /media dir, the
-  # browser profile (/data/browser), the synced vault (/vault), and the Obsidian session (/config) —
-  # then exit (chown on a bind mount changes the host dir). Runs as root (no `user:`), so a fresh
-  # checkout self-heals with no manual chown step.
+  # One-shot: Docker creates named volumes root-owned, but erda + obsidian-sync run as 1000:1000.
+  # Chown the volumes they must write — the SQLite DB (/data/erda), the shared /media dir, the browser
+  # profile (/data/browser), the synced vault (/vault), and the Obsidian session (/config) — then exit.
+  # Runs as root (no `user:`), so a fresh or recreated volume self-heals with no manual chown step.
   init-perms:
     image: alpine:3.21
     command: ["chown", "1000:1000", "/data/erda", "/media", "/data/browser", "/vault", "/config"]
     volumes:
-      - ./erda-data:/data/erda
-      - ./media:/media
-      - ./browser:/data/browser
-      - ./vault:/vault
-      - ./obsidian-config:/config
+      - erda-data:/data/erda
+      - media:/media
+      - browser-data:/data/browser
+      - vault:/vault
+      - obsidian-config:/config
 
   erda:
     build:
@@ -83,7 +82,7 @@ services:
     restart: unless-stopped
     # Run as the host owner (phil = 1000:1000) so the codex CLI subprocess writes files into the
     # bind-mounted /codex (= host ~/.codex) as phil, not root. Otherwise root-owned files pile up
-    # in ~/.codex and break the interactive `codex` on the host. The ./data bind dirs Docker creates
+    # in ~/.codex and break the interactive `codex` on the host. The named volumes Docker creates
     # root-owned are chowned to 1000:1000 by the init-perms one-shot above, which erda waits for.
     user: "1000:1000"
     depends_on:
@@ -104,23 +103,25 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:5167
       CODEX_HOME: /codex                                           # codex reads its logged-in session from here
     volumes:
-      - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW
-      - ./vault:/vault                                        # Obsidian vault, kept synced by the obsidian-sync sidecar
-      - ./erda-data:/data/erda                                     # SQLite DB (reminders, prompt versions, activity) — survives redeploys
-      - ./media:/media                                        # SHARED with the bridge (same path)
-      - ./browser:/data/browser                               # persistent browser profile (logged-in session)
+      - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW (host bind-mount)
+      - vault:/vault                                               # Obsidian vault, kept synced by the obsidian-sync sidecar
+      - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity) — survives redeploys
+      - media:/media                                                # SHARED with the bridge (same path)
+      - browser-data:/data/browser                                 # persistent browser profile (logged-in session)
     networks: [erdanet]
 
 networks:
   erdanet:
     driver: bridge
 
-# All persistent state lives in flat dirs next to this file (bind mounts) instead of named volumes,
-# so it's covered by whatever backs up this directory. Git-ignored. Created/owned automatically by the
-# init-perms one-shot on first `up`.
-#   ./vault            — the Obsidian vault (synced by obsidian-sync)
-#   ./obsidian-config  — Obsidian Sync session (auth token + sync-setup state)
-#   ./erda-data        — SQLite DB (reminders, prompt versions, activity)
-#   ./media            — downloaded/shared media (bridge ⇄ erda)
-#   ./browser          — persistent browser profile
-#   ./bridge           — whatsmeow (WhatsApp) session
+# All persistent state lives in Docker-managed named volumes (on the host at
+# /var/lib/docker/volumes/erda_<name>/_data — back these up directly). Created root-owned by Docker
+# and chowned to 1000:1000 by the init-perms one-shot on first `up`. Codex auth is the one exception:
+# it stays a host bind-mount of ~/.codex (CODEX_DIR), not a volume.
+volumes:
+  bridge-data:           # whatsmeow (WhatsApp) session
+  erda-data:             # SQLite DB (reminders, prompt versions, activity)
+  media:                 # downloaded/shared media (bridge ⇄ erda)
+  browser-data:          # persistent browser profile
+  vault:                 # Obsidian vault — written by erda, kept in sync by obsidian-sync
+  obsidian-config:       # Obsidian Sync session (auth token + sync-setup state)

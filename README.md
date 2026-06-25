@@ -251,12 +251,13 @@ obsidian-git to set up). Requires an **Obsidian Sync** subscription.
   `obsidian-headless` client); keeps the shared `vault` dir synced. See its
   [`entrypoint.sh`](obsidian-sync/entrypoint.sh) for the `setup` / `login` / `sync` modes.
 - [`docker-compose.yml`](docker-compose.yml) — the stack: a private network and all persistent state
-  in **flat bind-mount dirs next to the compose file** (`vault`, `erda-data`, `media`, `browser`,
-  `bridge`, `obsidian-config`) instead of named volumes — so it's all covered by whatever backs up
-  this directory. `media` is shared bridge⇄erda; `vault` is shared erda⇄obsidian-sync. The dirs are
-  git-ignored and chowned to `1000:1000` automatically by the `init-perms` one-shot on first `up`.
-  Codex stays a host bind-mount of `~/.codex` (`CODEX_DIR`). Each service's `image:` points at its
-  GHCR `:latest` tag; the `build:` blocks are kept only for local dev.
+  in **Docker-managed named volumes** (`vault`, `erda-data`, `media`, `browser-data`, `bridge-data`,
+  `obsidian-config`), on the host at `/var/lib/docker/volumes/erda_<name>/_data` — **back these up
+  directly**. `media` is shared bridge⇄erda; `vault` is shared erda⇄obsidian-sync. The volumes are
+  created root-owned and chowned to `1000:1000` automatically by the `init-perms` one-shot on first
+  `up`. Codex auth is the one exception — it stays a host bind-mount of `~/.codex` (`CODEX_DIR`), not
+  a volume. Each service's `image:` points at its GHCR `:latest` tag; the `build:` blocks are kept
+  only for local dev.
 - [`.github/workflows/build.yml`](.github/workflows/build.yml) — CI that builds the three images for
   `linux/amd64` and pushes them to GHCR (`ghcr.io/philphilphil/{erda,whatsapp-bridge,obsidian-sync}`)
   on push to `main`, on `v*` tags, and on manual dispatch.
