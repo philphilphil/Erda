@@ -17,6 +17,11 @@ public class WhatsAppChannelServiceTests
     private static WhatsAppChannelService Make(
         out FakeAgentResponder responder, out FakeWhatsAppSender sender, out FakeTranscriber transcriber,
         string environment = "Production", string devPrefix = "@dev")
+        => MakeWith(new FakeMemoProcessor(), out responder, out sender, out transcriber, environment, devPrefix);
+
+    private static WhatsAppChannelService MakeWith(
+        FakeMemoProcessor memo, out FakeAgentResponder responder, out FakeWhatsAppSender sender,
+        out FakeTranscriber transcriber, string environment = "Production", string devPrefix = "@dev")
     {
         responder = new FakeAgentResponder();
         sender = new FakeWhatsAppSender();
@@ -30,7 +35,7 @@ public class WhatsAppChannelServiceTests
         });
         var timeContext = new CurrentTimeContext(new FakeClock(), Options.Create(new ReminderOptions()));
         var env = new FakeHostEnvironment { EnvironmentName = environment };
-        return new WhatsAppChannelService(opts, responder, transcriber, new FakeMemoProcessor(), sender, env, timeContext, NullLogger<WhatsAppChannelService>.Instance);
+        return new WhatsAppChannelService(opts, responder, transcriber, memo, sender, env, timeContext, NullLogger<WhatsAppChannelService>.Instance);
     }
 
     private static string TempMedia(string ext, byte[] bytes)
@@ -153,6 +158,47 @@ public class WhatsAppChannelServiceTests
         Assert.Contains(responder.Calls[0][^1].Contents.OfType<TextContent>(), t => t.Text.Contains("buy milk"));
         Assert.Single(sender.Sent);
         Assert.False(File.Exists(media)); // cleaned up (inside MediaTempDir)
+    }
+
+    [Fact]
+    public async Task Ptt_voice_note_goes_to_the_agent_even_when_mime_is_m4a()
+    {
+        // A WhatsApp-recorded voice note (ptt=true) must be conversational, NOT filed to the inbox,
+        // even if it arrives with an m4a/mp4 MIME (iOS sometimes encodes PTT as AAC/mp4).
+        var memo = new FakeMemoProcessor();
+        var svc = MakeWith(memo, out var responder, out var sender, out var transcriber);
+        transcriber.Transcript = "what's the weather tomorrow";
+        var media = TempMedia(".m4a", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "audio",
+            MediaPath = media, MimeType = "audio/mp4", Ptt = true,
+        });
+
+        Assert.Empty(memo.Transcripts);   // NOT routed to the inbox memo pipeline
+        Assert.Single(responder.Calls);   // handled conversationally by the agent
+        Assert.Contains(responder.Calls[0][^1].Contents.OfType<TextContent>(), t => t.Text.Contains("what's the weather"));
+        Assert.False(File.Exists(media)); // cleaned up
+    }
+
+    [Fact]
+    public async Task Non_ptt_m4a_file_still_goes_to_the_inbox_memo_pipeline()
+    {
+        // A shared Apple Voice Memo (a non-PTT .m4a file) keeps going to the structured inbox pipeline.
+        var memo = new FakeMemoProcessor();
+        var svc = MakeWith(memo, out var responder, out var sender, out var transcriber);
+        transcriber.Transcript = "remember to call mom";
+        var media = TempMedia(".m4a", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "audio",
+            MediaPath = media, MimeType = "audio/mp4", Ptt = false,
+        });
+
+        Assert.Single(memo.Transcripts);  // shared Apple Voice Memo → inbox
+        Assert.Empty(responder.Calls);    // not the conversational agent
     }
 
     [Fact]

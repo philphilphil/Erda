@@ -12,9 +12,10 @@ namespace Erda.Core.WhatsApp;
 /// Enforces the owner whitelist, dispatches by message type (text / voice / image), and cleans up
 /// downloaded media afterwards.
 ///
-/// Audio dispatch: Apple Voice Memos shared from iOS arrive as .m4a (audio/mp4) and are routed
-/// directly to <see cref="MemoProcessor"/> (structured memo → 1 Inbox/), bypassing the agent.
-/// WhatsApp-native voice notes (audio/ogg) go to the agent as a transcript for conversational handling.
+/// Audio dispatch keys off the WhatsApp push-to-talk (PTT) flag: a voice note recorded in WhatsApp
+/// (ptt=true) goes to the agent as a transcript for conversational handling, regardless of codec.
+/// A shared Apple Voice Memo file (ptt=false, .m4a/audio-mp4) is routed directly to
+/// <see cref="MemoProcessor"/> (structured memo → 1 Inbox/), bypassing the agent.
 /// </summary>
 public sealed class WhatsAppChannelService(
     IOptions<WhatsAppOptions> options,
@@ -80,9 +81,11 @@ public sealed class WhatsAppChannelService(
             return;
         }
 
-        // Apple Voice Memos shared from iOS (.m4a / audio/mp4) → structured memo pipeline,
-        // bypassing the agent. WhatsApp-native voice notes (.ogg/opus) go to the agent instead.
-        if (message.Kind == InboundKind.Audio && IsSharedVoiceMemo(message))
+        // Shared Apple Voice Memo files (.m4a / audio/mp4, NOT push-to-talk) → structured memo
+        // pipeline, bypassing the agent. WhatsApp-recorded voice notes (ptt=true, any codec) go to
+        // the agent for conversational handling — the ptt flag is the reliable discriminator, since
+        // iOS PTT notes can arrive with an m4a/mp4 MIME that the format heuristic alone misreads.
+        if (message.Kind == InboundKind.Audio && !message.Ptt && IsSharedVoiceMemo(message))
         {
             try
             {

@@ -33,6 +33,13 @@ public sealed record InboundMessage
     /// <summary>Media MIME type, e.g. "audio/ogg; codecs=opus" or "image/jpeg".</summary>
     public string? MimeType { get; init; }
 
+    /// <summary>
+    /// True when the audio is a WhatsApp push-to-talk voice note (recorded in WhatsApp), as opposed to
+    /// a shared audio file. Drives routing: PTT notes are conversational; shared Apple Voice Memo
+    /// files go to the inbox pipeline. Absent/false for non-audio or older bridge builds.
+    /// </summary>
+    public bool Ptt { get; init; }
+
     public string? MessageId { get; init; }
 
     public long Timestamp { get; init; }

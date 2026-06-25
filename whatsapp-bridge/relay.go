@@ -33,6 +33,7 @@ type inboundPayload struct {
 	Text      string `json:"text"`                // body or caption
 	MediaPath string `json:"mediaPath,omitempty"` // absolute path to downloaded media
 	MimeType  string `json:"mimeType,omitempty"`  // media mimetype
+	Ptt       bool   `json:"ptt,omitempty"`       // true for a push-to-talk voice note (audio only)
 	MessageID string `json:"messageId"`           // WhatsApp message ID
 	Timestamp int64  `json:"timestamp"`           // unix seconds
 }
@@ -128,7 +129,8 @@ func (r *relay) handleMessage(evt *events.Message) {
 		payload.MimeType = img.GetMimetype()
 
 	case evt.Message.GetAudioMessage() != nil:
-		// audioMessage covers both regular audio and PTT voice notes.
+		// audioMessage covers both regular audio and PTT voice notes; the PTT flag is what lets
+		// Erda route a recorded voice note to the agent vs a shared file to the memo pipeline.
 		aud := evt.Message.GetAudioMessage()
 		path, err := r.downloadMedia(aud, aud.GetMimetype())
 		if err != nil {
@@ -138,6 +140,7 @@ func (r *relay) handleMessage(evt *events.Message) {
 		payload.Type = "audio"
 		payload.MediaPath = path
 		payload.MimeType = aud.GetMimetype()
+		payload.Ptt = aud.GetPTT()
 
 	default:
 		// Sticker / video / document / etc. — log and skip for now.
