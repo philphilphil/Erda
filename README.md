@@ -227,8 +227,16 @@ so no `nvidia-docker` runtime is needed. In production Erda runs `ASPNETCORE_ENV
 you interact with Erda over WhatsApp and through the **LAN control panel** (published on port 5167 —
 see below).
 
-The image arch defaults target **amd64**; for an ARM64 host (e.g. the old Jetson) override the build
-ARGs in [`Dockerfile`](Dockerfile) (`CODEX_TARGET=aarch64-unknown-linux-musl`, `OP_ARCH=arm64`).
+**Images are built by CI and pulled on the server** — they are no longer built on the homeserver.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds all three images for
+`linux/amd64` and pushes them to GHCR (`ghcr.io/philphilphil/{erda,whatsapp-bridge,obsidian-sync}`)
+on every push to `main`, on `v*` tags, and on manual dispatch. The server runs compose + `.env`
+only and **pulls** the prebuilt images — `make deploy` is now `docker compose pull && docker compose
+up -d` (no `git pull`, no `--build`). The compose `build:` blocks are kept **only** so local dev can
+still `docker compose up -d --build`. The image arch defaults target **amd64**; for an ARM64 host
+(e.g. the old Jetson) you'd build locally and override the build ARGs in [`Dockerfile`](Dockerfile)
+(`CODEX_TARGET=aarch64-unknown-linux-musl`, `OP_ARCH=arm64`).
+
 **The vault syncs inside the stack** — the `obsidian-sync` sidecar runs Obsidian's official headless
 Sync client against a shared `vault` volume, so the host needs nothing but Docker (no Syncthing /
 obsidian-git to set up). Requires an **Obsidian Sync** subscription.
@@ -247,7 +255,11 @@ obsidian-git to set up). Requires an **Obsidian Sync** subscription.
   `bridge`, `obsidian-config`) instead of named volumes — so it's all covered by whatever backs up
   this directory. `media` is shared bridge⇄erda; `vault` is shared erda⇄obsidian-sync. The dirs are
   git-ignored and chowned to `1000:1000` automatically by the `init-perms` one-shot on first `up`.
-  Codex stays a host bind-mount of `~/.codex` (`CODEX_DIR`).
+  Codex stays a host bind-mount of `~/.codex` (`CODEX_DIR`). Each service's `image:` points at its
+  GHCR `:latest` tag; the `build:` blocks are kept only for local dev.
+- [`.github/workflows/build.yml`](.github/workflows/build.yml) — CI that builds the three images for
+  `linux/amd64` and pushes them to GHCR (`ghcr.io/philphilphil/{erda,whatsapp-bridge,obsidian-sync}`)
+  on push to `main`, on `v*` tags, and on manual dispatch.
 - [`.env.example`](.env.example) — copy to `.env` and fill in paths + secrets.
 
 ### Three credential contexts in the container
@@ -285,15 +297,27 @@ the same profile and log in once, then let Erda reuse the persisted session.
 4. **Link Obsidian Sync** (first run only): `docker compose run --rm obsidian-sync setup` — logs in
    (email/password/MFA, or skipped if `OBSIDIAN_AUTH_TOKEN` is set) and links the vault, prompting for
    the E2E password if the vault is encrypted. State persists in the `obsidian-config/` dir.
-5. **Up**: `docker compose up -d --build`. On first start the `vault/` dir fills from Obsidian Sync.
+5. **Up**: `docker compose pull && docker compose up -d` (pulls the prebuilt GHCR images — `make
+   deploy` does the same). On first start the `vault/` dir fills from Obsidian Sync.
 
-### Komodo
+### CI builds the images; the server pulls them
 
-Point a Komodo **Stack** at this repo and let it run `docker compose up -d --build` on push
-(webhook). Images build natively on the homeserver (amd64); bump `CODEX_VERSION` (or
-`OBSIDIAN_HEADLESS_VERSION` in `obsidian-sync/Dockerfile`) to upgrade the CLIs. `restart:
-unless-stopped` keeps the services up across reboots. Provide the `.env` values as Komodo
-environment/secrets.
+Images are built by GitHub Actions ([`.github/workflows/build.yml`](.github/workflows/build.yml)) and
+pushed to GHCR — the homeserver no longer builds anything. Flow: push to `main` (or a `v*` tag, or a
+manual run) → CI builds `erda`, `whatsapp-bridge`, and `obsidian-sync` for `linux/amd64` → pushes them
+to `ghcr.io/philphilphil/<name>` (`latest` on `main`, plus `sha-<short>` and semver tags) → the server
+`docker compose pull && docker compose up -d` to roll forward.
+
+**One-time setup (done outside this repo):**
+
+- **GHCR access** — either make the three GHCR packages **public** (anonymous pulls, nothing to
+  configure on the server), or give the server / Komodo's registry provider a `read:packages` login
+  (`docker login ghcr.io` with a PAT) so it can pull private images.
+- **Komodo** — point a Komodo **Stack** at this `docker-compose.yml`, manage the `.env` values as the
+  Stack's environment/secrets, and trigger a redeploy (which runs `docker compose pull && up -d`) via
+  a webhook or the Komodo API. Komodo no longer builds — it just pulls the CI-built images. `restart:
+  unless-stopped` keeps the services up across reboots; bump `CODEX_VERSION` (or
+  `OBSIDIAN_HEADLESS_VERSION` in `obsidian-sync/Dockerfile`) and let CI rebuild to upgrade the CLIs.
 
 ### Notes
 

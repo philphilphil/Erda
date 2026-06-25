@@ -1,4 +1,6 @@
-# Erda stack for the homeserver (amd64) deployment — self-contained, built and deployed by Komodo.
+# Erda stack for the homeserver (amd64) deployment — self-contained. Images are built and pushed to
+# GHCR by CI (.github/workflows/build.yml); the server pulls them (Komodo or `make deploy`). The
+# `build:` blocks below are kept only so local dev can still `docker compose up -d --build`.
 #
 # Three services: erda, the whatsapp-bridge, and obsidian-sync (keeps the vault synced from inside
 # the stack, so nothing relies on host-side sync). Erda publishes its control panel on the home LAN
@@ -13,7 +15,8 @@
 #
 #   First run (link WhatsApp):       docker compose run --rm whatsapp-bridge   # scan the QR
 #   First run (link Obsidian Sync):  docker compose run --rm obsidian-sync setup   # login + pick vault
-#   Normal:                          docker compose up -d --build
+#   Normal (server):                 docker compose pull && docker compose up -d   # prebuilt images from GHCR
+#   Local dev (build locally):       docker compose up -d --build                  # `build:` blocks below
 
 name: erda
 
@@ -21,7 +24,7 @@ services:
   whatsapp-bridge:
     build:
       context: ./whatsapp-bridge
-    image: erda/whatsapp-bridge:local
+    image: ghcr.io/philphilphil/whatsapp-bridge:latest   # prebuilt by CI; `build:` kept for local dev
     restart: unless-stopped
     environment:
       BRIDGE_LISTEN: 0.0.0.0:8088                                   # all-interfaces INSIDE the container; still unpublished
@@ -44,7 +47,7 @@ services:
   obsidian-sync:
     build:
       context: ./obsidian-sync
-    image: erda/obsidian-sync:local
+    image: ghcr.io/philphilphil/obsidian-sync:latest   # prebuilt by CI; `build:` kept for local dev
     restart: unless-stopped
     user: "1000:1000"
     depends_on:
@@ -76,7 +79,7 @@ services:
   erda:
     build:
       context: .
-    image: erda/erda:local
+    image: ghcr.io/philphilphil/erda:latest   # prebuilt by CI; `build:` kept for local dev
     restart: unless-stopped
     # Run as the host owner (phil = 1000:1000) so the codex CLI subprocess writes files into the
     # bind-mounted /codex (= host ~/.codex) as phil, not root. Otherwise root-owned files pile up

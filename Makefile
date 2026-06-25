@@ -3,7 +3,7 @@
 #   make dev      backend + control-panel SPA (no bridge) — the common loop for panel/agent work
 #   make dev-all  everything: backend + SPA + WhatsApp bridge; one Ctrl-C kills all
 #   make web      run the control-panel SPA dev server on its own
-#   make deploy   pull latest and (re)build + restart the Docker stack (on the server)
+#   make deploy   pull prebuilt GHCR images and restart the Docker stack (on the server)
 #
 # `concurrently -k` owns the child processes as a single tree and forwards SIGINT/SIGTERM, so one
 # Ctrl-C tears them all down without orphans on ports 5167/5173/8088. These targets need node/npx
@@ -24,7 +24,7 @@ help:
 	@echo "make dev      - run backend + SPA only, no bridge (Ctrl-C kills both)"
 	@echo "make dev-all  - run everything: backend + SPA + WhatsApp bridge (Ctrl-C kills all)"
 	@echo "make web      - run the control-panel SPA dev server (Vite at :5173, proxies /api to :5167)"
-	@echo "make deploy   - git pull && docker compose up -d --build"
+	@echo "make deploy   - docker compose pull && docker compose up -d (prebuilt GHCR images)"
 
 # Backend + SPA only (no bridge): the common loop when WhatsApp isn't linked. Open the Vite URL
 # (http://localhost:5173) for the panel; the backend serves /api on :5167.
@@ -48,6 +48,8 @@ dev-all:
 web:
 	@cd $(WEB_DIR) && npm install && npm run dev
 
-# Server: pull the latest commit and rebuild/restart the stack. Reads ./.env.
+# Server: pull the prebuilt images and restart the stack (no git pull, no --build). The images are
+# built and pushed to GHCR by CI (.github/workflows/build.yml); the server only needs this compose
+# file + ./.env. Komodo can run this same command instead (it owns the production deploy).
 deploy:
-	git pull && docker compose up -d --build
+	docker compose pull && docker compose up -d
