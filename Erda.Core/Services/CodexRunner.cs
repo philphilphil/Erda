@@ -67,9 +67,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     public Task<string> RunPromptAsync(
         string prompt, bool enableWebSearch = false, CancellationToken cancellationToken = default,
         string? logLabel = null, string? reasoningEffort = null)
-        // Oracle: shell network egress on, so model-run curl/fetch can reach URLs (its only "input"
-        // is the pasted context, so the exfiltration surface is small).
-        => RunCoreAsync(prompt, workingRoot: null, shellNetworkAccess: true, enableWebSearch, cancellationToken, logLabel, reasoningEffort);
+        => RunCoreAsync(prompt, workingRoot: null, enableWebSearch, cancellationToken, logLabel, reasoningEffort);
 
     /// <summary>
     /// Runs <c>codex exec</c> with the Obsidian vault (<see cref="ErdaOptions.VaultPath"/>) as the
@@ -77,14 +75,15 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// instead of having note contents passed in. Web search defaults on (review tasks may need
     /// fact-checking). The <c>-o</c> output file still lives in a throwaway scratch dir, and ONLY
     /// that scratch dir is cleaned up — the vault is never deleted (see <see cref="RunCoreAsync"/>).
-    /// Shell network egress is DISABLED here: a vault task reads the whole vault, so leaving curl/POST
-    /// enabled would let an injected note exfiltrate vault contents. Web search (the Responses tool)
-    /// still works for fact-checking — it does not route through the sandboxed shell.
+    /// NOTE: like the oracle, this runs with shell network egress ON. Blocking it (network_access=false)
+    /// would require codex to build a network namespace via bubblewrap, which is not installed in the
+    /// deployment container, so codex aborts with "bubblewrap is unavailable". The exfiltration risk of
+    /// leaving egress on was reviewed as low for this single-owner, owner-whitelisted LAN tool.
     /// </summary>
     public Task<string> RunVaultTaskAsync(
         string prompt, bool enableWebSearch = true, CancellationToken cancellationToken = default,
         string? logLabel = null, string? reasoningEffort = null)
-        => RunCoreAsync(prompt, workingRoot: options.Value.VaultPath, shellNetworkAccess: false, enableWebSearch, cancellationToken, logLabel, reasoningEffort);
+        => RunCoreAsync(prompt, workingRoot: options.Value.VaultPath, enableWebSearch, cancellationToken, logLabel, reasoningEffort);
 
     /// <summary>
     /// Shared implementation behind <see cref="RunPromptAsync"/> (oracle) and
@@ -95,7 +94,7 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
     /// impossible for the cleanup to delete the vault.
     /// </summary>
     private async Task<string> RunCoreAsync(
-        string prompt, string? workingRoot, bool shellNetworkAccess, bool enableWebSearch,
+        string prompt, string? workingRoot, bool enableWebSearch,
         CancellationToken cancellationToken, string? logLabel, string? reasoningEffort)
     {
         var opts = options.Value;
@@ -133,11 +132,12 @@ public sealed class CodexRunner(IOptions<ErdaOptions> options, ILogger<CodexRunn
             psi.ArgumentList.Add($"model_reasoning_effort=\"{effort}\"");
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add("preferred_auth_method=\"chatgpt\"");
-            // Gate model-run shell network egress (workspace-write blocks it by default). The oracle
-            // re-enables it so prompts can curl/fetch URLs; a vault task keeps it OFF so an injected
-            // note cannot exfiltrate vault contents over the network. Erda runs on a trusted LAN host.
+            // Allow model-run shell network egress (workspace-write blocks it by default). Required so
+            // prompts can curl/fetch URLs. NOTE: we do NOT set this to false to block egress — that
+            // makes codex build a network namespace via bubblewrap, which isn't installed in the
+            // container ("bubblewrap is unavailable"), breaking the run. Erda runs on a trusted LAN host.
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add($"sandbox_workspace_write.network_access={(shellNetworkAccess ? "true" : "false")}");
+            psi.ArgumentList.Add("sandbox_workspace_write.network_access=true");
             if (enableWebSearch)
             {
                 // Enable Codex's native Responses web_search tool.

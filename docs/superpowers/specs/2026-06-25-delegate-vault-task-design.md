@@ -60,12 +60,16 @@ Sandbox stays `workspace-write`. Pass `--add-dir <scratchDir>` so writing the ou
 file is always permitted even when cwd is the vault. Keep `--skip-git-repo-check` (the
 vault may or may not be a git repo).
 
-**Shell network egress is gated per path.** The oracle keeps `network_access=true` (its
-prompts may `curl`/fetch URLs, and it only ever sees pasted context). A vault task sets
-`network_access=false`: it reads the whole vault, so leaving shell egress on would let a
-prompt-injection payload in a note exfiltrate vault contents. Web search still works for
-fact-checking — it routes through the Responses `web_search` tool, not the sandboxed
-shell. This is the one defense-in-depth fix surfaced by the adversarial review.
+**Shell network egress stays ON (`network_access=true`) for both paths.** The adversarial
+review suggested gating it off for vault tasks (to stop an injected note exfiltrating vault
+contents), and that was tried — but it broke in the deployment container: codex enforces
+`network_access=false` by building a **network namespace via bubblewrap**, and `bwrap` is not
+installed in the image (`"bubblewrap is unavailable: no system bwrap was found on PATH"`).
+codex's filesystem confinement uses Landlock (no bwrap), so the oracle and the vault's
+read/write confinement still work; only the *network-blocking* step needs bwrap. The review
+rated the exfiltration risk **low** for this single-owner, owner-whitelisted LAN tool, so
+egress is left on. (To re-enable the hardening later: install `bubblewrap` in the runtime
+image and confirm the container permits unprivileged user namespaces.)
 
 **Critical invariant:** the path passed to `Directory.Delete(...)` in the `finally`
 is always the temp scratch dir, never the working root. The refactor must make it
@@ -151,8 +155,8 @@ obsidian-sync propagates the edits; Obsidian Sync keeps version history.
 
 - Codex now mutates the **live** vault. Recoverability rests on Obsidian Sync's
   version history (and any git history the vault has). Acceptable per decision.
-- **Shell network egress is off for vault tasks** (see above) — closes the
-  exfiltration channel an injected note would otherwise have. Web search unaffected.
+- **Shell network egress stays on** (see above) — gating it off needs bubblewrap,
+  which the container lacks. Exfiltration risk accepted as low for this LAN tool.
 - `CodexTimeout` already bounds each run; a stuck codex is killed (process tree).
 - Concurrency: two simultaneous vault tasks could race on one file — no worse than
   two concurrent `write_note` calls. Not gating.
@@ -169,7 +173,7 @@ file, so a test can assert exactly how codex was invoked **and** exercise the re
 output roundtrip. Two tests pin the invariants that matter:
 
 1. **Vault task** — `--cd` == `VaultPath`; `--add-dir` == the scratch dir (which lives
-   outside the vault); `network_access=false`; the vault and its notes survive; and the
+   outside the vault); `network_access=true`; the vault and its notes survive; and the
    scratch dir **is** deleted afterward.
 2. **Oracle path** — no `--add-dir`; `--cd` is a fresh `erda-codex-*` temp dir, never
    the vault; `network_access=true` (unchanged); scratch dir is deleted.

@@ -114,7 +114,7 @@ public class CodexRunnerTests
 
         Assert.Equal(vault, ArgAfter(args, "--cd"));        // codex's working root IS the vault
         Assert.Equal(scratchDir, ArgAfter(args, "--add-dir")); // the scratch dir (holding -o) is writable, and lives outside the vault
-        Assert.Contains("sandbox_workspace_write.network_access=false", args); // no shell egress for a vault task
+        Assert.Contains("sandbox_workspace_write.network_access=true", args); // egress stays on (blocking it needs bubblewrap, which the container lacks)
         Assert.True(Directory.Exists(vault));               // the vault was NOT deleted by the scratch-dir cleanup
         Assert.True(File.Exists(note));                     // notes survive
         Assert.False(Directory.Exists(scratchDir));         // the scratch dir IS removed (the other half of the cleanup contract)
