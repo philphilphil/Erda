@@ -80,7 +80,7 @@ public static class BrowserAgent
 #pragma warning disable OPENAI001 // Responses surface is [Experimental]
         OpenAI.Responses.ResponsesClient chat = new OpenAI.Responses.ResponsesClient(
             credential: new ApiKeyCredential(string.IsNullOrWhiteSpace(erda.ChatApiKey) ? "local" : erda.ChatApiKey),
-            options: new OpenAIClientOptions { Endpoint = new Uri(erda.ChatBaseUrl) });
+            options: new OpenAI.Responses.ResponsesClientOptions { Endpoint = new Uri(erda.ChatBaseUrl) });
 #pragma warning restore OPENAI001
 
         var tools = new List<AITool>(mcp.Tools) { FindLogin.CreateTool(opCli, browser.OnePasswordVault) };

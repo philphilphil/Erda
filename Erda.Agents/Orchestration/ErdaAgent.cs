@@ -39,7 +39,7 @@ public static class ErdaAgent
 #pragma warning disable OPENAI001 // Responses surface is [Experimental]
         OpenAI.Responses.ResponsesClient responses = new OpenAI.Responses.ResponsesClient(
             credential: new ApiKeyCredential(string.IsNullOrWhiteSpace(options.ChatApiKey) ? "local" : options.ChatApiKey),
-            options: new OpenAIClientOptions { Endpoint = new Uri(options.ChatBaseUrl) });
+            options: new ResponsesClientOptions { Endpoint = new Uri(options.ChatBaseUrl) });
 #pragma warning restore OPENAI001
 
         var tools = new List<AITool>();

@@ -16,16 +16,20 @@
 
   <ItemGroup>
     <PackageReference Include="Cronos" Version="0.13.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.6.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.8" />
-    <PackageReference Include="OpenAI" Version="2.10.0" />
+    <!-- Pin the native SQLite binary forward of EF Core's transitive 2.1.11 (GHSA-2m69-gcr7-jv3q,
+         high). Only the native lib package moves (its versions track the SQLite release, 3.50.3); the
+         managed core/provider stay on EF Core's train and P/Invoke the stable sqlite3 C ABI. -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.9" />
+    <PackageReference Include="OpenAI" Version="2.11.0" />
     <PackageReference Include="Seq.Api" Version="2025.2.2" />
   </ItemGroup>
 

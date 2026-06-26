@@ -44,7 +44,7 @@ public sealed class ResponsesReasoner : IReasoner
 #pragma warning disable OPENAI001 // Responses surface is [Experimental].
         _responses = new ResponsesClient(
             new ApiKeyCredential(key),
-            new OpenAIClientOptions { Endpoint = new Uri(_options.ChatBaseUrl) });
+            new ResponsesClientOptions { Endpoint = new Uri(_options.ChatBaseUrl) });
 #pragma warning restore OPENAI001
     }
 

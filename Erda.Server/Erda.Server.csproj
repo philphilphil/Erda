@@ -9,14 +9,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- MAF agent hosting (preview on the 1.8.0 train) -->
-    <PackageReference Include="Microsoft.Agents.AI" Version="1.8.0" />
-    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.8.0-preview.260528.1" />
+    <!-- MAF agent hosting (preview on the 1.11.1 train) -->
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.11.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.11.1-preview.260625.1" />
 
     <!-- Logging + tracing pipeline -->
-    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.15.3" />
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.Seq" Version="9.1.0" />
