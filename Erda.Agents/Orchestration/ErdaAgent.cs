@@ -30,6 +30,7 @@ public static class ErdaAgent
         var options = services.GetRequiredService<IOptions<ErdaOptions>>().Value;
         var observability = services.GetRequiredService<IOptions<ObservabilityOptions>>().Value;
         var recorder = services.GetRequiredService<IActivityRecorder>();
+        var toolLog = services.GetRequiredService<ILoggerFactory>().CreateLogger("Erda.ToolCalls");
 
         // Base URL + model are validated at startup, so they are guaranteed present here. Erda runs on
         // the Responses API against a local OpenAI-compatible endpoint (Erda__ChatBaseUrl / Erda__ChatModel)
@@ -47,6 +48,7 @@ public static class ErdaAgent
         tools.Add(VoiceMemoWorkflow.CreateTool(services));
         tools.AddRange(services.GetRequiredService<NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
+        tools.Add(services.GetRequiredService<VaultEditorTool>().AsTool());
         tools.Add(new HostedWebSearchTool());
 
         var browseTool = BrowserAgent.TryCreateTool(services);
@@ -93,7 +95,7 @@ public static class ErdaAgent
                 sourceName: ObservabilityOptions.ActivitySourceName,
                 configure: telemetry => telemetry.EnableSensitiveData = observability.CaptureMessageContent)
             // Record each tool invocation to the activity feed (all channels), name only.
-            .Use(ToolCallActivity.Middleware(recorder))
+            .Use(ToolCallActivity.Middleware(recorder, toolLog))
             .Build();
     }
 }

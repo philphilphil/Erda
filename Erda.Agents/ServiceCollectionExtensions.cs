@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ObsidianTools>();
         services.AddSingleton<NotifyTools>();
         services.AddSingleton<ReminderTools>();
+        services.AddSingleton<VaultEditorTool>();
 
         // Browser MCP: Playwright stdio child process, connected once at startup.
         services.AddSingleton<IBrowserMcp, PlaywrightMcp>();

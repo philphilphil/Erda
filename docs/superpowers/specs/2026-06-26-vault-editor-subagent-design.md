@@ -114,9 +114,15 @@ edit_vault_note(string path, string instruction, string? recentContext = null) â
 ## Security
 
 Strictly safer than the old codex subprocess: **no shell at all**, only typed vault tools confined to
-the root by `ResolveInside`. The only egress is `HostedWebSearchTool`; an injected note cannot
-exfiltrate file contents because there is no `curl`/shell to do it with. The vault is Phil's own
-trusted content regardless.
+the root by `ResolveInside`. The remaining egress is `HostedWebSearchTool` â€” and it **is** a live
+exfiltration channel: the sub-agent runs an autonomous `read_note` + `web_search` loop, so a
+prompt-injection payload embedded in note content (or in an `AGENTS.md`, which `StackConventions`
+loads verbatim into the sub-agent's system instructions) could in principle instruct the model to
+read another note and emit its contents inside a `web_search` **query string**. No `curl`/shell is
+needed; the query text itself is the egress vector. The actual mitigation is the trust model: this is
+a single-user agent over **Phil's own vault**, so all note/`AGENTS.md` content is trusted input. If
+stronger isolation is ever wanted, gate/omit `HostedWebSearchTool` in the sub-agent or scrub/limit
+its query content.
 
 ## Testing
 

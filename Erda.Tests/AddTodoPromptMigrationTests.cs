@@ -105,7 +105,7 @@ public class AddTodoPromptMigrationTests
         var options = NewOptions();
 
         using (var db = new ErdaDbContext(options))
-            db.Database.Migrate(); // full migrate incl. the seed, with no prompt rows present
+            db.GetService<IMigrator>().Migrate(Seed); // up to the add_todo seed, with no prompt rows present
 
         using (var db = new ErdaDbContext(options))
             Assert.Empty(db.PromptVersions.Where(p => p.Kind == PromptKind.System));

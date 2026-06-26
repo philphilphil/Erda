@@ -21,10 +21,15 @@ public static class ToolCallActivity
     /// never throws) before letting it proceed.
     /// </summary>
     public static Func<AIAgent, FunctionInvocationContext, Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>>, CancellationToken, ValueTask<object?>>
-        Middleware(IActivityRecorder recorder) =>
+        Middleware(IActivityRecorder recorder, ILogger logger) =>
         (agent, context, next, cancellationToken) =>
         {
-            recorder.Record("tool_call", context?.Function?.Name ?? "(tool)");
+            var name = context?.Function?.Name ?? "(tool)";
+            recorder.Record("tool_call", name);
+            // Also surface every tool call on the console logger so it's visible in `make dev`. The
+            // activity feed (panel SSE) and OTel spans (Seq) otherwise carry this but neither shows in
+            // the dev CLI. Tool NAME only — never argument values (which can hold note/vault content).
+            logger.LogInformation("tool_call → {Tool}", name);
             return next(context!, cancellationToken);
         };
 }

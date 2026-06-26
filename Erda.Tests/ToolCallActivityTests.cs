@@ -1,5 +1,6 @@
 using Erda.Agents;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Erda.Tests;
@@ -14,7 +15,7 @@ public class ToolCallActivityTests
     public async Task Records_the_function_name_and_chains_next()
     {
         var recorder = new FakeActivityRecorder();
-        var middleware = ToolCallActivity.Middleware(recorder);
+        var middleware = ToolCallActivity.Middleware(recorder, NullLogger.Instance);
 
         var fn = AIFunctionFactory.Create(() => "ok", "echo");
         var context = new FunctionInvocationContext { Function = fn };
@@ -42,7 +43,7 @@ public class ToolCallActivityTests
     public async Task Records_a_placeholder_when_the_function_is_unknown()
     {
         var recorder = new FakeActivityRecorder();
-        var middleware = ToolCallActivity.Middleware(recorder);
+        var middleware = ToolCallActivity.Middleware(recorder, NullLogger.Instance);
 
         var context = new FunctionInvocationContext();  // no Function set
 

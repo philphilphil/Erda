@@ -6,8 +6,9 @@ using Microsoft.Extensions.AI;
 namespace Erda.Agents.Tools;
 
 /// <summary>
-/// The five Obsidian vault function tools exposed to the Erda agent.
-/// Each method returns a plain string so the model gets readable results.
+/// The read-side Obsidian vault function tools (plus the conventionless todo append) exposed to the
+/// Erda agent. Each method returns a plain string so the model gets readable results. Convention-aware
+/// writes live in the vault-editor sub-agent (<c>edit_vault_note</c>), not here.
 /// </summary>
 public sealed class ObsidianTools(VaultService vault)
 {
@@ -20,8 +21,6 @@ public sealed class ObsidianTools(VaultService vault)
         AIFunctionFactory.Create(ListNotes, "list_notes"),
         AIFunctionFactory.Create(ReadNote, "read_note"),
         AIFunctionFactory.Create(SearchNotes, "search_notes"),
-        AIFunctionFactory.Create(WriteNote, "write_note"),
-        AIFunctionFactory.Create(AppendNote, "append_note"),
         AIFunctionFactory.Create(AddTodo, "add_todo"),
     ];
 
@@ -50,24 +49,6 @@ public sealed class ObsidianTools(VaultService vault)
         foreach (var (path, snippet) in hits)
             sb.AppendLine($"{path}: …{snippet}…");
         return sb.ToString().TrimEnd();
-    }
-
-    [Description("Create a new note or overwrite an existing one with the given content.")]
-    private string WriteNote(
-        [Description("Vault-relative path, e.g. 'Inbox/New Idea.md'.")] string path,
-        [Description("Full Markdown content to write.")] string content)
-    {
-        vault.WriteNote(path, content);
-        return $"Wrote {path} ({content.Length} chars).";
-    }
-
-    [Description("Append content to the end of a note, creating it if it does not exist.")]
-    private string AppendNote(
-        [Description("Vault-relative path, e.g. 'Daily/2026-05-30.md'.")] string path,
-        [Description("Markdown content to append.")] string content)
-    {
-        vault.AppendNote(path, content);
-        return $"Appended {content.Length} chars to {path}.";
     }
 
     [Description(

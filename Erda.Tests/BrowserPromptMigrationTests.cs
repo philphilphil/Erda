@@ -19,6 +19,10 @@ public class BrowserPromptMigrationTests
     /// <summary>The migration immediately before the one under test.</summary>
     private const string BeforeSeed = "20260610040519_DropConfigOverrides";
 
+    /// <summary>The migration under test. Pinned (not a full <c>Migrate()</c>) so later seed
+    /// migrations — which rewrite/replace the system prompt — don't run here and skew the assertions.</summary>
+    private const string Seed = "20260610120000_SeedBrowserPromptGuidance";
+
     private static DbContextOptions<ErdaDbContext> NewOptions()
     {
         var path = Path.Combine(Path.GetTempPath(), "erda-mig-" + Guid.NewGuid().ToString("N") + ".db");
@@ -48,9 +52,9 @@ public class BrowserPromptMigrationTests
             db.SaveChanges();
         }
 
-        // Apply the seed migration (the only one after BeforeSeed).
+        // Apply the seed migration (pinned, so later prompt-rewriting seeds don't run).
         using (var db = new ErdaDbContext(options))
-            db.GetService<IMigrator>().Migrate();
+            db.GetService<IMigrator>().Migrate(Seed);
 
         using (var db = new ErdaDbContext(options))
         {
@@ -85,7 +89,7 @@ public class BrowserPromptMigrationTests
         }
 
         using (var db = new ErdaDbContext(options))
-            db.GetService<IMigrator>().Migrate();
+            db.GetService<IMigrator>().Migrate(Seed);
 
         using (var db = new ErdaDbContext(options))
         {
@@ -102,7 +106,7 @@ public class BrowserPromptMigrationTests
         var options = NewOptions();
 
         using (var db = new ErdaDbContext(options))
-            db.Database.Migrate(); // full migrate incl. the seed, with no prompt rows present
+            db.GetService<IMigrator>().Migrate(Seed); // up to the browser seed, with no prompt rows present
 
         using (var db = new ErdaDbContext(options))
             Assert.Empty(db.PromptVersions.Where(p => p.Kind == PromptKind.System));
