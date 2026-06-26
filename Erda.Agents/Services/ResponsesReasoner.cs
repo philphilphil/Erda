@@ -99,18 +99,17 @@ public sealed class ResponsesReasoner : IReasoner
         return result;
     }
 
-    /// <summary>The reasoning-effort levels the model accepts.</summary>
-    private static readonly HashSet<string> ValidEfforts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "minimal", "low", "medium", "high",
-    };
-
-    /// <summary>Normalize a requested reasoning effort to a known level, or fall back to the default.</summary>
+    /// <summary>
+    /// Normalize a per-call reasoning-effort override to a known level, falling back to the configured
+    /// default. The fallback is the startup-validated <see cref="ErdaOptions.ChatReasoningEffort"/>, so
+    /// it is already a known level; the result is always trimmed and lower-cased for the wire.
+    /// </summary>
     public static string NormalizeReasoningEffort(string? requested, string fallback)
     {
         var trimmed = requested?.Trim();
-        return !string.IsNullOrEmpty(trimmed) && ValidEfforts.Contains(trimmed)
-            ? trimmed.ToLowerInvariant()
+        var chosen = !string.IsNullOrEmpty(trimmed) && ErdaOptions.ValidReasoningEfforts.Contains(trimmed)
+            ? trimmed
             : fallback;
+        return chosen.Trim().ToLowerInvariant();
     }
 }

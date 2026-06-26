@@ -10,7 +10,7 @@
 # Configuration is env-only. `.env` (next to this file; git-ignored) holds every setting using the
 # app's own keys (Erda__…, WhatsApp__…, Seq__…, plus the flat OPENAI_API_KEY). The
 # erda container loads it verbatim via `env_file`, so there is NO per-variable mapping here. Compose
-# also auto-reads `.env` for the ${…} substitutions below (CODEX_DIR, bridge secret). Copy
+# also auto-reads `.env` for the ${…} substitutions below (the bridge secret, OWNER_JID). Copy
 # .env.example to .env and fill it in; in Komodo, set the same keys as the Stack's environment.
 #
 #   First run (link WhatsApp):       docker compose run --rm whatsapp-bridge   # scan the QR
@@ -80,10 +80,10 @@ services:
       context: .
     image: ghcr.io/philphilphil/erda:latest   # prebuilt by CI; `build:` kept for local dev
     restart: unless-stopped
-    # Run as the host owner (phil = 1000:1000) so the codex CLI subprocess writes files into the
-    # bind-mounted /codex (= host ~/.codex) as phil, not root. Otherwise root-owned files pile up
-    # in ~/.codex and break the interactive `codex` on the host. The named volumes Docker creates
-    # root-owned are chowned to 1000:1000 by the init-perms one-shot above, which erda waits for.
+    # Run as the host owner (phil = 1000:1000) so files written into the shared named volumes (the
+    # SQLite DB, /media, the browser profile, the vault) are owned by phil, not root. The named volumes
+    # Docker creates root-owned are chowned to 1000:1000 by the init-perms one-shot above, which erda
+    # waits for.
     user: "1000:1000"
     depends_on:
       whatsapp-bridge:
@@ -101,9 +101,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production                           # control panel (SPA + /api) served at the root
       ASPNETCORE_URLS: http://0.0.0.0:5167
-      CODEX_HOME: /codex                                           # codex reads its logged-in session from here
     volumes:
-      - ${CODEX_DIR:?set CODEX_DIR (absolute) in .env}:/codex       # logged-in ChatGPT-subscription session, RW (host bind-mount)
       - vault:/vault                                               # Obsidian vault, kept synced by the obsidian-sync sidecar
       - erda-data:/data/erda                                        # SQLite DB (reminders, prompt versions, activity) — survives redeploys
       - media:/media                                                # SHARED with the bridge (same path)
@@ -116,8 +114,7 @@ networks:
 
 # All persistent state lives in Docker-managed named volumes (on the host at
 # /var/lib/docker/volumes/erda_<name>/_data — back these up directly). Created root-owned by Docker
-# and chowned to 1000:1000 by the init-perms one-shot on first `up`. Codex auth is the one exception:
-# it stays a host bind-mount of ~/.codex (CODEX_DIR), not a volume.
+# and chowned to 1000:1000 by the init-perms one-shot on first `up`.
 volumes:
   bridge-data:           # whatsmeow (WhatsApp) session
   erda-data:             # SQLite DB (reminders, prompt versions, activity)

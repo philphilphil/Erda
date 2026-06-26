@@ -13,7 +13,7 @@ public interface IReasoner
     /// Runs the model on an already-built prompt and returns its final message. <paramref name="webSearch"/>
     /// attaches the hosted <c>web_search</c> tool so the model can ground its answer in current sources.
     /// <paramref name="reasoningEffort"/> is normalized against <see cref="Configuration.ErdaOptions.ChatReasoningEffort"/>
-    /// (null/invalid ⇒ the configured default; valid levels are minimal/low/medium/high).
+    /// (null/invalid ⇒ the configured default; valid levels are low/medium/high).
     /// </summary>
     Task<string> ReasonAsync(
         string prompt, bool webSearch = false, CancellationToken ct = default,

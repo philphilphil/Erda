@@ -150,7 +150,7 @@ These are read at runtime (not committed anywhere). Keep them in `.env` (see
 ```bash
 export Erda__ChatBaseUrl="http://127.0.0.1:10531/v1"
 export Erda__ChatModel="gpt-5.5"
-export Erda__ChatReasoningEffort="medium"      # minimal | low | medium | high
+export Erda__ChatReasoningEffort="high"        # low | medium | high (drives both chat + reasoner)
 # export Erda__ChatApiKey="local"              # optional dummy; the loopback proxy needs no real key
 export OPENAI_API_KEY="sk-...your-openai-platform-key..."   # transcription only
 ```

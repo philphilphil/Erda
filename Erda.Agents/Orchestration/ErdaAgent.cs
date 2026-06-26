@@ -59,9 +59,11 @@ public static class ErdaAgent
 
         // The agent's name MUST equal the registration key (see Program.cs AddAIAgent). We build via
         // ChatClientAgentOptions (not the simple overload) so we can set the default reasoning effort
-        // (Erda__ChatReasoningEffort) for every run — WhatsApp and web chat. Effort has no first-class
-        // MEAI ChatOptions field, so it rides on the raw Responses request via RawRepresentationFactory.
-        var effort = ResponsesReasoner.NormalizeReasoningEffort(options.ChatReasoningEffort, "medium");
+        // (Erda__ChatReasoningEffort) for every run — WhatsApp and web chat. The value is [Required] and
+        // validated against ValidReasoningEfforts at startup, so there is no in-code default here; we
+        // only normalize for the wire. Effort has no first-class MEAI ChatOptions field, so it rides on
+        // the raw Responses request via RawRepresentationFactory.
+        var effort = ResponsesReasoner.NormalizeReasoningEffort(null, options.ChatReasoningEffort);
 #pragma warning disable OPENAI001 // ResponsesClient.AsAIAgent + Responses surface are [Experimental]
         var agent = responses.AsAIAgent(new ChatClientAgentOptions
         {

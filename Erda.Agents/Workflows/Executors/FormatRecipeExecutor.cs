@@ -4,7 +4,7 @@ using Microsoft.Agents.AI.Workflows;
 namespace Erda.Agents.Workflows.Executors;
 
 /// <summary>Recipe importer, step 3 (terminal): readable page text → a clean Markdown recipe, via the reasoner.</summary>
-internal sealed class FormatRecipeExecutor(IReasoner reasoner) : Executor<string, string>("format")
+internal sealed class FormatRecipeExecutor(IReasoner reasoner, ILogger<FormatRecipeExecutor> logger) : Executor<string, string>("format")
 {
     private const string Instruction = """
         You are given text scraped from a recipe web page (it may include embedded JSON-LD recipe data).
@@ -30,6 +30,18 @@ internal sealed class FormatRecipeExecutor(IReasoner reasoner) : Executor<string
 
     public override async ValueTask<string> HandleAsync(
         string pageText, IWorkflowContext context, CancellationToken cancellationToken = default)
-        => await reasoner.ReasonAsync(
-            $"{Instruction}\n\n---\n{pageText}", webSearch: false, cancellationToken, logLabel: "recipe import");
+    {
+        try
+        {
+            return await reasoner.ReasonAsync(
+                $"{Instruction}\n\n---\n{pageText}", webSearch: false, cancellationToken, logLabel: "recipe import");
+        }
+        catch (Exception ex)
+        {
+            // Degrade to a short message rather than throwing out of the workflow (e.g. when the endpoint
+            // returns empty output), so the control panel shows a clear failure instead of an error page.
+            logger.LogWarning(ex, "Recipe formatting failed.");
+            return $"Recipe import failed: {ex.Message}";
+        }
+    }
 }

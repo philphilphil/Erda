@@ -32,7 +32,8 @@ public static class VoiceMemoWorkflow
         var transcribe = new TranscribeExecutor(services.GetRequiredService<Transcriber>());
         var codex = new CodexExecutor(
             services.GetRequiredService<IReasoner>(),
-            services.GetRequiredService<IPromptStore>());
+            services.GetRequiredService<IPromptStore>(),
+            services.GetRequiredService<ILogger<CodexExecutor>>());
         var write = new ObsidianWriteExecutor(
             services.GetRequiredService<VaultService>(),
             services.GetRequiredService<IOptions<ErdaOptions>>().Value);

@@ -37,7 +37,18 @@ public sealed class ErdaOptions
     [Required(AllowEmptyStrings = false)]
     public string ChatModel { get; set; } = "";
 
-    /// <summary>Default reasoning effort for the chat/reasoning model (minimal/low/medium/high).</summary>
+    /// <summary>
+    /// The reasoning-effort levels accepted for <see cref="ChatReasoningEffort"/>. The single source of
+    /// truth: startup validation checks the configured value against this set, and the reasoner
+    /// normalizes against it. <c>minimal</c> is intentionally excluded — Erda always attaches the hosted
+    /// <c>web_search</c> tool, and the Responses API rejects minimal effort combined with hosted tools.
+    /// </summary>
+    public static readonly IReadOnlySet<string> ValidReasoningEfforts =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "low", "medium", "high" };
+
+    /// <summary>Reasoning effort for the chat/reasoning model (low/medium/high). Required, no default —
+    /// it must be set in <c>.env</c> and is validated against <see cref="ValidReasoningEfforts"/> at
+    /// startup. The same value drives both the orchestrator and the in-process reasoner.</summary>
     [Required(AllowEmptyStrings = false)]
     public string ChatReasoningEffort { get; set; } = "";
 

@@ -19,7 +19,9 @@ public static class RecipeWorkflow
     {
         var fetch = new FetchPageExecutor(services.GetRequiredService<IUrlFetcher>());
         var extract = new ExtractRecipeTextExecutor();
-        var format = new FormatRecipeExecutor(services.GetRequiredService<IReasoner>());
+        var format = new FormatRecipeExecutor(
+            services.GetRequiredService<IReasoner>(),
+            services.GetRequiredService<ILogger<FormatRecipeExecutor>>());
 
         return new WorkflowBuilder(fetch)
             .AddEdge(fetch, extract)

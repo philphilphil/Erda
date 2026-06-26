@@ -68,7 +68,9 @@ public class WorkflowCatalogTests
                    "</head><body><h1>Tomato Soup</h1><p>Cozy and quick.</p></body></html>",
         };
         var reasoner = new FakeReasoner { Result = "# Tomato Soup\n## Ingredients\n- tomatoes\n## Preparation\n1. Simmer." };
-        var sp = new ServiceCollection()
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var sp = services
             .AddSingleton<IUrlFetcher>(fetcher)
             .AddSingleton<IReasoner>(reasoner)
             .BuildServiceProvider();

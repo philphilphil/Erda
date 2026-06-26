@@ -1,14 +1,14 @@
 # Erda (.NET 10) image for the homeserver (amd64) deployment.
-# Arch defaults below target amd64; for an ARM64 host (e.g. the old Jetson) override the *_TARGET /
-# *_ARCH build ARGs (aarch64-unknown-linux-musl / arm64).
+# Arch defaults below target amd64; for an ARM64 host (e.g. the old Jetson) override the OP_ARCH build
+# ARG (arm64).
 #
 # Three stages:
 #   build   – restore + publish the Erda web app
-#   codex   – fetch the `codex` CLI binary for the target arch
-#   runtime – ASP.NET runtime + the published app + the codex binary
+#   web     – build the Vue control-panel SPA
+#   runtime – ASP.NET runtime + the published app + the SPA
 #
-# Nothing here uses the GPU; every model call is cloud. `CODEX_HOME=/codex` points the
-# codex CLI at the mounted, logged-in ChatGPT-subscription session (see docker-compose.yml).
+# Nothing here uses the GPU; every model call is cloud (the OpenAI-compatible chat endpoint reached
+# over HTTP, plus OpenAI transcription).
 
 # ---- build ------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
@@ -27,21 +27,6 @@ COPY . .
 # UseAppHost=false: we launch via `dotnet Erda.Server.dll`, so no native apphost is needed.
 RUN dotnet publish Erda.Server/Erda.Server.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-# ---- codex ------------------------------------------------------------------
-# Fetch the prebuilt codex CLI. Bump CODEX_VERSION to upgrade. The musl build is a static
-# binary and runs fine on the Debian-based runtime image. Default target is x86_64 (homeserver);
-# override CODEX_TARGET=aarch64-unknown-linux-musl for an ARM64 host.
-FROM alpine:3.21 AS codex
-ARG CODEX_VERSION=0.135.0
-ARG CODEX_TARGET=x86_64-unknown-linux-musl
-RUN apk add --no-cache curl tar \
- && curl -fsSL -o /tmp/codex.tar.gz \
-      "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${CODEX_TARGET}.tar.gz" \
- && tar -xzf /tmp/codex.tar.gz -C /tmp \
- && mv "/tmp/codex-${CODEX_TARGET}" /usr/local/bin/codex \
- && chmod +x /usr/local/bin/codex \
- && /usr/local/bin/codex --version
-
 # ---- web (Vue control-panel SPA) -------------------------------------------
 # Build the Vite SPA. `npm ci` uses the committed package-lock.json for a reproducible install.
 # Its dist/ is copied into the runtime image's wwwroot and served as static files with an
@@ -56,8 +41,6 @@ RUN npm run build
 # ---- runtime ----------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-
-COPY --from=codex /usr/local/bin/codex /usr/local/bin/codex
 
 # ---- browser (Playwright MCP) ----------------------------------------------
 # Node + the pinned Playwright MCP server + a Chromium build, installed to a world-readable path so
@@ -97,9 +80,6 @@ RUN curl -fsSL -o /tmp/op.zip \
 COPY --from=build /app/publish ./
 # The control-panel SPA: served from wwwroot by UseStaticFiles + MapFallbackToFile("index.html").
 COPY --from=web /web/dist ./wwwroot
-
-# Codex reads its logged-in session from here; mounted from the host (RW for token refresh).
-ENV CODEX_HOME=/codex
 
 # The control panel (Vue SPA + JSON API) is served here; docker-compose publishes it to the LAN.
 EXPOSE 5167
