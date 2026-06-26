@@ -221,8 +221,10 @@ public class ReminderSchedulerTests
     private static ReminderState SeededRecurring(string id) =>
         new() { LastFiredUtc = { [id] = new DateTimeOffset(2026, 6, 15, 3, 0, 0, TimeSpan.Zero) } };
 
+    // The turn is [current-time context (User role), the actual prompt (User role)], so take the LAST
+    // user message — the context line is now also User-role (the endpoint rejects system-role input).
     private static string UserText(FakeAgentResponder responder) =>
-        responder.RunOnceCalls[0].First(m => m.Role == ChatRole.User).Text;
+        responder.RunOnceCalls[0].Last(m => m.Role == ChatRole.User).Text;
 
     // ---- pre-run context script ----
 

@@ -37,6 +37,11 @@ builder.Host.UseSerilog((context, configuration) =>
         // EF Core logs every executed SQL statement at Information under this category — far too
         // noisy for the console and Seq. Keep its warnings/errors, drop the per-command spam.
         .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", Serilog.Events.LogEventLevel.Warning)
+        // HttpClientFactory's two logging handlers log every outbound request (start/send/receive) at
+        // Information, and on failure log the full exception twice — so one unreachable bridge POST
+        // dumps two stack traces on top of the caller's own Warning. Keep Warning+; drop the spam. The
+        // app's own senders/fetchers log meaningful failures themselves.
+        .MinimumLevel.Override("System.Net.Http.HttpClient", Serilog.Events.LogEventLevel.Warning)
         .Enrich.FromLogContext()
         .Enrich.WithProperty("app", "Erda") // tag every event so Erda's logs are filterable in Seq
         .WriteTo.Console();

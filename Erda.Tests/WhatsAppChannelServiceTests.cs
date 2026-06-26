@@ -64,7 +64,8 @@ public class WhatsAppChannelServiceTests
         await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi" });
 
         var messages = responder.Calls.Single();
-        Assert.Equal(ChatRole.System, messages[0].Role);
+        // User role, not System: the chat endpoint rejects system-role input items (see CurrentTimeContext).
+        Assert.Equal(ChatRole.User, messages[0].Role);
         Assert.Contains("2026-06-15", messages[0].Text); // FakeClock's date
         Assert.Contains("hi", messages[^1].Text);         // the user's message still present
     }

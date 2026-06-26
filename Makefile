@@ -10,7 +10,7 @@
 # (and `make dev-all` also needs go for the bridge).
 
 # Config is env-only: the dev targets source ./.env (same app-native keys as prod — Erda__…,
-# WhatsApp__…, AZURE_OPENAI_*, …) so `dotnet watch` boots with them. Copy .env.example to .env first.
+# WhatsApp__…, OPENAI_API_KEY, …) so `dotnet watch` boots with them. Copy .env.example to .env first.
 # A missing required value stops the backend at startup with a clear error (by design).
 BRIDGE_DIR := whatsapp-bridge
 WEB_DIR := web
