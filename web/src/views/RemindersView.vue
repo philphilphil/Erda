@@ -7,6 +7,7 @@ import {
   pauseReminder,
   resumeReminder,
   deleteReminder,
+  runReminderNow,
   getSystemSchedules,
   ApiError,
 } from '../api/client'
@@ -158,6 +159,42 @@ async function handleDelete(id: string) {
   await load()
 }
 
+// Run a scheduled prompt now (no schedule impact). The reply arrives on WhatsApp, so we just
+// surface a short confirmation; the row's status/next-fire is intentionally unchanged.
+const RUN_COOLDOWN_MS = 6000
+const runInfo = ref<string | null>(null)
+const runError = ref<string | null>(null)
+// Ids in a post-run cooldown: the 202 returns in ms but the run takes seconds, so without this a
+// double-click would spawn multiple independent agent runs.
+const cooldownIds = ref<Set<string>>(new Set())
+// Monotonic token so a later run's auto-dismiss can't clear an unrelated banner (and vice versa).
+let runInfoToken = 0
+
+function releaseCooldown(id: string) {
+  const next = new Set(cooldownIds.value)
+  next.delete(id)
+  cooldownIds.value = next
+}
+
+async function handleRunNow(r: ReminderDto) {
+  runError.value = null
+  if (cooldownIds.value.has(r.id)) return
+  cooldownIds.value = new Set(cooldownIds.value).add(r.id)
+  try {
+    await runReminderNow(r.id)
+    const token = ++runInfoToken
+    runInfo.value = `Running "${r.id}" now — the reply will arrive on WhatsApp.`
+    window.setTimeout(() => {
+      if (runInfoToken === token) runInfo.value = null
+    }, RUN_COOLDOWN_MS)
+    // Hold the cooldown briefly so rapid clicks can't fan out into parallel runs.
+    window.setTimeout(() => releaseCooldown(r.id), RUN_COOLDOWN_MS)
+  } catch (e) {
+    runError.value = e instanceof ApiError ? e.message : 'Unexpected error.'
+    releaseCooldown(r.id) // failed to start → let the user retry immediately
+  }
+}
+
 // ---- edit modal (scheduled prompts) ----
 const editChars = computed(() => editText.value.length)
 const editTokens = computed(() => Math.max(1, Math.round(editText.value.length / 4)))
@@ -259,6 +296,9 @@ async function saveEdit() {
     <Banner v-if="malformedCount > 0" tone="warn" icon="alert">
       {{ malformedCount }} row(s) couldn't be parsed and were skipped.
     </Banner>
+
+    <Banner v-if="runInfo" tone="info" icon="zap">{{ runInfo }}</Banner>
+    <Banner v-if="runError" tone="warn" icon="alert">{{ runError }}</Banner>
 
     <Card v-if="adding" title="New schedule" icon="plus">
       <div class="grid-form">
@@ -493,6 +533,14 @@ async function saveEdit() {
             </td>
             <td class="col-actions">
               <div class="row-actions">
+                <button
+                  class="btn btn-ghost btn-sm btn-icon"
+                  title="Run now — reply on WhatsApp; schedule unaffected"
+                  :disabled="cooldownIds.has(r.id)"
+                  @click="handleRunNow(r)"
+                >
+                  <Icon name="zap" :size="14" />
+                </button>
                 <button
                   class="btn btn-ghost btn-sm btn-icon"
                   title="Edit"

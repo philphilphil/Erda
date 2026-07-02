@@ -21,7 +21,7 @@ public static class ActivityEndpoints
         g.MapGet("", (IActivityRecorder recorder, int? max) =>
         {
             var dtos = recorder.Recent(max ?? 100)
-                .Select(e => new ActivityDto(e.Id, e.TimestampUtc, e.Kind, e.Summary))
+                .Select(e => new ActivityDto(e.Id, e.TimestampUtc, e.Kind, e.Summary, e.DetailJson))
                 .ToList();
             return Results.Ok(dtos);
         });
@@ -61,7 +61,7 @@ public static class ActivityEndpoints
 
             await foreach (var entry in channel.Reader.ReadAllAsync(ct))
             {
-                var dto = new ActivityDto(entry.Id, entry.TimestampUtc, entry.Kind, entry.Summary);
+                var dto = new ActivityDto(entry.Id, entry.TimestampUtc, entry.Kind, entry.Summary, entry.DetailJson);
                 await http.Response.WriteAsync($"data: {JsonSerializer.Serialize(dto, StreamJson)}\n\n", ct);
                 await http.Response.Body.FlushAsync(ct);
             }

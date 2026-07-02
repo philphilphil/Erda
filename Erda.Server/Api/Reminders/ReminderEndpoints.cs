@@ -1,6 +1,7 @@
 using Erda.Core.Configuration;
 using Erda.Core.Scheduling;
 using Erda.Core.Services;
+using Erda.Core.WhatsApp;
 using Microsoft.Extensions.Options;
 
 namespace Erda.Server.Api;
@@ -38,10 +39,40 @@ public static class ReminderEndpoints
         g.MapPost("/{id}/resume", (string id, ReminderStore store) =>
             store.SetStatus(id, ReminderStatus.Active) ? Results.Ok() : Results.NotFound());
 
+        // Run a scheduled prompt right now, out of band. ApplicationStopping (not RequestAborted) is the
+        // dispatch token so the fire-and-forget run survives the 202 response and stops only on shutdown.
+        g.MapPost("/{id}/run", (string id, ReminderStore store, ReminderDispatcher dispatcher,
+            IOptions<WhatsAppOptions> whatsApp, IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory) =>
+            RunNow(id, store, dispatcher, WhatsAppJid.FromNumber(whatsApp.Value.OwnerNumber),
+                lifetime.ApplicationStopping, loggerFactory.CreateLogger("Erda.Reminders.RunNow")));
+
         g.MapDelete("/{id}", (string id, ReminderStore store) =>
             store.Remove(id) ? Results.Ok() : Results.NotFound());
 
         return group;
+    }
+
+    /// <summary>
+    /// Kick off a scheduled prompt out of band (prompt-only; 400 for a verbatim reminder). Fire-and-forget:
+    /// the agent run can take many seconds, so we don't block — the reply lands on WhatsApp like a normal
+    /// fire. Deliberately touches neither run-state nor status, so the schedule is unaffected.
+    /// </summary>
+    internal static IResult RunNow(string id, ReminderStore store, ReminderDispatcher dispatcher,
+        string ownerJid, CancellationToken ct, ILogger logger)
+    {
+        var row = store.LoadAll().Reminders.FirstOrDefault(r => r.Id == id);
+        if (row is null)
+            return TypedResults.NotFound();
+        if (row.Kind != ReminderKind.Prompt)
+            return TypedResults.BadRequest(new ErrorResponse("Only scheduled prompts can be run on demand."));
+
+        _ = Task.Run(async () =>
+        {
+            try { await dispatcher.DispatchAsync(row, ownerJid, manual: true, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { /* host shutdown — expected */ }
+            catch (Exception ex) { logger.LogError(ex, "Manual run of prompt '{Id}' failed.", id); }
+        });
+        return TypedResults.Accepted((string?)null);
     }
 
     /// <summary>Map a reminder to its wire DTO, computing the next-fire string in <paramref name="zone"/>.</summary>

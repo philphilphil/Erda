@@ -118,6 +118,7 @@ public static class ServiceCollectionExtensions
         // --- Reminder scheduler (DB row -> WhatsApp / agent prompt) ---
         services.AddSingleton<ReminderStore>();
         services.AddSingleton<ReminderStateStore>();
+        services.AddSingleton<ReminderDispatcher>();
         services.AddHostedService<ReminderScheduler>();
 
         return services;

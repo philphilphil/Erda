@@ -28,6 +28,48 @@ public class ReminderEndpointsTests
         return store;
     }
 
+    private static ReminderDispatcher Dispatcher()
+    {
+        var opts = Options.Create(new ReminderOptions { TimeZone = "Europe/Berlin" });
+        var vaultDir = Path.Combine(Path.GetTempPath(), "erda-ep-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(vaultDir);
+        var vault = new VaultService(Options.Create(new ErdaOptions { VaultPath = vaultDir }));
+        return new ReminderDispatcher(new FakeAgentResponder(), new FakeWhatsAppSender(),
+            new FakePreScriptRunner(), vault, new CurrentTimeContext(new FakeClock(), opts),
+            new FakeActivityRecorder(), opts, NullLogger<ReminderDispatcher>.Instance);
+    }
+
+    // ---- POST /reminders/{id}/run ----
+
+    [Fact]
+    public void Run_unknown_id_returns_404()
+    {
+        var result = ReminderEndpoints.RunNow("nope", SeededPromptStore(), Dispatcher(), "o@x", default, NullLogger.Instance);
+        Assert.IsType<NotFound>(result);
+    }
+
+    [Fact]
+    public void Run_verbatim_reminder_returns_400()
+    {
+        var store = EmptyStore();
+        store.Append(ReminderKind.Reminder, "call", "2026-06-15 09:00", "Call mom");
+        var result = ReminderEndpoints.RunNow("call", store, Dispatcher(), "o@x", default, NullLogger.Instance);
+        Assert.IsType<BadRequest<ErrorResponse>>(result);
+    }
+
+    [Fact]
+    public void Run_prompt_returns_202_and_leaves_schedule_unchanged()
+    {
+        var store = SeededPromptStore();
+        var before = store.LoadAll().Reminders.Single(r => r.Id == "news");
+        var result = ReminderEndpoints.RunNow("news", store, Dispatcher(), "o@x", default, NullLogger.Instance);
+
+        Assert.IsType<Accepted>(result);
+        var after = store.LoadAll().Reminders.Single(r => r.Id == "news");
+        Assert.Equal(before.Status, after.Status); // run-now must not change status/run-state
+        Assert.Equal(before.When, after.When);
+    }
+
     // ---- PUT /reminders/{id} ----
 
     [Fact]

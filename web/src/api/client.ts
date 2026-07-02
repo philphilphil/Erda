@@ -142,6 +142,12 @@ export function deleteReminder(id: string): Promise<void> {
   return del<void>(`/api/reminders/${id}`)
 }
 
+// Run a scheduled prompt immediately, without affecting its schedule. Fire-and-forget: the
+// reply is delivered over WhatsApp (server returns 202 as soon as the run is kicked off).
+export function runReminderNow(id: string): Promise<void> {
+  return post<void>(`/api/reminders/${id}/run`)
+}
+
 // ── Workflows ─────────────────────────────────────────────────────────────────
 
 export function getWorkflows(): Promise<WorkflowsResponse> {

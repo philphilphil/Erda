@@ -42,10 +42,12 @@ public class ReminderSchedulerTests
         var reasoner = new FakeReasoner();
         var script = new FakePreScriptRunner();
         var timeContext = new CurrentTimeContext(new FakeClock(), rOpts);
+        var dispatcher = new ReminderDispatcher(
+            responder, sender, script, vault, timeContext, new FakeActivityRecorder(), rOpts,
+            NullLogger<ReminderDispatcher>.Instance);
         var scheduler = new ReminderScheduler(
             rOpts, Options.Create(new WhatsAppOptions { OwnerNumber = "+49 151 2345 6789" }),
-            store, stateStore, vault, responder, script, sender, new FakeClock(), timeContext,
-            new FakeActivityRecorder(), NullLogger<ReminderScheduler>.Instance);
+            store, stateStore, dispatcher, sender, new FakeClock(), NullLogger<ReminderScheduler>.Instance);
         return (scheduler, store, sender, responder, stateStore, vault, reasoner, script);
     }
 

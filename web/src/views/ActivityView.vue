@@ -100,6 +100,22 @@ function enableAll() {
 function clearFeed() {
   entries.value = []
 }
+
+// ── detail expansion (tool-call arguments etc.) ───────────────────────────────
+const expanded = ref<Set<number>>(new Set())
+function toggleExpand(id: number) {
+  const next = new Set(expanded.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expanded.value = next
+}
+function prettyDetail(detail: string): string {
+  try {
+    return JSON.stringify(JSON.parse(detail), null, 2)
+  } catch {
+    return detail // not JSON → show as-is
+  }
+}
 </script>
 
 <template>
@@ -199,9 +215,44 @@ function clearFeed() {
         >
           <span class="feed-time">{{ fmtTime(new Date(ev.timestampUtc)) }}</span>
           <span class="feed-type"><TypeBadge :kind="ev.kind" /></span>
-          <span class="feed-summary">{{ ev.summary }}</span>
+          <span class="feed-summary">
+            <span
+              class="sum-text"
+              :class="{ expandable: !!ev.detail }"
+              :title="ev.detail ? 'Show parameters' : undefined"
+              @click="ev.detail && toggleExpand(ev.id)"
+            >
+              <span v-if="ev.detail" class="caret">{{ expanded.has(ev.id) ? '▾' : '▸' }}</span>
+              {{ ev.summary }}
+            </span>
+            <pre v-if="ev.detail && expanded.has(ev.id)" class="feed-detail">{{ prettyDetail(ev.detail) }}</pre>
+          </span>
         </div>
       </div>
     </Card>
   </div>
 </template>
+
+<style scoped>
+.sum-text.expandable {
+  cursor: pointer;
+}
+.caret {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  margin-right: 2px;
+}
+.feed-detail {
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+</style>

@@ -83,6 +83,9 @@ export interface ActivityDto {
   timestampUtc: string
   kind: string
   summary: string
+  // Raw structured payload recorded with the event (JSON string), e.g. a tool call's arguments.
+  // Null when the event carried no detail.
+  detail?: string | null
 }
 
 // Config (read-only; env-only, applied at startup)

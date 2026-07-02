@@ -94,7 +94,8 @@ public static class ErdaAgent
             .UseOpenTelemetry(
                 sourceName: ObservabilityOptions.ActivitySourceName,
                 configure: telemetry => telemetry.EnableSensitiveData = observability.CaptureMessageContent)
-            // Record each tool invocation to the activity feed (all channels), name only.
+            // Record each tool invocation to the panel activity feed (DB + SSE): tool name + argument
+            // values. The Serilog/console line stays name-only, so argument values never reach Seq.
             .Use(ToolCallActivity.Middleware(recorder, toolLog))
             .Build();
     }

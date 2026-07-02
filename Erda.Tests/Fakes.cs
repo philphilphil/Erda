@@ -7,6 +7,7 @@ using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Erda.Tests;
 
@@ -168,11 +169,29 @@ public sealed class FakeAnalyzer : IErrorAnalyzer
     }
 }
 
+/// <summary>Captures formatted log messages so a test can assert what did (and did not) get logged.</summary>
+public sealed class CapturingLogger : ILogger
+{
+    public List<string> Messages { get; } = [];
+
+    public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
+
+    private sealed class NullScope : IDisposable
+    {
+        public static readonly NullScope Instance = new();
+        public void Dispose() { }
+    }
+}
+
 public sealed class FakeActivityRecorder : IActivityRecorder
 {
-    public List<(string Kind, string Summary)> Records { get; } = [];
+    public List<(string Kind, string Summary, object? Detail)> Records { get; } = [];
 
-    public void Record(string kind, string summary, object? detail = null) => Records.Add((kind, summary));
+    public void Record(string kind, string summary, object? detail = null) => Records.Add((kind, summary, detail));
 
     public IReadOnlyList<ActivityEntry> Recent(int max = 100) => [];
 
