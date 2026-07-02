@@ -11,8 +11,8 @@ namespace Erda.Agents.Tools;
 /// <summary>
 /// Agent tools for scheduling: <c>schedule_message</c> (sent verbatim at the time),
 /// <c>schedule_prompt</c> (run through Erda, reply sent), plus <c>list_scheduled</c> and
-/// <c>cancel_scheduled</c>. All write to the same vault note the scheduler reads, so Phil can also
-/// edit them by hand in Obsidian. <c>when</c> is a date-time (once) or a cron expression (recurring),
+/// <c>cancel_scheduled</c>. All write to the same DB table the scheduler reads, so Phil can also
+/// edit them in the control panel. <c>when</c> is a date-time (once) or a cron expression (recurring),
 /// interpreted in the configured timezone.
 /// </summary>
 public sealed class ReminderTools(ReminderStore store, VaultService vault, IOptions<ReminderOptions> options, IClock clock)

@@ -80,7 +80,7 @@ public sealed class ErrorWatchOptionsValidator : IValidateOptions<ErrorWatchOpti
     }
 }
 
-/// <summary>Requires the note path / timezone / intervals when reminders are enabled (and the
+/// <summary>Requires the timezone / intervals when reminders are enabled (and the
 /// pre-script limits when pre-run scripts are enabled).</summary>
 public sealed class ReminderOptionsValidator : IValidateOptions<ReminderOptions>
 {
@@ -90,7 +90,6 @@ public sealed class ReminderOptionsValidator : IValidateOptions<ReminderOptions>
 
         var checks = new List<(string, bool)>
         {
-            (nameof(o.NotePath), RequiredWhenEnabled.Str(o.NotePath)),
             (nameof(o.TimeZone), RequiredWhenEnabled.Str(o.TimeZone)),
             (nameof(o.PollInterval), RequiredWhenEnabled.Pos(o.PollInterval)),
             (nameof(o.OverdueGrace), RequiredWhenEnabled.Pos(o.OverdueGrace)),

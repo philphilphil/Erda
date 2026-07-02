@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace Erda.Core.Scheduling;
 
 /// <summary>
-/// Background loop: every <c>Reminders:PollInterval</c>, read the reminder note and fire anything
+/// Background loop: every <c>Reminders:PollInterval</c>, read due reminders from the DB and fire anything
 /// due. Verbatim reminders are sent straight to Phil; scheduled prompts run through the agent (in a
 /// fresh session) and the reply is sent. Recurring cadence + one-shot send-once are tracked in a
 /// JSON sidecar so restarts neither replay nor double-fire. Mirrors <see cref="ErrorWatchScheduler"/>.
@@ -62,8 +62,8 @@ public sealed class ReminderScheduler(
 
         var state = stateStore.Load();
 
-        logger.LogInformation("Reminder scheduler started: every {Interval}, zone {Tz}, note {Note}.",
-            opts.PollInterval, opts.TimeZone, opts.NotePath);
+        logger.LogInformation("Reminder scheduler started: every {Interval}, zone {Tz}.",
+            opts.PollInterval, opts.TimeZone);
 
         using var timer = new PeriodicTimer(opts.PollInterval);
         do
@@ -156,7 +156,7 @@ public sealed class ReminderScheduler(
     {
         if (state.FiredOneShotIds.Contains(r.Id))
         {
-            store.SetStatus(r.Id, ReminderStatus.Done); // heal the note if a prior write was lost
+            store.SetStatus(r.Id, ReminderStatus.Done); // heal the row if a prior write was lost
             return false;
         }
 

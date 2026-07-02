@@ -2,19 +2,16 @@ namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the reminder scheduler (bound from the "Reminders" config section). Every minute
-/// it reads the reminders note from the vault, fires anything due (verbatim message or agent
+/// it reads due reminders from the database, fires anything due (verbatim message or agent
 /// prompt), and pushes the result to Phil over WhatsApp.
 /// </summary>
 public sealed class ReminderOptions
 {
     public const string SectionName = "Reminders";
 
-    /// <summary>Master switch for the background scheduler. Absent ⇒ off. The note path, timezone and
+    /// <summary>Master switch for the background scheduler. Absent ⇒ off. The timezone and
     /// intervals below are required (no default) only when this is true — see <c>ReminderOptionsValidator</c>.</summary>
     public bool Enabled { get; set; }
-
-    /// <summary>Vault-relative path to the note that holds the reminder tables. Required when enabled.</summary>
-    public string NotePath { get; set; } = "";
 
     /// <summary>IANA timezone the <c>when</c> column is interpreted in. Required when enabled.</summary>
     public string TimeZone { get; set; } = "";

@@ -19,7 +19,6 @@ public class ReminderSchedulerTests
     // Settings now have no in-code defaults, so the test must supply them explicitly.
     private static ReminderOptions Opts(bool preScriptEnabled = true) => new()
     {
-        NotePath = "Reminders.md",
         TimeZone = "Europe/Berlin",
         PollInterval = TimeSpan.FromMinutes(1),
         OverdueGrace = TimeSpan.FromHours(24),

@@ -4,7 +4,7 @@ using Cronos;
 namespace Erda.Core.Scheduling;
 
 /// <summary>
-/// A parsed reminder schedule from the note's <c>when</c> column. Either:
+/// A parsed reminder schedule from a reminder's <c>when</c> column. Either:
 /// a one-shot wall-clock date-time (interpreted in the configured zone), or a recurring cron
 /// expression. Parsing tries a date-time first (so plain timestamps never get read as cron),
 /// then a cron expression (5-field standard or a macro like <c>@daily</c>).

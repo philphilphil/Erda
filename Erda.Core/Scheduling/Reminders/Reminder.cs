@@ -23,7 +23,7 @@ public enum ReminderStatus
     Done,
 }
 
-/// <summary>One parsed reminder row from the vault note. <see cref="Spec"/> is always valid.</summary>
+/// <summary>One parsed reminder row from the database. <see cref="Spec"/> is always valid.</summary>
 public sealed record Reminder(
     string Id,
     ReminderKind Kind,

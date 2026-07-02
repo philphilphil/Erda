@@ -16,7 +16,7 @@ public class ReminderToolsTests
         var vaultDir = Path.Combine(Path.GetTempPath(), "erda-tools-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(vaultDir);
         var vault = new VaultService(Options.Create(new ErdaOptions { VaultPath = vaultDir }));
-        var opts = Options.Create(new ReminderOptions { NotePath = "Reminders.md" });
+        var opts = Options.Create(new ReminderOptions());
         var store = new ReminderStore(dbf, NullLogger<ReminderStore>.Instance);
         return (new ReminderTools(store, vault, opts, new FakeClock()), store, vault);
     }
