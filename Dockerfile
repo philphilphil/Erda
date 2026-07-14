@@ -77,6 +77,13 @@ RUN curl -fsSL -o /tmp/op.zip \
  && rm -f /tmp/op.zip \
  && /usr/local/bin/op --version
 
+# Image identity, baked in by CI (see .github/workflows/build.yml) and reported in the WhatsApp
+# boot notice (StartupNotifier). Both empty on local builds -> "Version dev (local build)".
+ARG GIT_SHA=""
+ARG BUILD_TIME=""
+ENV ERDA_GIT_SHA=${GIT_SHA} \
+    ERDA_BUILD_TIME=${BUILD_TIME}
+
 COPY --from=build /app/publish ./
 # The control-panel SPA: served from wwwroot by UseStaticFiles + MapFallbackToFile("index.html").
 COPY --from=web /web/dist ./wwwroot

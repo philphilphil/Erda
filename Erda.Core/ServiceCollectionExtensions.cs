@@ -102,6 +102,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<WhatsAppInboundQueue>();
         services.AddSingleton<WhatsAppChannelService>();
         services.AddHostedService<WhatsAppInboundWorker>();
+        services.AddHostedService<StartupNotifier>();
 
         // --- HTTP upload intake (iOS Shortcut → same voice-memo pipeline) ---
         // Saves the uploaded audio and enqueues it onto the WhatsApp inbound queue above, so the

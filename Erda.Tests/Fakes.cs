@@ -114,10 +114,13 @@ public sealed class FakeWhatsAppSender : IWhatsAppSender
     public List<(string To, string State)> Presence { get; } = [];
     public bool Result { get; set; } = true;
 
+    /// <summary>Per-call results consumed before falling back to <see cref="Result"/> (for retry tests).</summary>
+    public Queue<bool> ResultQueue { get; } = new();
+
     public Task<bool> SendAsync(string toJid, string text, CancellationToken cancellationToken = default)
     {
         Sent.Add((toJid, text));
-        return Task.FromResult(Result);
+        return Task.FromResult(ResultQueue.Count > 0 ? ResultQueue.Dequeue() : Result);
     }
 
     public Task SetPresenceAsync(string chatJid, string state, CancellationToken cancellationToken = default)
