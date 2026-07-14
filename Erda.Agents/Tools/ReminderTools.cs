@@ -10,8 +10,9 @@ namespace Erda.Agents.Tools;
 
 /// <summary>
 /// Agent tools for scheduling: <c>schedule_message</c> (sent verbatim at the time),
-/// <c>schedule_prompt</c> (run through Erda, reply sent), plus <c>list_scheduled</c> and
-/// <c>cancel_scheduled</c>. All write to the same DB table the scheduler reads, so Phil can also
+/// <c>schedule_prompt</c> (run through Erda, reply sent), plus <c>list_scheduled</c>,
+/// <c>cancel_scheduled</c>, and <c>pause_scheduled</c>/<c>resume_scheduled</c>. All write to the
+/// same DB table the scheduler reads, so Phil can also
 /// edit them in the control panel. <c>when</c> is a date-time (once) or a cron expression (recurring),
 /// interpreted in the configured timezone.
 /// </summary>
@@ -27,6 +28,8 @@ public sealed class ReminderTools(ReminderStore store, VaultService vault, IOpti
         AIFunctionFactory.Create(SchedulePrompt, "schedule_prompt"),
         AIFunctionFactory.Create(ListScheduled, "list_scheduled"),
         AIFunctionFactory.Create(CancelScheduled, "cancel_scheduled"),
+        AIFunctionFactory.Create(PauseScheduled, "pause_scheduled"),
+        AIFunctionFactory.Create(ResumeScheduled, "resume_scheduled"),
     ];
 
     [Description("Schedule a message to be sent to Phil verbatim at a time (no AI at send time). " +
@@ -69,6 +72,20 @@ public sealed class ReminderTools(ReminderStore store, VaultService vault, IOpti
     public string CancelScheduled(
         [Description("The id shown by list_scheduled.")] string id)
         => store.Remove(id.Trim()) ? $"Cancelled '{id.Trim()}'." : $"No scheduled item with id '{id.Trim()}'.";
+
+    [Description("Pause a scheduled reminder or prompt by its id; it won't fire until resumed.")]
+    public string PauseScheduled(
+        [Description("The id shown by list_scheduled.")] string id)
+        => store.SetStatus(id.Trim(), ReminderStatus.Paused)
+            ? $"Paused '{id.Trim()}'. It won't fire until resumed."
+            : $"No scheduled item with id '{id.Trim()}'.";
+
+    [Description("Resume a paused scheduled reminder or prompt by its id.")]
+    public string ResumeScheduled(
+        [Description("The id shown by list_scheduled.")] string id)
+        => store.SetStatus(id.Trim(), ReminderStatus.Active)
+            ? $"Resumed '{id.Trim()}'."
+            : $"No scheduled item with id '{id.Trim()}'.";
 
     private string Create(ReminderKind kind, string when, string text, string? id)
     {

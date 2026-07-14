@@ -93,6 +93,37 @@ public class ReminderToolsTests
     }
 
     [Fact]
+    public void Pause_sets_status_paused()
+    {
+        var (tools, store, _) = Make();
+        tools.ScheduleMessage("0 8 * * *", "Drink water", "water");
+
+        var result = tools.PauseScheduled("water");
+        Assert.Contains("Paused", result);
+        Assert.Equal(ReminderStatus.Paused, store.LoadAll().Reminders.Single().Status);
+    }
+
+    [Fact]
+    public void Resume_sets_status_active()
+    {
+        var (tools, store, _) = Make();
+        tools.ScheduleMessage("0 8 * * *", "Drink water", "water");
+        store.SetStatus("water", ReminderStatus.Paused);
+
+        var result = tools.ResumeScheduled("water");
+        Assert.Contains("Resumed", result);
+        Assert.Equal(ReminderStatus.Active, store.LoadAll().Reminders.Single().Status);
+    }
+
+    [Fact]
+    public void Pause_and_resume_report_unknown_ids()
+    {
+        var (tools, _, _) = Make();
+        Assert.Contains("No scheduled item", tools.PauseScheduled("nope"));
+        Assert.Contains("No scheduled item", tools.ResumeScheduled("nope"));
+    }
+
+    [Fact]
     public void List_shows_active_and_paused_but_not_done()
     {
         var (tools, store, _) = Make();
