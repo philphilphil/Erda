@@ -21,9 +21,12 @@ public sealed class BrowserOptions
     /// <summary>Model id for the browser sub-agent. Null/blank => use ErdaOptions.ChatModel.</summary>
     public string? Deployment { get; set; }
 
-    /// <summary>Show a real browser window instead of headless. Absent ⇒ false ⇒ headless (the safe
-    /// state for the display-less Jetson). Set <c>Erda__Browser__ShowWindow=true</c> on the dev Mac to
-    /// watch the agent browse.</summary>
+    /// <summary>Run the browser <b>headful</b> instead of headless. Absent ⇒ false ⇒ headless. Set
+    /// <c>Erda__Browser__ShowWindow=true</c> on the dev Mac to watch the agent browse — and <b>in
+    /// production too</b>: the container runs under <c>xvfb-run</c> (a virtual display), and headful is
+    /// required to get past sites that hard-block headless Chromium (Cloudflare on cardmarket.com returns
+    /// an "Attention Required" challenge to headless, but lets the same automated browser through
+    /// headful).</summary>
     public bool ShowWindow { get; set; }
 
     /// <summary>Persistent profile directory (the logged-in session) — on the browser-data volume in
