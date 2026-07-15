@@ -72,6 +72,12 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
         }
         """;
 
+    // Poll for the offer table for up to MaxProbeAttempts × ProbeInterval before giving up. This both
+    // tolerates a slow load and gives any Cloudflare interstitial time to resolve (it won't, headless —
+    // but the probe then tells us so).
+    private const int MaxProbeAttempts = 8;
+    private static readonly TimeSpan ProbeInterval = TimeSpan.FromMilliseconds(1000);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<IReadOnlyList<CardmarketOffer>> GetGermanOffersAsync(
@@ -92,15 +98,42 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
             }
 
             // The URL is the already-filtered card-level page (all printings, German sellers, language),
-            // built by CardmarketUrl.CardPage — no redirect handling needed. Navigate, let the offer
-            // table settle, then scrape.
+            // built by CardmarketUrl.CardPage — no redirect handling needed. Navigate, then poll for the
+            // offer table to appear (rather than one blind wait), so slow loads succeed and a bot
+            // challenge is diagnosable.
             await navigate.InvokeAsync(new AIFunctionArguments { ["url"] = cardPageUrl }, ct);
-            await Task.Delay(TimeSpan.FromMilliseconds(1500), ct);
+
+            PageProbe probe = default;
+            for (var attempt = 0; attempt < MaxProbeAttempts; attempt++)
+            {
+                await Task.Delay(ProbeInterval, ct);
+                probe = await ProbePageAsync(evaluate, ct);
+                if (probe.Rows > 0)
+                    break;
+            }
+
+            // No rows after the poll window: report WHY, so the fallback isn't a silent mystery.
+            // A Cloudflare/bot challenge (headless browsers get flagged) is the prime suspect; distinguish
+            // it from a genuinely empty listing / changed markup by the page title.
+            if (probe.Rows == 0)
+            {
+                if (probe.Challenge)
+                    logger.LogWarning(
+                        "Cardmarket scrape blocked by a bot/Cloudflare challenge (page title {Title}) for {Url}. " +
+                        "A headless browser is being challenged — a headful/warmed browser profile is needed.",
+                        probe.Title, cardPageUrl);
+                else
+                    logger.LogWarning(
+                        "Cardmarket scrape found no offer rows (page title {Title}, challenge=false) for {Url} — " +
+                        "empty listing or changed markup.", probe.Title, cardPageUrl);
+                return [];
+            }
 
             var evalResult = await evaluate.InvokeAsync(new AIFunctionArguments { ["function"] = ScrapeOffersJs }, ct);
             var json = ExtractOffersJson(ResultText(evalResult));
             var offers = ParseOffers(json, count);
-            logger.LogInformation("Cardmarket scrape: {Count} offers from {Url}.", offers.Count, cardPageUrl);
+            logger.LogInformation("Cardmarket scrape: {Count} offers (of {Rows} rows) from {Url}.",
+                offers.Count, probe.Rows, cardPageUrl);
             return offers;
         }
         catch (Exception ex)
@@ -109,6 +142,43 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
             return [];
         }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>A cheap page-state probe used while polling: how many offer rows are present, the page
+    /// title, and whether the page looks like a bot/Cloudflare challenge.</summary>
+    internal readonly record struct PageProbe(int Rows, string Title, bool Challenge);
+
+    /// <summary>Read the offer-row count + title + challenge flag from the live page.</summary>
+    private async Task<PageProbe> ProbePageAsync(AIFunction evaluate, CancellationToken ct)
+    {
+        var result = await evaluate.InvokeAsync(new AIFunctionArguments { ["function"] = ProbePageJs }, ct);
+        return ParseProbe(ResultText(result));
+    }
+
+    /// <summary>The probe JS: offer-row count, page title, and a challenge heuristic (title/body text of a
+    /// Cloudflare interstitial). Returns an object, so the MCP's <c>### Result</c> holds clean JSON.</summary>
+    private const string ProbePageJs = """
+        () => {
+          const rows = document.querySelectorAll('.article-row, [id^="articleRow"]').length;
+          const hay = (document.title + ' ' + (document.body ? document.body.innerText.slice(0, 300) : '')).toLowerCase();
+          const challenge = /just a moment|attention required|verify you are human|checking your browser|cf-browser-verification|cloudflare/.test(hay);
+          return { rows, title: document.title, challenge };
+        }
+        """;
+
+    /// <summary>Parse the probe's <c>### Result</c> JSON object into a <see cref="PageProbe"/>. Returns an
+    /// empty probe (0 rows, no challenge) on any malformed/absent result.</summary>
+    internal static PageProbe ParseProbe(string mcpText)
+    {
+        var json = ExtractResultObject(mcpText);
+        if (json.Length == 0)
+            return new PageProbe(0, "", false);
+        try
+        {
+            var dto = JsonSerializer.Deserialize<ProbeDto>(json);
+            return new PageProbe(dto?.Rows ?? 0, dto?.Title ?? "", dto?.Challenge ?? false);
+        }
+        catch (JsonException) { return new PageProbe(0, "", false); }
     }
 
     private AIFunction? FindTool(string name) =>
@@ -168,6 +238,16 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
     /// <c>[id^="articleRow"]</c>) that would otherwise be swept into the array span.</summary>
     internal static string ExtractOffersJson(string mcpText) => ExtractJsonArray(ResultSection(mcpText));
 
+    /// <summary>Slice the outermost JSON object (first <c>{</c> to last <c>}</c>) out of the MCP response's
+    /// <c>### Result</c> section — used for the page probe's <c>{rows, title, challenge}</c> return.</summary>
+    private static string ExtractResultObject(string mcpText)
+    {
+        var section = ResultSection(mcpText);
+        var start = section.IndexOf('{');
+        var end = section.LastIndexOf('}');
+        return start >= 0 && end > start ? section[start..(end + 1)] : "";
+    }
+
     /// <summary>Isolate the content of the MCP response's <c>### Result</c> section. Sections are delimited by
     /// <c>### </c> headers at line start (see the Playwright MCP response format); the Result section holds the
     /// evaluate return value. Returns "" when absent.</summary>
@@ -212,5 +292,12 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
         [JsonPropertyName("price")] public string? Price { get; set; }
         [JsonPropertyName("condition")] public string? Condition { get; set; }
         [JsonPropertyName("seller")] public string? Seller { get; set; }
+    }
+
+    private sealed class ProbeDto
+    {
+        [JsonPropertyName("rows")] public int Rows { get; set; }
+        [JsonPropertyName("title")] public string? Title { get; set; }
+        [JsonPropertyName("challenge")] public bool Challenge { get; set; }
     }
 }

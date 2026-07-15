@@ -153,4 +153,47 @@ public class CardmarketOfferParserTests
             """;
         Assert.Empty(CardmarketPriceService.ParseOffers(CardmarketPriceService.ExtractOffersJson(errorResponse), 5));
     }
+
+    [Fact]
+    public void ParseProbe_reads_rows_title_and_no_challenge()
+    {
+        const string response = """
+            ### Result
+            {
+              "rows": 50,
+              "title": "Ragavan, Nimble Pilferer - MTG Cards | Cardmarket",
+              "challenge": false
+            }
+            ### Ran Playwright code
+            ```js
+            await page.evaluate("() => {...}");
+            ```
+            """;
+
+        var probe = CardmarketPriceService.ParseProbe(response);
+
+        Assert.Equal(50, probe.Rows);
+        Assert.False(probe.Challenge);
+        Assert.Contains("Cardmarket", probe.Title);
+    }
+
+    [Fact]
+    public void ParseProbe_flags_a_cloudflare_challenge()
+    {
+        var probe = CardmarketPriceService.ParseProbe(
+            "### Result\n{\"rows\":0,\"title\":\"Just a moment...\",\"challenge\":true}");
+
+        Assert.Equal(0, probe.Rows);
+        Assert.True(probe.Challenge);
+    }
+
+    [Fact]
+    public void ParseProbe_is_empty_when_no_result_section()
+    {
+        var probe = CardmarketPriceService.ParseProbe("### Error\nboom");
+
+        Assert.Equal(0, probe.Rows);
+        Assert.False(probe.Challenge);
+        Assert.Equal("", probe.Title);
+    }
 }
