@@ -25,9 +25,17 @@ Two facts constrain the design (both verified on 2026-07-15):
 
 A single MAF tool **`card_price`** that: resolves the card on Scryfall (capturing the EUR trend as an
 instant baseline), then drives the **existing Playwright MCP browser deterministically** (no LLM loop)
-to the Cardmarket product page filtered to **German sellers + English cards**, scrapes the lowest N
-offers, and returns them as WhatsApp-friendly text. When Cardmarket blocks or the page layout shifts,
-it **degrades to the trend price + a tappable Germany/English-filtered CM link** — never nothing.
+to Cardmarket's **card-level `/Cards/<slug>` page** — all printings — filtered to **German sellers +
+English cards**, scrapes the lowest N offers, and returns them as WhatsApp-friendly text. When
+Cardmarket blocks or the page layout shifts, it **degrades to the trend price + a tappable
+Germany/English-filtered CM link** — never nothing.
+
+**All printings, by card name.** Pricing the card-level page (not a per-printing product page) is what
+you want for a buying baseline: it surfaces the cheapest German/English copy across every set. The
+filtered URL is `https://www.cardmarket.com/en/Magic/Cards/<slug>?sellerCountry=7&language=1`, where
+`<slug>` is derived from the card name (diacritics folded, spaces/hyphens → `-`, other punctuation
+dropped — e.g. `Ragavan, Nimble Pilferer` → `Ragavan-Nimble-Pilferer`). That one URL is **both** the
+scrape target and the tappable fallback link, and needs no `idProduct` redirect handling.
 
 Disambiguation is delegated to the orchestrator, not handled by the tool: when the card is unclear the
 tool returns a **candidates list instead of prices**, and Erda asks Phil which card he means, then
@@ -79,31 +87,35 @@ Scryfall JSON is parsed with `System.Text.Json` into minimal DTOs. `prices.eur` 
 are strings or null. `purchase_uris.cardmarket` is the CM link (may itself carry `referrer=scryfall`
 tracking params — kept as-is; filter params are appended by component 2).
 
-### 2. `CardmarketPriceService` (`Erda.Agents/Tools`) — live German-seller scrape
+### 2. URL building + live scrape (`Erda.Agents/Tools`)
 
-Depends on `IBrowserMcp`. Invokes the MCP tools **directly as `AIFunction`s** (found by name in
-`IBrowserMcp.Tools`, e.g. `browser_navigate`, `browser_evaluate`) — no orchestrator/LLM involved.
+**`CardmarketUrl`** (static, unit-testable, no browser): `Slug(cardName)` derives the CM card slug
+(NFD-fold diacritics, drop combining marks, letters/digits kept, spaces/hyphens → single `-`, other
+punctuation dropped); `CardPage(cardName, language)` → the filtered card-level URL
+(`sellerCountry=7` + `language`). One place owns the slug rules + filter IDs.
+
+**`CardmarketPriceService`** depends on `IBrowserMcp` and invokes the MCP tools **directly as
+`AIFunction`s** (found by name in `IBrowserMcp.Tools`: `browser_navigate`, `browser_evaluate`) — no
+orchestrator/LLM involved.
 
 ```
 Task<IReadOnlyList<CardmarketOffer>> GetGermanOffersAsync(
-    string cardmarketProductUrl, int language, int count, CancellationToken ct)
+    string cardPageUrl, int count, CancellationToken ct)
 ```
 
-`CardmarketOffer` = `{ decimal Price, string Condition, string Seller }`.
+`CardmarketOffer` = `{ decimal Price, string Condition, string Seller }`. The URL is already filtered
+(built by `CardmarketUrl.CardPage`), so the service just navigates + scrapes — no redirect handling.
 
 Flow:
 
-1. Build the filtered URL: append `sellerCountry=7` (Germany) and `language=<language>` (default `1` =
-   English) to the resolved product URL. If the Scryfall URL is the `Products?idProduct=<id>` form,
-   navigate to it first, then re-navigate to the redirected canonical URL with the filter query — CM
-   drops query params across the idProduct redirect. **The `sellerCountry` / `language` IDs and the
-   offer-row selector are verified once against a live page during implementation** (CM blocks curl, so
-   they can't be confirmed from a script; the warmed browser can).
-2. `browser_navigate` to the filtered URL; allow the offer table to settle.
-3. `browser_evaluate` a **single centralized JS snippet** (one `const` string — the one fragile spot)
+1. `browser_navigate` to the card-level filtered URL; allow the offer table to settle.
+2. `browser_evaluate` a **single centralized JS snippet** (one `const` string — the one fragile spot)
    that reads the offer rows into JSON: `[{ price, condition, seller }]`, defensively (tolerant
-   selectors; parse the German-formatted price `"31,00 €"` → `31.00`). Cap at `count` rows.
-4. A C# parser maps the JSON to `CardmarketOffer` records.
+   selectors; `return out` — an object, not a string — so the MCP's `### Result` section holds clean
+   JSON). Parse the German-formatted price `"31,00 €"` → `31.00` in C#. Cap at `count` rows.
+3. A C# parser isolates the MCP response's `### Result` section, slices the JSON array, and maps it to
+   `CardmarketOffer` records. **The `sellerCountry=7` / `language` IDs and the offer-row selector are
+   verified once against a live page during implementation** (CM blocks curl; the warmed browser can).
 
 A private `SemaphoreSlim` serializes navigations, since the browser tab is shared with `browse_web`.
 Any failure (browser not connected, Cloudflare challenge, empty/changed DOM, timeout) throws or
@@ -124,12 +136,12 @@ Erda: **when the result is a candidates list, confirm which card with Phil befor
 Orchestration:
 
 1. `ResolveAsync`. On `Candidates` → return a clearly-marked "did you mean" string listing the names
-   (no prices). On `NotFound` → "couldn't find a card named …". On `Match` with no `CardmarketUrl` →
-   return trend (if any) + note there's no Cardmarket page.
-2. On `Match` with a URL → `GetGermanOffersAsync`. On success → formatted offer list + trend line +
-   filtered CM link. On failure/empty → **fallback**: trend price (if known) + the Germany/English
-   filtered CM link for Phil to tap. Set/print assumptions are stated ("assumed <SET>; say the set to
-   pick another").
+   (no prices). On `NotFound` → "couldn't find a card named …".
+2. On `Match` → build the card-level filtered URL with `CardmarketUrl.CardPage(match.Name, language)`
+   (from the name, so a null Scryfall `CardmarketUrl` doesn't block) and `GetGermanOffersAsync` it. On
+   success → formatted offer list + trend line + filtered CM link. On failure/empty → **fallback**:
+   trend price (if known) + the same Germany/English filtered CM link for Phil to tap. When no set was
+   passed, the trend's printing is stated ("assumed <SET>; say the set to pick another").
 
 Output is plain text tuned for WhatsApp:
 
@@ -156,8 +168,7 @@ Trend: €34,13 · <germany+english CM link>
 |---|---|
 | Card not found, no candidates | `NotFound` → "couldn't find a card named X" |
 | Ambiguous / garbled voice name | `Candidates` → "did you mean …" list; Erda asks Phil |
-| Match but print has no CM page | Trend (if any) + note; no scrape attempted |
-| CM Cloudflare / DOM changed / browser down / empty | Trend + tappable Germany+English CM link |
+| CM Cloudflare / DOM changed / browser down / empty / wrong slug | Trend (if any) + tappable Germany+English card-level CM link |
 | Scryfall HTTP error | Surface a short "couldn't reach Scryfall" message |
 
 ## Testing
@@ -165,11 +176,15 @@ Trend: €34,13 · <germany+english CM link>
 - **`ScryfallClientTests`** (unit, fake `HttpMessageHandler` like existing tests): exact hit →
   `Match` with trend + CM URL; 404→fuzzy hit → `Match`; fuzzy token-with-no-CM-link → `Candidates`;
   search-only → `Candidates`; nothing → `NotFound`; `set` param forwarded to the query.
-- **Offer-parser tests**: feed captured `browser_evaluate` JSON (incl. German price format `"31,00 €"`,
-  missing condition, extra rows beyond `count`) → correct `CardmarketOffer` list + `count` cap.
+- **`CardmarketUrl` slug tests**: card names → CM slugs (spaces, commas, apostrophes, diacritics, split
+  `//` cards) and the full filtered `CardPage` URL.
+- **Offer-parser tests**: the full multi-section MCP `browser_evaluate` blob → isolate `### Result`,
+  slice the JSON array, parse (German price `"31,00 €"`, thousands separator, missing condition, rows
+  beyond `count`) → correct `CardmarketOffer` list + `count` cap; garbage/no-Result → empty.
 - **`CardPriceTool` formatting/fallback tests**: `Candidates` → "did you mean" text (no prices);
-  scrape-empty → trend + link fallback; happy path → offer list format. Use a fake `IScryfallClient`
-  and a seam over the scrape so no live browser/network is needed.
+  card-level URL built from name even when Scryfall has no product link; scrape-empty → trend + link
+  fallback; happy path → offer list format. Use a fake `IScryfallClient` and a fake
+  `ICardmarketPriceService` so no live browser/network is needed.
 - **Wiring test** (like `VaultEditorWiringTests` / `BrowserAgentGateTests`): `card_price` present when
   browser exposed, absent when off.
 - The live `browser_navigate`/`evaluate` path stays thin and is **manually integration-verified**

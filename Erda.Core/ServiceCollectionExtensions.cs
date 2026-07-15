@@ -90,6 +90,9 @@ public static class ServiceCollectionExtensions
         // URL fetcher for the recipe-importer workflow (creates clients via the factory per fetch).
         services.AddHttpClient(nameof(UrlFetcher));
         services.AddSingleton<IUrlFetcher, UrlFetcher>();
+        // Scryfall card resolver for the card_price tool (named client via the factory, like UrlFetcher).
+        services.AddHttpClient(nameof(ScryfallClient));
+        services.AddSingleton<IScryfallClient, ScryfallClient>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<CurrentTimeContext>();
         services.AddSingleton<IPromptStore, PromptStore>();

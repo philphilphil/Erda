@@ -54,6 +54,11 @@ public static class ErdaAgent
         var browseTool = BrowserAgent.TryCreateTool(services);
         if (browseTool is not null) tools.Add(browseTool);
 
+        // card_price scrapes Cardmarket via the browser MCP, so it only makes sense when the browser is
+        // exposed — reuse the same gate (browseTool is not null == BrowserAgent.ShouldExpose(mcp)).
+        if (browseTool is not null)
+            tools.AddRange(services.GetRequiredService<CardPriceTool>().AsTools());
+
         // The active system prompt lives in the SQLite DB (authored in the control panel). There is
         // no code-baked default: a fresh DB has no system prompt until one is saved. Read once at
         // agent-build time; a panel edit applies on restart.
