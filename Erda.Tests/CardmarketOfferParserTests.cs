@@ -52,6 +52,28 @@ public class CardmarketOfferParserTests
     }
 
     [Fact]
+    public void Keeps_only_the_cheapest_offer_per_distinct_seller()
+    {
+        // Rows arrive cheapest-first (CM's default sort); a seller listing several copies collapses to
+        // their lowest. Blank sellers are kept (can't dedupe).
+        var json = """
+            [{"price":"30,00 €","condition":"NM","seller":"Brody"},
+             {"price":"30,50 €","condition":"EX","seller":"brody"},
+             {"price":"31,00 €","condition":"NM","seller":"chilla12"},
+             {"price":"31,50 €","condition":"NM","seller":""},
+             {"price":"32,00 €","condition":"NM","seller":""}]
+            """;
+
+        var offers = CardmarketPriceService.ParseOffers(json, 5);
+
+        Assert.Equal(4, offers.Count);                     // Brody (once, case-insensitive) + chilla12 + 2 blanks
+        Assert.Equal(30.00m, offers[0].Price);
+        Assert.Equal("Brody", offers[0].Seller);
+        Assert.Equal("chilla12", offers[1].Seller);
+        Assert.All(offers, o => Assert.NotEqual("brody", o.Seller)); // the 30,50 dupe dropped
+    }
+
+    [Fact]
     public void Caps_the_result_at_count()
     {
         var json = """

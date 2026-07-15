@@ -57,7 +57,7 @@ public interface IScryfallClient
 ///     <see cref="CardResolution.NotFound"/>.</item>
 /// </list>
 /// </summary>
-public sealed class ScryfallClient(IHttpClientFactory httpClientFactory, ILogger<ScryfallClient> logger) : IScryfallClient
+public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScryfallClient
 {
     private const string BaseUrl = "https://api.scryfall.com";
     private const int MaxCandidates = 8;

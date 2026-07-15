@@ -1,6 +1,5 @@
 using System.Net;
 using Erda.Core.Services;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Erda.Tests;
@@ -29,7 +28,7 @@ public class ScryfallClientTests
     }
 
     private static ScryfallClient Make(RoutingHandler handler) =>
-        new(new FakeFactory(handler), NullLogger<ScryfallClient>.Instance);
+        new(new FakeFactory(handler));
 
     private static string CardJson(string name, string set, string setName, string? eur, string? cardmarketUrl)
     {

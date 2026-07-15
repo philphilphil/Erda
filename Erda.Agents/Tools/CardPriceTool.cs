@@ -45,7 +45,7 @@ public sealed class CardPriceTool(IScryfallClient scryfall, ICardmarketPriceServ
     private async Task<string> CardPrice(
         [Description("The card name (your best guess if the voice input was garbled), e.g. 'Ragavan, Nimble Pilferer'.")] string name,
         [Description("Optional set code to pin a specific printing, e.g. 'mh2'. Omit to let Scryfall pick.")] string? set = null,
-        [Description("How many of the cheapest offers to return (default 5).")] int count = 5,
+        [Description("How many of the cheapest distinct sellers to list (default 5).")] int count = 5,
         [Description("Card/offer language: 'en' (English, default) or 'de' (German).")] string? language = "en")
     {
         if (string.IsNullOrWhiteSpace(name))

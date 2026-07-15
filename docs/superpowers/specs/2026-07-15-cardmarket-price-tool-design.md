@@ -110,12 +110,15 @@ Flow:
 
 1. `browser_navigate` to the card-level filtered URL; allow the offer table to settle.
 2. `browser_evaluate` a **single centralized JS snippet** (one `const` string — the one fragile spot)
-   that reads the offer rows into JSON: `[{ price, condition, seller }]`, defensively (tolerant
-   selectors; `return out` — an object, not a string — so the MCP's `### Result` section holds clean
-   JSON). Parse the German-formatted price `"31,00 €"` → `31.00` in C#. Cap at `count` rows.
-3. A C# parser isolates the MCP response's `### Result` section, slices the JSON array, and maps it to
-   `CardmarketOffer` records. **The `sellerCountry=7` / `language` IDs and the offer-row selector are
-   verified once against a live page during implementation** (CM blocks curl; the warmed browser can).
+   that reads the offer rows into JSON: `[{ price, condition, seller }]`, `return out` (an object, not a
+   string — so the MCP's `### Result` section holds clean JSON). **Selectors verified live 2026-07-15**:
+   rows `.article-row`; price `.price-container`; condition the `.badge` inside `.article-condition`
+   (`"NM"`/`"EX"`… — NOT a bare `.badge`, which matches the seller's sales-count badge earlier in the
+   row); seller the `/Users/` link under `.seller-name`.
+3. A C# parser isolates the MCP response's `### Result` section, slices the JSON array, parses the
+   German price `"31,00 €"` → `31.00`, and returns the **cheapest offer per distinct seller** (rows are
+   cheapest-first, so first-seen wins) capped at `count`. `sellerCountry=7` / `language=1` also verified
+   live.
 
 A private `SemaphoreSlim` serializes navigations, since the browser tab is shared with `browse_web`.
 Any failure (browser not connected, Cloudflare challenge, empty/changed DOM, timeout) throws or

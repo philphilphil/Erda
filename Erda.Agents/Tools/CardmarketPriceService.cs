@@ -37,34 +37,34 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
     : ICardmarketPriceService
 {
     // The offer-row selectors below are the one fragile spot: they cannot be confirmed from a script
-    // (CM blocks curl); the warmed browser can. The filter ids live in CardmarketUrl.
-    // VERIFY against a live Cardmarket page — selectors assumed.
+    // (CM blocks curl); a real browser can. Verified live against a card-level page on 2026-07-15 —
+    // recheck here if scrapes start coming back empty. The filter ids live in CardmarketUrl.
 
     /// <summary>
     /// The single, centralized page-scraping snippet (a zero-arg JS function, as a string, for
-    /// <c>browser_evaluate</c>). It reads the offer rows into a JSON array of <c>{price, condition,
-    /// seller}</c> — <c>price</c> kept as the raw German-formatted text (e.g. "31,00 €"), parsed to a
-    /// decimal in C#. Selectors are deliberately tolerant (several fallbacks each) since the exact
-    /// Cardmarket markup can only be confirmed against a live page.
-    /// VERIFY against a live Cardmarket page — selectors + filter IDs assumed.
+    /// <c>browser_evaluate</c>). It reads the offer rows into an array of <c>{price, condition, seller}</c>
+    /// — <c>price</c> kept as the raw German-formatted text (e.g. "31,00 €"), parsed to a decimal in C#.
+    /// Selectors verified against a live Cardmarket <c>/Cards/&lt;slug&gt;</c> page (2026-07-15):
+    /// rows are <c>.article-row</c>; price is <c>.price-container</c>; condition is the badge inside
+    /// <c>.article-condition</c> ("NM"/"EX"/…), with the full name in <c>data-bs-original-title</c>; the
+    /// seller is the <c>/Users/</c> link under <c>.seller-name</c>. IMPORTANT: the condition must be read
+    /// from <c>.article-condition</c> specifically — a bare <c>.badge</c> matches the seller's sales-count
+    /// badge, which sits earlier in the row. Tolerant fallbacks are kept for minor markup drift.
     /// </summary>
     private const string ScrapeOffersJs = """
         () => {
-          const rows = Array.from(document.querySelectorAll(
-            '.article-row, [id^="articleRow"], .table-body [class*="row"]'));
+          const rows = Array.from(document.querySelectorAll('.article-row, [id^="articleRow"]'));
           const out = [];
           for (const row of rows) {
-            const priceEl = row.querySelector(
-              '.price-container, .col-offer .price, .st_price, [class*="price"]');
+            const priceEl = row.querySelector('.price-container, [class*="price-container"], [class*="price"]');
             const price = priceEl ? priceEl.textContent.trim() : '';
             if (!price) continue;
-            const condEl = row.querySelector(
-              '.article-condition span, .badge, [class*="condition"], [class*="Condition"]');
+            const condEl = row.querySelector('.article-condition');
             const condition = condEl
-              ? (condEl.getAttribute('title') || condEl.textContent || '').trim()
+              ? (condEl.querySelector('.badge')?.textContent.trim()
+                 || condEl.getAttribute('data-bs-original-title') || '').trim()
               : '';
-            const sellerEl = row.querySelector(
-              '.seller-name a, .seller-info a, [href*="/Users/"], [class*="seller"] a');
+            const sellerEl = row.querySelector('.seller-name a, [href*="/Users/"]');
             const seller = sellerEl ? sellerEl.textContent.trim() : '';
             out.push({ price, condition, seller });
           }
@@ -115,8 +115,10 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
         browser.Tools.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.Ordinal)) as AIFunction;
 
     /// <summary>Parse the <c>browser_evaluate</c> JSON (<c>[{price, condition, seller}]</c>) into offers,
-    /// mapping the German price format "31,00 €" → 31.00m, and cap at <paramref name="count"/>. Rows with
-    /// an unparseable price are skipped; a missing condition/seller defaults to empty. Never throws.</summary>
+    /// mapping the German price format "31,00 €" → 31.00m, and return the cheapest offer per <b>distinct
+    /// seller</b> (CM lists rows cheapest-first, so the first occurrence of a seller is their lowest),
+    /// capped at <paramref name="count"/>. Rows with an unparseable price are skipped; a missing
+    /// condition/seller defaults to empty (blank sellers are not deduplicated). Never throws.</summary>
     internal static IReadOnlyList<CardmarketOffer> ParseOffers(string json, int count)
     {
         if (count <= 0 || string.IsNullOrWhiteSpace(json))
@@ -129,11 +131,17 @@ public sealed class CardmarketPriceService(IBrowserMcp browser, ILogger<Cardmark
             return [];
 
         var offers = new List<CardmarketOffer>();
+        var seenSellers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
         {
             if (!TryParseGermanPrice(row.Price, out var price))
                 continue;
-            offers.Add(new CardmarketOffer(price, (row.Condition ?? "").Trim(), (row.Seller ?? "").Trim()));
+            var seller = (row.Seller ?? "").Trim();
+            // One offer per seller (their cheapest) — a single seller often lists several cheap copies,
+            // and Phil wants the baseline across distinct sellers. Blank sellers can't be deduped.
+            if (seller.Length > 0 && !seenSellers.Add(seller))
+                continue;
+            offers.Add(new CardmarketOffer(price, (row.Condition ?? "").Trim(), seller));
             if (offers.Count >= count)
                 break;
         }
