@@ -42,11 +42,14 @@ public sealed class CardPriceTool(IScryfallClient scryfall, IOptions<WhatsAppOpt
         "Look up a Magic: The Gathering card's price — Phil's baseline when buying cards in person. " +
         "Give the card name (voice input may be garbled — pass your best guess); optionally the set " +
         "code to pin a specific printing. Returns the Cardmarket EUR trend price, a Cardmarket link " +
-        "filtered to German sellers + English cards that Phil can tap to see live offers, and usually " +
-        "a downloaded card image file path — send that image to Phil with send_image alongside the " +
-        "price text. IMPORTANT: if the result is a 'did you mean' candidate list (not prices), the " +
-        "name was ambiguous — ask Phil which card he means, then call card_price again with the " +
-        "confirmed name (and set if he named one). Do not guess which candidate he meant.")]
+        "filtered to German sellers + English cards that Phil can tap to see live " +
+        "offers, and usually a downloaded card image file path. Delivery rules: (1) send the image " +
+        "with send_image WITHOUT any caption, so it shows full-size; (2) send the price/link text as " +
+        "a separate plain-text message — WhatsApp renders no markdown, so never use [text](url) links, " +
+        "asterisks or headings; paste the URL bare. IMPORTANT: if the result is a 'did you mean' " +
+        "candidate list (not prices), the name was ambiguous — ask Phil which card he means, then call " +
+        "card_price again with the confirmed name (and set if he named one). Do not guess which " +
+        "candidate he meant.")]
     private async Task<string> CardPrice(
         [Description("The card name (your best guess if the voice input was garbled), e.g. 'Ragavan, Nimble Pilferer'.")] string name,
         [Description("Optional set code to pin a specific printing, e.g. 'mh2'. Omit to let Scryfall pick.")] string? set = null,
@@ -96,20 +99,9 @@ public sealed class CardPriceTool(IScryfallClient scryfall, IOptions<WhatsAppOpt
             sb.Append(" — ").Append(match.SetName);
         sb.Append(')');
 
-        if (match.EurTrend is { } trend)
-        {
-            sb.Append("\nTrend: ").Append(FormatEur(trend));
-            if (match.EurFoilTrend is { } foil)
-                sb.Append(" (Foil: ").Append(FormatEur(foil)).Append(')');
-        }
-        else if (match.EurFoilTrend is { } foilOnly)
-        {
-            sb.Append("\nTrend (Foil): ").Append(FormatEur(foilOnly));
-        }
-        else
-        {
-            sb.Append("\nNo EUR trend price on Scryfall for this printing.");
-        }
+        sb.Append('\n').Append(match.EurTrend is { } trend
+            ? "Trend: " + FormatEur(trend)
+            : "No EUR trend price on Scryfall for this printing.");
 
         sb.Append("\nDE sellers (").Append(LanguageLabel(languageId)).Append("): ").Append(link);
 
@@ -119,7 +111,8 @@ public sealed class CardPriceTool(IScryfallClient scryfall, IOptions<WhatsAppOpt
 
         var imagePath = await TryDownloadImageAsync(match);
         if (imagePath is not null)
-            sb.Append("\nCard image saved to ").Append(imagePath).Append(" — send it to Phil with send_image.");
+            sb.Append("\nCard image saved to ").Append(imagePath)
+                .Append(" — send it to Phil with send_image, WITHOUT a caption (a caption shrinks the preview).");
 
         return sb.ToString();
     }

@@ -38,9 +38,9 @@ public class CardPriceToolTests
     }
 
     private static CardResolution.Match Ragavan(
-        decimal? trend = 34.13m, decimal? foil = 60.00m, string? imageUrl = "https://cards.scryfall.io/normal/ragavan.jpg") =>
+        decimal? trend = 34.13m, string? imageUrl = "https://cards.scryfall.io/normal/ragavan.jpg") =>
         new("Ragavan, Nimble Pilferer", "mh2", "Modern Horizons 2",
-            "https://www.cardmarket.com/en/Magic/Products?idProduct=1", trend, foil, imageUrl);
+            "https://www.cardmarket.com/en/Magic/Products?idProduct=1", trend, imageUrl);
 
     [Fact]
     public void Exposes_exactly_the_card_price_tool()
@@ -79,14 +79,15 @@ public class CardPriceToolTests
     }
 
     [Fact]
-    public async Task Match_returns_trend_foil_link_and_image()
+    public async Task Match_returns_trend_link_and_image()
     {
         var scryfall = new FakeScryfall(Ragavan());
 
         var result = await Invoke(Tool(scryfall), "Ragavan, Nimble Pilferer", set: "mh2");
 
         Assert.Contains("Ragavan, Nimble Pilferer (MH2 — Modern Horizons 2)", result);
-        Assert.Contains("Trend: €34,13 (Foil: €60,00)", result);
+        Assert.Contains("Trend: €34,13", result);
+        Assert.DoesNotContain("Foil", result);
         // The tappable link: all-printings card page, German sellers, English.
         Assert.Contains("/Cards/Ragavan-Nimble-Pilferer?sellerCountry=7&language=1", result);
         // Image downloaded into the media dir and handed to the orchestrator for send_image.
@@ -125,7 +126,7 @@ public class CardPriceToolTests
     [Fact]
     public async Task Missing_trend_is_reported()
     {
-        var result = await Invoke(Tool(new FakeScryfall(Ragavan(trend: null, foil: null))), "ragavan");
+        var result = await Invoke(Tool(new FakeScryfall(Ragavan(trend: null))), "ragavan");
         Assert.Contains("No EUR trend price", result);
     }
 }

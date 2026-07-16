@@ -15,15 +15,15 @@ public abstract record CardResolution
     private CardResolution() { }
 
     /// <summary>A single confident printing. <see cref="CardmarketUrl"/> is null when the print has
-    /// no Cardmarket product link; the EUR trend prices are null when Scryfall has no price;
-    /// <see cref="ImageUrl"/> is the card image (front face for double-faced cards), null when absent.</summary>
+    /// no Cardmarket product link; <see cref="EurTrend"/> (the Cardmarket trend) is null when Scryfall
+    /// has no price; <see cref="ImageUrl"/> is the card image (front face for double-faced cards),
+    /// null when absent.</summary>
     public sealed record Match(
         string Name,
         string SetCode,
         string SetName,
         string? CardmarketUrl,
         decimal? EurTrend,
-        decimal? EurFoilTrend,
         string? ImageUrl = null) : CardResolution;
 
     /// <summary>Ambiguous — the top few candidate card names, returned so the orchestrator can ask
@@ -113,7 +113,6 @@ public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScry
         SetName: card.SetName ?? "",
         CardmarketUrl: string.IsNullOrWhiteSpace(card.PurchaseUris?.Cardmarket) ? null : card.PurchaseUris!.Cardmarket,
         EurTrend: ParsePrice(card.Prices?.Eur),
-        EurFoilTrend: ParsePrice(card.Prices?.EurFoil),
         // Single-faced cards carry image_uris at the top level; double-faced cards only per face —
         // use the front face then. "normal" is ~488×680 JPG, right for a WhatsApp send.
         ImageUrl: card.ImageUris?.Normal ?? card.CardFaces?.FirstOrDefault()?.ImageUris?.Normal);
@@ -234,7 +233,6 @@ public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScry
     private sealed class ScryfallPrices
     {
         [JsonPropertyName("eur")] public string? Eur { get; set; }
-        [JsonPropertyName("eur_foil")] public string? EurFoil { get; set; }
     }
 
     private sealed class ScryfallPurchaseUris
