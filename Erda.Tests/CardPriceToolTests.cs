@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Erda.Agents.Tools;
+using Erda.Core.Configuration;
 using Erda.Core.Services;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Erda.Tests;
@@ -11,34 +13,39 @@ public class CardPriceToolTests
     private sealed class FakeScryfall(CardResolution result) : IScryfallClient
     {
         public Exception? Throw { get; init; }
+        public bool DownloadSucceeds { get; init; } = true;
+        public string? LastImageUrl { get; private set; }
+        public string? LastImagePath { get; private set; }
+
         public Task<CardResolution> ResolveAsync(string name, string? set, CancellationToken ct = default) =>
             Throw is not null ? Task.FromException<CardResolution>(Throw) : Task.FromResult(result);
-    }
 
-    private sealed class FakeCardmarket(IReadOnlyList<CardmarketOffer> offers) : ICardmarketPriceService
-    {
-        public string? LastUrl { get; private set; }
-        public Task<IReadOnlyList<CardmarketOffer>> GetGermanOffersAsync(
-            string cardPageUrl, int count, CancellationToken ct = default)
+        public Task<bool> TryDownloadImageAsync(string imageUrl, string destinationPath, CancellationToken ct = default)
         {
-            LastUrl = cardPageUrl;
-            return Task.FromResult(offers);
+            LastImageUrl = imageUrl;
+            LastImagePath = destinationPath;
+            return Task.FromResult(DownloadSucceeds);
         }
     }
 
-    private static AIFunction Tool(IScryfallClient scryfall, ICardmarketPriceService cardmarket) =>
-        (AIFunction)new CardPriceTool(scryfall, cardmarket).AsTools().Single();
+    private static CardPriceTool Tool(IScryfallClient scryfall, string mediaTempDir = "/media") =>
+        new(scryfall, Options.Create(new WhatsAppOptions { MediaTempDir = mediaTempDir }));
 
-    private static async Task<string> Invoke(IScryfallClient scryfall, ICardmarketPriceService cardmarket, string name, string? set = null) =>
-        ((JsonElement)(await Tool(scryfall, cardmarket).InvokeAsync(new() { ["name"] = name, ["set"] = set! }))!).GetString()!;
+    private static async Task<string> Invoke(CardPriceTool tool, string name, string? set = null)
+    {
+        var fn = (AIFunction)tool.AsTools().Single();
+        return ((JsonElement)(await fn.InvokeAsync(new() { ["name"] = name, ["set"] = set! }))!).GetString()!;
+    }
 
-    private static CardResolution.Match Ragavan(string? cardmarketUrl = "https://www.cardmarket.com/en/Magic/Products?idProduct=1", decimal? trend = 34.13m) =>
-        new("Ragavan, Nimble Pilferer", "mh2", "Modern Horizons 2", cardmarketUrl, trend, null);
+    private static CardResolution.Match Ragavan(
+        decimal? trend = 34.13m, decimal? foil = 60.00m, string? imageUrl = "https://cards.scryfall.io/normal/ragavan.jpg") =>
+        new("Ragavan, Nimble Pilferer", "mh2", "Modern Horizons 2",
+            "https://www.cardmarket.com/en/Magic/Products?idProduct=1", trend, foil, imageUrl);
 
     [Fact]
     public void Exposes_exactly_the_card_price_tool()
     {
-        var names = new CardPriceTool(new FakeScryfall(new CardResolution.NotFound()), new FakeCardmarket([]))
+        var names = Tool(new FakeScryfall(new CardResolution.NotFound()))
             .AsTools().Select(t => ((AIFunction)t).Name).ToList();
         Assert.Equal(new[] { "card_price" }, names);
     }
@@ -46,9 +53,9 @@ public class CardPriceToolTests
     [Fact]
     public async Task Candidates_returns_a_did_you_mean_list_with_no_prices()
     {
-        var scryfall = new FakeScryfall(new CardResolution.Candidates(["Ragavan, Nimble Pilferer", "Ragavan's Hideout"]));
+        var tool = Tool(new FakeScryfall(new CardResolution.Candidates(["Ragavan, Nimble Pilferer", "Ragavan's Hideout"])));
 
-        var result = await Invoke(scryfall, new FakeCardmarket([]), "ragavan");
+        var result = await Invoke(tool, "ragavan");
 
         Assert.Contains("Ragavan, Nimble Pilferer", result);
         Assert.Contains("Ragavan's Hideout", result);
@@ -59,7 +66,7 @@ public class CardPriceToolTests
     [Fact]
     public async Task Not_found_reports_it()
     {
-        var result = await Invoke(new FakeScryfall(new CardResolution.NotFound()), new FakeCardmarket([]), "zzzxxx");
+        var result = await Invoke(Tool(new FakeScryfall(new CardResolution.NotFound())), "zzzxxx");
         Assert.Contains("Couldn't find", result);
     }
 
@@ -67,56 +74,58 @@ public class CardPriceToolTests
     public async Task Scryfall_error_reports_a_short_message()
     {
         var scryfall = new FakeScryfall(new CardResolution.NotFound()) { Throw = new HttpRequestException("down") };
-        var result = await Invoke(scryfall, new FakeCardmarket([]), "anything");
+        var result = await Invoke(Tool(scryfall), "anything");
         Assert.Contains("Scryfall", result);
     }
 
     [Fact]
-    public async Task Prices_the_card_level_page_even_when_scryfall_has_no_product_link()
-    {
-        // Scryfall's per-printing purchase link may be null, but the card-level /Cards/<slug> page is
-        // built from the name — so we still scrape all printings rather than bailing to trend-only.
-        var cardmarket = new FakeCardmarket([new CardmarketOffer(30.00m, "NM", "s")]);
-
-        var result = await Invoke(new FakeScryfall(Ragavan(cardmarketUrl: null)), cardmarket, "ragavan");
-
-        Assert.Equal(
-            "https://www.cardmarket.com/en/Magic/Cards/Ragavan-Nimble-Pilferer?sellerCountry=7&language=1",
-            cardmarket.LastUrl);
-        Assert.Contains("€30,00 · NM · s", result);
-    }
-
-    [Fact]
-    public async Task Happy_path_formats_the_offer_list_with_trend_and_link()
+    public async Task Match_returns_trend_foil_link_and_image()
     {
         var scryfall = new FakeScryfall(Ragavan());
-        var cardmarket = new FakeCardmarket(
-        [
-            new CardmarketOffer(31.00m, "NM", "seller123"),
-            new CardmarketOffer(31.50m, "EX", "otherseller"),
-        ]);
 
-        var result = await Invoke(scryfall, cardmarket, "Ragavan, Nimble Pilferer", set: "mh2");
+        var result = await Invoke(Tool(scryfall), "Ragavan, Nimble Pilferer", set: "mh2");
 
-        Assert.Contains("Ragavan, Nimble Pilferer (MH2) — English, DE sellers", result);
-        Assert.Contains("€31,00 · NM · seller123", result);
-        Assert.Contains("€31,50 · EX · otherseller", result);
-        Assert.Contains("Trend: €34,13", result);
-        // The tappable link is the all-printings card-level page, filtered to German sellers + English.
+        Assert.Contains("Ragavan, Nimble Pilferer (MH2 — Modern Horizons 2)", result);
+        Assert.Contains("Trend: €34,13 (Foil: €60,00)", result);
+        // The tappable link: all-printings card page, German sellers, English.
         Assert.Contains("/Cards/Ragavan-Nimble-Pilferer?sellerCountry=7&language=1", result);
+        // Image downloaded into the media dir and handed to the orchestrator for send_image.
+        Assert.Contains("send_image", result);
+        Assert.Equal("https://cards.scryfall.io/normal/ragavan.jpg", scryfall.LastImageUrl);
+        Assert.Equal(Path.Combine("/media", "card-ragavan-nimble-pilferer.jpg"), scryfall.LastImagePath);
+        Assert.Contains(scryfall.LastImagePath!, result);
+        // Set was pinned → no assumed-set note.
+        Assert.DoesNotContain("say the set", result);
     }
 
     [Fact]
-    public async Task Scrape_empty_falls_back_to_trend_and_filtered_link()
+    public async Task Without_a_set_the_assumed_printing_is_stated()
     {
-        var scryfall = new FakeScryfall(Ragavan());
+        var result = await Invoke(Tool(new FakeScryfall(Ragavan())), "ragavan");
+        Assert.Contains("Trend is for the MH2 printing", result);
+    }
 
-        // No set passed → the assumed-set note is stated.
-        var result = await Invoke(scryfall, new FakeCardmarket([]), "ragavan");
+    [Fact]
+    public async Task No_image_or_no_media_dir_or_failed_download_degrades_to_text_only()
+    {
+        // No image URL on the match.
+        var noImage = await Invoke(Tool(new FakeScryfall(Ragavan(imageUrl: null))), "ragavan");
+        Assert.DoesNotContain("send_image", noImage);
 
-        Assert.Contains("Couldn't read live Cardmarket offers", result);
-        Assert.Contains("Trend: €34,13", result);
-        Assert.Contains("sellerCountry=7", result);
-        Assert.Contains("assumed MH2", result);
+        // No media dir configured (WhatsApp off).
+        var noDir = await Invoke(Tool(new FakeScryfall(Ragavan()), mediaTempDir: ""), "ragavan");
+        Assert.DoesNotContain("send_image", noDir);
+
+        // Download fails.
+        var failed = await Invoke(Tool(new FakeScryfall(Ragavan()) { DownloadSucceeds = false }), "ragavan");
+        Assert.DoesNotContain("send_image", failed);
+        Assert.Contains("Trend: €34,13", failed); // the price still comes back
+    }
+
+    [Fact]
+    public async Task Missing_trend_is_reported()
+    {
+        var result = await Invoke(Tool(new FakeScryfall(Ragavan(trend: null, foil: null))), "ragavan");
+        Assert.Contains("No EUR trend price", result);
     }
 }

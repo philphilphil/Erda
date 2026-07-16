@@ -54,12 +54,8 @@ WORKDIR /app
 # own playwright-core keeps the revision locked to whatever @playwright/mcp@${VERSION} expects.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ARG PLAYWRIGHT_MCP_VERSION=0.0.75
-# xvfb: a virtual X display so Chromium can run HEADFUL in this display-less container. Cloudflare
-# (e.g. on cardmarket.com) hard-blocks headless Chromium with an "Attention Required" challenge; the
-# same automated browser run headful passes. The app is launched under `xvfb-run` (see ENTRYPOINT), so
-# the MCP's Chromium — a grandchild process — inherits the virtual DISPLAY when ShowWindow=true.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip xvfb \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
@@ -95,7 +91,4 @@ COPY --from=web /web/dist ./wwwroot
 # The control panel (Vue SPA + JSON API) is served here; docker-compose publishes it to the LAN.
 EXPOSE 5167
 
-# Run under xvfb-run so a headful Chromium (Erda__Browser__ShowWindow=true) has a display. `-a` picks a
-# free server number; the screen is sized generously. Harmless when the browser is headless or disabled
-# — the virtual display just goes unused. Without this, headful Chromium fails to launch (no DISPLAY).
-ENTRYPOINT ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24", "dotnet", "Erda.Server.dll"]
+ENTRYPOINT ["dotnet", "Erda.Server.dll"]

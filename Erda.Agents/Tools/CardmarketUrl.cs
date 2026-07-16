@@ -24,7 +24,7 @@ public static class CardmarketUrl
 
     /// <summary>
     /// The card-level listings URL filtered to German sellers + the given language id (1 = English,
-    /// 3 = German). Used both as the scrape target and as the tappable fallback link handed to Phil.
+    /// 3 = German) — the tappable link handed to Phil to see live offers.
     /// </summary>
     public static string CardPage(string cardName, int language) =>
         $"{CardsBase}{Slug(cardName)}?sellerCountry={GermanySellerCountry}&language={language}";

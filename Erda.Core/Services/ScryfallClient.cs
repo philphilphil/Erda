@@ -15,14 +15,16 @@ public abstract record CardResolution
     private CardResolution() { }
 
     /// <summary>A single confident printing. <see cref="CardmarketUrl"/> is null when the print has
-    /// no Cardmarket product link; the EUR trend prices are null when Scryfall has no price.</summary>
+    /// no Cardmarket product link; the EUR trend prices are null when Scryfall has no price;
+    /// <see cref="ImageUrl"/> is the card image (front face for double-faced cards), null when absent.</summary>
     public sealed record Match(
         string Name,
         string SetCode,
         string SetName,
         string? CardmarketUrl,
         decimal? EurTrend,
-        decimal? EurFoilTrend) : CardResolution;
+        decimal? EurFoilTrend,
+        string? ImageUrl = null) : CardResolution;
 
     /// <summary>Ambiguous — the top few candidate card names, returned so the orchestrator can ask
     /// Phil which one he means before calling again.</summary>
@@ -41,6 +43,10 @@ public interface IScryfallClient
     /// (so the caller can surface "couldn't reach Scryfall"); a plain miss is <see cref="CardResolution.NotFound"/>.
     /// </summary>
     Task<CardResolution> ResolveAsync(string name, string? set, CancellationToken ct = default);
+
+    /// <summary>Download a card image (from <see cref="CardResolution.Match.ImageUrl"/>) to
+    /// <paramref name="destinationPath"/>. Returns false on any failure — never throws.</summary>
+    Task<bool> TryDownloadImageAsync(string imageUrl, string destinationPath, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -107,7 +113,30 @@ public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScry
         SetName: card.SetName ?? "",
         CardmarketUrl: string.IsNullOrWhiteSpace(card.PurchaseUris?.Cardmarket) ? null : card.PurchaseUris!.Cardmarket,
         EurTrend: ParsePrice(card.Prices?.Eur),
-        EurFoilTrend: ParsePrice(card.Prices?.EurFoil));
+        EurFoilTrend: ParsePrice(card.Prices?.EurFoil),
+        // Single-faced cards carry image_uris at the top level; double-faced cards only per face —
+        // use the front face then. "normal" is ~488×680 JPG, right for a WhatsApp send.
+        ImageUrl: card.ImageUris?.Normal ?? card.CardFaces?.FirstOrDefault()?.ImageUris?.Normal);
+
+    public async Task<bool> TryDownloadImageAsync(string imageUrl, string destinationPath, CancellationToken ct = default)
+    {
+        try
+        {
+            using var client = httpClientFactory.CreateClient(nameof(ScryfallClient));
+            client.Timeout = TimeSpan.FromSeconds(20);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Erda/1.0 (personal Magic price assistant)");
+
+            await ThrottleAsync(ct);
+            var bytes = await client.GetByteArrayAsync(imageUrl, ct);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            await File.WriteAllBytesAsync(destinationPath, bytes, ct);
+            return true;
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return false; // best-effort: the tool degrades to text-only
+        }
+    }
 
     /// <summary>GET a single card. 200 → the card; 404 → (404, null) so the caller can fall through;
     /// any other non-success is a transport error and throws.</summary>
@@ -188,6 +217,18 @@ public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScry
         [JsonPropertyName("set_name")] public string? SetName { get; set; }
         [JsonPropertyName("prices")] public ScryfallPrices? Prices { get; set; }
         [JsonPropertyName("purchase_uris")] public ScryfallPurchaseUris? PurchaseUris { get; set; }
+        [JsonPropertyName("image_uris")] public ScryfallImageUris? ImageUris { get; set; }
+        [JsonPropertyName("card_faces")] public List<ScryfallCardFace>? CardFaces { get; set; }
+    }
+
+    private sealed class ScryfallImageUris
+    {
+        [JsonPropertyName("normal")] public string? Normal { get; set; }
+    }
+
+    private sealed class ScryfallCardFace
+    {
+        [JsonPropertyName("image_uris")] public ScryfallImageUris? ImageUris { get; set; }
     }
 
     private sealed class ScryfallPrices

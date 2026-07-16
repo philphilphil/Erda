@@ -26,8 +26,6 @@ public static class ServiceCollectionExtensions
 
         // Browser MCP: Playwright stdio child process, connected once at startup.
         services.AddSingleton<IBrowserMcp, PlaywrightMcp>();
-        // Cardmarket German-seller scrape over the browser MCP — backs the card_price tool.
-        services.AddSingleton<ICardmarketPriceService, CardmarketPriceService>();
 
         // The in-process reasoner — the streamed Responses replacement for the old codex subprocess.
         // Lives in this (MAF) layer, not Core, because it builds AIAgents; every former Codex consumer
