@@ -103,7 +103,7 @@ public class CardPriceToolTests
     public async Task Without_a_set_the_assumed_printing_is_stated()
     {
         var result = await Invoke(Tool(new FakeScryfall(Ragavan())), "ragavan");
-        Assert.Contains("Trend is for the MH2 printing", result);
+        Assert.Contains("Cheapest printing: MH2", result);
     }
 
     [Fact]

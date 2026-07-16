@@ -87,12 +87,14 @@ public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScry
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Erda/1.0 (personal Magic price assistant)");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json;q=0.9,*/*;q=0.8");
 
+        var setPinned = !string.IsNullOrWhiteSpace(set);
+
         // 1. Exact — the confident path.
-        var setQuery = string.IsNullOrWhiteSpace(set) ? "" : $"&set={Uri.EscapeDataString(set.Trim())}";
+        var setQuery = setPinned ? $"&set={Uri.EscapeDataString(set!.Trim())}" : "";
         var (exactStatus, exactCard) = await GetCardAsync(
             client, $"/cards/named?exact={Uri.EscapeDataString(trimmed)}{setQuery}", ct);
         if (exactStatus == HttpStatusCode.OK && exactCard is not null)
-            return ToMatch(exactCard);
+            return await ToBestMatchAsync(client, exactCard, setPinned, ct);
 
         // 2. Fuzzy — forgiving of misheard names, but only trusted when it lands on a real card with a
         //    Cardmarket link (fuzzy can otherwise resolve to the wrong printing / a token with no CM page).
@@ -100,11 +102,50 @@ public sealed class ScryfallClient(IHttpClientFactory httpClientFactory) : IScry
             client, $"/cards/named?fuzzy={Uri.EscapeDataString(trimmed)}", ct);
         if (fuzzyStatus == HttpStatusCode.OK && fuzzyCard is { Object: "card" } &&
             !string.IsNullOrWhiteSpace(fuzzyCard.PurchaseUris?.Cardmarket))
-            return ToMatch(fuzzyCard);
+            return await ToBestMatchAsync(client, fuzzyCard, setPinned, ct);
 
         // 3. Search — ambiguous; hand back the candidate names for Phil to disambiguate.
         var names = await SearchNamesAsync(client, trimmed, ct);
         return names.Count > 0 ? new CardResolution.Candidates(names) : new CardResolution.NotFound();
+    }
+
+    /// <summary>
+    /// Turn a resolved card into the Match to report. When no set was pinned, <c>/cards/named</c>
+    /// returns Scryfall's default printing, which can be digital-only with no EUR price at all (e.g.
+    /// "Underground Sea" → Vintage Masters) — that used to make the agent ask "which edition?".
+    /// Instead, list all paper printings (<c>unique=prints</c>) and take the one with the <b>lowest EUR
+    /// trend</b>: it matches the cheapest-first Cardmarket card page the tool links, and never needs a
+    /// question. Best-effort — any failure (or no priced printing) falls back to the named result.
+    /// A pinned set is respected as-is.
+    /// </summary>
+    private async Task<CardResolution.Match> ToBestMatchAsync(
+        HttpClient client, ScryfallCard card, bool setPinned, CancellationToken ct)
+    {
+        if (setPinned || string.IsNullOrWhiteSpace(card.Name))
+            return ToMatch(card);
+
+        try
+        {
+            await ThrottleAsync(ct);
+            var query = Uri.EscapeDataString($"!\"{card.Name}\" game:paper");
+            using var response = await client.GetAsync($"/cards/search?q={query}&unique=prints", ct);
+            if (!response.IsSuccessStatusCode)
+                return ToMatch(card);
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            var prints = JsonSerializer.Deserialize<ScryfallSearch>(body, Json)?.Data;
+            var cheapest = prints?
+                .Select(p => (Card: p, Eur: ParsePrice(p.Prices?.Eur)))
+                .Where(p => p.Eur is not null)
+                .OrderBy(p => p.Eur!.Value)
+                .Select(p => p.Card)
+                .FirstOrDefault();
+            return ToMatch(cheapest ?? card);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return ToMatch(card); // secondary lookup only — never fail the resolution over it
+        }
     }
 
     private static CardResolution.Match ToMatch(ScryfallCard card) => new(

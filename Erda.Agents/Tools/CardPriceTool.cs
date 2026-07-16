@@ -41,10 +41,13 @@ public sealed class CardPriceTool(IScryfallClient scryfall, IOptions<WhatsAppOpt
     [Description(
         "Look up a Magic: The Gathering card's price — Phil's baseline when buying cards in person. " +
         "Give the card name (voice input may be garbled — pass your best guess); optionally the set " +
-        "code to pin a specific printing. Returns the Cardmarket EUR trend price, a Cardmarket link " +
+        "code to pin a specific printing. Without a set it automatically prices the CHEAPEST paper " +
+        "printing — never ask Phil which edition/set he means (the Cardmarket link covers all printings " +
+        "anyway). Returns the Cardmarket EUR trend price, a Cardmarket link " +
         "filtered to German sellers + English cards that Phil can tap to see live " +
-        "offers, and usually a downloaded card image file path. Delivery rules: (1) send the image " +
-        "with send_image WITHOUT any caption, so it shows full-size; (2) then put the price + link in " +
+        "offers, and usually a downloaded card image file path. Delivery rules: (1) ALWAYS send the " +
+        "image when a path is returned: send_image WITHOUT any caption, so it shows full-size; " +
+        "(2) then put the price + link in " +
         "your normal final reply — it is delivered to Phil automatically, so do NOT also send it via " +
         "message_me (that duplicates it). The reply must be plain text: WhatsApp renders no markdown, " +
         "so never use [text](url) links, asterisks or headings; paste the URL bare. " +
@@ -108,8 +111,8 @@ public sealed class CardPriceTool(IScryfallClient scryfall, IOptions<WhatsAppOpt
         sb.Append("\nDE sellers (").Append(LanguageLabel(languageId)).Append("): ").Append(link);
 
         if (string.IsNullOrWhiteSpace(set))
-            sb.Append("\n(Trend is for the ").Append(SetLabel(match.SetCode))
-                .Append(" printing; say the set to pick another.)");
+            sb.Append("\n(Cheapest printing: ").Append(SetLabel(match.SetCode))
+                .Append(". Name a set to price a specific printing.)");
 
         var imagePath = await TryDownloadImageAsync(match);
         if (imagePath is not null)

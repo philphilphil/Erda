@@ -145,4 +145,74 @@ public class ScryfallClientTests
 
         Assert.IsType<CardResolution.NotFound>(result);
     }
+
+    // --- cheapest-printing behavior (no set pinned) ---
+
+    private static string PrintsJson(params string[] cards) =>
+        $"{{\"object\":\"list\",\"data\":[{string.Join(",", cards)}]}}";
+
+    [Fact]
+    public async Task Without_a_set_the_cheapest_paper_printing_wins()
+    {
+        // /cards/named returns Scryfall's default printing — here a digital-only one with NO eur
+        // (the "Underground Sea → Vintage Masters" case that made the agent ask 'which edition?').
+        // The prints search must swap in the cheapest EUR-priced paper printing instead.
+        var handler = new RoutingHandler
+        {
+            Respond = url =>
+                url.Contains("exact=")
+                    ? (HttpStatusCode.OK, CardJson("Underground Sea", "vma", "Vintage Masters", null, "https://cm/x"))
+                : url.Contains("unique=prints")
+                    ? (HttpStatusCode.OK, PrintsJson(
+                        CardJson("Underground Sea", "lea", "Limited Edition Alpha", "12802.84", "https://cm/lea"),
+                        CardJson("Underground Sea", "3ed", "Revised Edition", "739.21", "https://cm/3ed"),
+                        CardJson("Underground Sea", "vma", "Vintage Masters", null, "https://cm/vma")))
+                : (HttpStatusCode.NotFound, ""),
+        };
+
+        var result = await Make(handler).ResolveAsync("Underground Sea", null);
+
+        var match = Assert.IsType<CardResolution.Match>(result);
+        Assert.Equal("3ed", match.SetCode);          // cheapest priced printing, not Alpha, not the digital default
+        Assert.Equal(739.21m, match.EurTrend);
+        // The prints query is name-exact and paper-only (compare decoded — Uri.ToString() partially decodes).
+        var printsUrl = Assert.Single(handler.Requests, u => u.Contains("unique=prints"));
+        var decoded = Uri.UnescapeDataString(printsUrl);
+        Assert.Contains("!\"Underground Sea\"", decoded);
+        Assert.Contains("game:paper", decoded);
+    }
+
+    [Fact]
+    public async Task With_a_pinned_set_no_prints_search_happens()
+    {
+        var handler = new RoutingHandler
+        {
+            Respond = url => url.Contains("exact=") && url.Contains("set=3ed")
+                ? (HttpStatusCode.OK, CardJson("Underground Sea", "3ed", "Revised Edition", "739.21", "https://cm/3ed"))
+                : (HttpStatusCode.NotFound, ""),
+        };
+
+        var result = await Make(handler).ResolveAsync("Underground Sea", "3ed");
+
+        var match = Assert.IsType<CardResolution.Match>(result);
+        Assert.Equal("3ed", match.SetCode);
+        Assert.DoesNotContain(handler.Requests, u => u.Contains("unique=prints"));
+    }
+
+    [Fact]
+    public async Task Prints_search_failure_falls_back_to_the_named_printing()
+    {
+        // The prints lookup is best-effort: a 404/error must not lose the resolved card.
+        var handler = new RoutingHandler
+        {
+            Respond = url => url.Contains("exact=")
+                ? (HttpStatusCode.OK, CardJson("Vivi Ornitier", "fin", "Final Fantasy", "29.13", "https://cm/fin"))
+                : (HttpStatusCode.NotFound, ""),
+        };
+
+        var match = Assert.IsType<CardResolution.Match>(await Make(handler).ResolveAsync("Vivi Ornitier", null));
+
+        Assert.Equal("fin", match.SetCode);
+        Assert.Equal(29.13m, match.EurTrend);
+    }
 }
