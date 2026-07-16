@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -78,16 +81,57 @@ func TestBuildImageMessage(t *testing.T) {
 		URL: "https://mmg.whatsapp.net/x", DirectPath: "/v/x",
 		MediaKey: []byte{1}, FileEncSHA256: []byte{2}, FileSHA256: []byte{3}, FileLength: 42,
 	}
-	msg := buildImageMessage(up, "image/png", "hello")
+	meta := imageMetadata{Width: 488, Height: 680, Thumbnail: []byte{0xff, 0xd8}}
+	msg := buildImageMessage(up, "image/png", "hello", meta)
 	if msg.GetURL() != up.URL || msg.GetDirectPath() != up.DirectPath {
 		t.Errorf("url/directpath not copied: %+v", msg)
 	}
 	if msg.GetMimetype() != "image/png" || msg.GetCaption() != "hello" || msg.GetFileLength() != 42 {
 		t.Errorf("mime/caption/len wrong: %+v", msg)
 	}
+	// Dimensions + thumbnail must be embedded — without Width/Height the receiving client guesses
+	// the aspect ratio and crops the preview.
+	if msg.GetWidth() != 488 || msg.GetHeight() != 680 || len(msg.GetJPEGThumbnail()) == 0 {
+		t.Errorf("width/height/thumbnail not embedded: %+v", msg)
+	}
 	// Empty caption => no caption field set.
-	if buildImageMessage(up, "image/png", "").Caption != nil {
+	if buildImageMessage(up, "image/png", "", meta).Caption != nil {
 		t.Error("empty caption should leave Caption nil")
+	}
+	// Zero metadata (e.g. undecodable webp) => fields left unset, send still proceeds.
+	bare := buildImageMessage(up, "image/webp", "", imageMetadata{})
+	if bare.Width != nil || bare.Height != nil || bare.JPEGThumbnail != nil {
+		t.Errorf("zero meta should leave width/height/thumbnail nil: %+v", bare)
+	}
+}
+
+func TestImageMeta(t *testing.T) {
+	// A real 488x680 PNG (WhatsApp card aspect), rendered in-process.
+	var buf bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 488, 680))
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := imageMeta(buf.Bytes())
+	if meta.Width != 488 || meta.Height != 680 {
+		t.Errorf("dimensions = %dx%d, want 488x680", meta.Width, meta.Height)
+	}
+	if len(meta.Thumbnail) == 0 {
+		t.Error("expected a JPEG thumbnail")
+	}
+	// Thumbnail long edge scaled to ~thumbnailLongEdge: decode and check.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(meta.Thumbnail))
+	if err != nil {
+		t.Fatalf("thumbnail not decodable: %v", err)
+	}
+	if cfg.Height > thumbnailLongEdge || cfg.Width > thumbnailLongEdge {
+		t.Errorf("thumbnail %dx%d exceeds long edge %d", cfg.Width, cfg.Height, thumbnailLongEdge)
+	}
+
+	// Garbage bytes => zero metadata, no panic.
+	if got := imageMeta([]byte("not an image")); got.Width != 0 || got.Thumbnail != nil {
+		t.Errorf("garbage input should yield zero meta, got %+v", got)
 	}
 }
 

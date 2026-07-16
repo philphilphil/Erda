@@ -44,9 +44,11 @@ public sealed class CardPriceTool(IScryfallClient scryfall, IOptions<WhatsAppOpt
         "code to pin a specific printing. Returns the Cardmarket EUR trend price, a Cardmarket link " +
         "filtered to German sellers + English cards that Phil can tap to see live " +
         "offers, and usually a downloaded card image file path. Delivery rules: (1) send the image " +
-        "with send_image WITHOUT any caption, so it shows full-size; (2) send the price/link text as " +
-        "a separate plain-text message — WhatsApp renders no markdown, so never use [text](url) links, " +
-        "asterisks or headings; paste the URL bare. IMPORTANT: if the result is a 'did you mean' " +
+        "with send_image WITHOUT any caption, so it shows full-size; (2) then put the price + link in " +
+        "your normal final reply — it is delivered to Phil automatically, so do NOT also send it via " +
+        "message_me (that duplicates it). The reply must be plain text: WhatsApp renders no markdown, " +
+        "so never use [text](url) links, asterisks or headings; paste the URL bare. " +
+        "IMPORTANT: if the result is a 'did you mean' " +
         "candidate list (not prices), the name was ambiguous — ask Phil which card he means, then call " +
         "card_price again with the confirmed name (and set if he named one). Do not guess which " +
         "candidate he meant.")]

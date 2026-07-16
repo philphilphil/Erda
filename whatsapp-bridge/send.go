@@ -1,15 +1,23 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	// Image decoders for imageMeta (dimensions + thumbnail). No stdlib webp decoder — webp sends
+	// simply go out without dimensions, which only affects the preview aspect.
+	_ "image/gif"
+	_ "image/png"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -223,7 +231,7 @@ func sendMediaHandler(cfg Config, client *whatsmeow.Client) http.HandlerFunc {
 			return
 		}
 
-		msg := &waE2E.Message{ImageMessage: buildImageMessage(uploaded, mime, body.Caption)}
+		msg := &waE2E.Message{ImageMessage: buildImageMessage(uploaded, mime, body.Caption, imageMeta(data))}
 		resp, err := client.SendMessage(req.Context(), to, msg)
 		if err != nil {
 			slog.Warn("send media failed", "to", to.String(), "error", err)
@@ -238,7 +246,10 @@ func sendMediaHandler(cfg Config, client *whatsmeow.Client) http.HandlerFunc {
 }
 
 // buildImageMessage copies an upload response into a protobuf ImageMessage (per whatsmeow's docs).
-func buildImageMessage(up whatsmeow.UploadResponse, mime, caption string) *waE2E.ImageMessage {
+// meta (dimensions + preview thumbnail) matters for rendering: without Width/Height the receiving
+// client guesses the bubble's aspect ratio and CROPS the image (a forwarded copy re-adds the metadata,
+// which is why forwards used to display correctly while our sends did not).
+func buildImageMessage(up whatsmeow.UploadResponse, mime, caption string, meta imageMetadata) *waE2E.ImageMessage {
 	msg := &waE2E.ImageMessage{
 		Mimetype:      proto.String(mime),
 		URL:           proto.String(up.URL),
@@ -251,7 +262,63 @@ func buildImageMessage(up whatsmeow.UploadResponse, mime, caption string) *waE2E
 	if caption != "" {
 		msg.Caption = proto.String(caption)
 	}
+	if meta.Width > 0 && meta.Height > 0 {
+		msg.Width = proto.Uint32(uint32(meta.Width))
+		msg.Height = proto.Uint32(uint32(meta.Height))
+	}
+	if len(meta.Thumbnail) > 0 {
+		msg.JPEGThumbnail = meta.Thumbnail
+	}
 	return msg
+}
+
+// imageMetadata is what buildImageMessage embeds for correct client-side rendering.
+type imageMetadata struct {
+	Width, Height int
+	Thumbnail     []byte // small JPEG preview, or nil
+}
+
+// thumbnailLongEdge is the target long edge of the embedded preview thumbnail (WhatsApp clients
+// typically embed ~100 px).
+const thumbnailLongEdge = 100
+
+// imageMeta decodes the image's dimensions and renders a small JPEG preview thumbnail. Best-effort:
+// an undecodable image (e.g. webp, which the stdlib cannot decode) yields zero metadata and the send
+// proceeds without it.
+func imageMeta(data []byte) imageMetadata {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return imageMetadata{}
+	}
+	meta := imageMetadata{Width: cfg.Width, Height: cfg.Height}
+
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return meta // dimensions still help; just no thumbnail
+	}
+
+	// Scale so the long edge is at most thumbnailLongEdge (never upscale), nearest-neighbor — stdlib
+	// only, plenty for a blurred preview placeholder. Ceiling division: rounding down would leave the
+	// long edge above the target (e.g. 680/6 = 113 > 100).
+	scale := (max(cfg.Width, cfg.Height) + thumbnailLongEdge - 1) / thumbnailLongEdge
+	if scale < 1 {
+		scale = 1
+	}
+	w, h := max(cfg.Width/scale, 1), max(cfg.Height/scale, 1)
+	thumb := image.NewRGBA(image.Rect(0, 0, w, h))
+	bounds := src.Bounds()
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			thumb.Set(x, y, src.At(bounds.Min.X+x*scale, bounds.Min.Y+y*scale))
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, thumb, &jpeg.Options{Quality: 70}); err != nil {
+		return meta
+	}
+	meta.Thumbnail = buf.Bytes()
+	return meta
 }
 
 // mediaTypeForExt maps a file path's extension to an image mimetype. Images only in v1.
