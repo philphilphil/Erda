@@ -80,6 +80,17 @@ public sealed class ErrorWatchOptionsValidator : IValidateOptions<ErrorWatchOpti
     }
 }
 
+/// <summary>Requires the probe interval whenever the OpenAI/chat health check is enabled.</summary>
+public sealed class HealthCheckOptionsValidator : IValidateOptions<HealthCheckOptions>
+{
+    public ValidateOptionsResult Validate(string? name, HealthCheckOptions o)
+    {
+        if (!o.Enabled) return ValidateOptionsResult.Success;
+        return RequiredWhenEnabled.Check(HealthCheckOptions.SectionName,
+            (nameof(o.Interval), RequiredWhenEnabled.Pos(o.Interval)));
+    }
+}
+
 /// <summary>Requires the timezone / intervals when reminders are enabled (and the
 /// pre-script limits when pre-run scripts are enabled).</summary>
 public sealed class ReminderOptionsValidator : IValidateOptions<ReminderOptions>

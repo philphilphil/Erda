@@ -116,6 +116,28 @@ public class ConfigValidationTests
     }
 
     [Fact]
+    public void HealthCheck_enabled_requires_interval()
+    {
+        var result = new HealthCheckOptionsValidator().Validate(null, new HealthCheckOptions { Enabled = true });
+        Assert.True(result.Failed);
+        Assert.Contains("HealthCheck__Interval", result.FailureMessage); // unset TimeSpan = 00:00:00
+    }
+
+    [Fact]
+    public void HealthCheck_disabled_needs_nothing()
+    {
+        Assert.True(new HealthCheckOptionsValidator().Validate(null, new HealthCheckOptions { Enabled = false }).Succeeded);
+    }
+
+    [Fact]
+    public void HealthCheck_enabled_with_interval_succeeds()
+    {
+        var result = new HealthCheckOptionsValidator().Validate(null,
+            new HealthCheckOptions { Enabled = true, Interval = TimeSpan.FromHours(1) });
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
     public void Erda_options_require_models_and_chat_settings()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

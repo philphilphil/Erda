@@ -15,6 +15,7 @@ public sealed class ConfigPanelService(
     IOptions<SeqOptions> seq,
     IOptions<ErrorWatchOptions> errorWatch,
     IOptions<ReminderOptions> reminders,
+    IOptions<HealthCheckOptions> healthCheck,
     IOptions<ObservabilityOptions> observability,
     IOptions<BrowserOptions> browser,
     IOptions<UploadOptions> upload)
@@ -30,6 +31,7 @@ public sealed class ConfigPanelService(
         var s = seq.Value;
         var ew = errorWatch.Value;
         var r = reminders.Value;
+        var hc = healthCheck.Value;
         var o = observability.Value;
         var b = browser.Value;
         var up = upload.Value;
@@ -60,6 +62,10 @@ public sealed class ConfigPanelService(
             new("Reminders", "Enabled", Show(r.Enabled)),
             new("Reminders", "Poll interval", Show(r.PollInterval)),
             new("Reminders", "Timezone", Show(r.TimeZone)),
+
+            new("Health check", "Enabled", Show(hc.Enabled)),
+            new("Health check", "Interval", Show(hc.Interval)),
+            new("Health check", "Timeout", Show(hc.EffectiveTimeout)),
 
             new("Observability", "Tracing enabled", Show(o.Enabled)),
             new("Observability", "Capture message content", Show(o.CaptureMessageContent)),

@@ -15,14 +15,31 @@ public static class SystemScheduleEndpoints
     {
         var g = group.MapGroup("/system-schedules");
 
-        g.MapGet("", (IOptions<ErrorWatchOptions> errorWatch) =>
+        g.MapGet("", (IOptions<ErrorWatchOptions> errorWatch, IOptions<HealthCheckOptions> healthCheck) =>
         {
-            var schedules = new List<SystemScheduleDto> { DescribeErrorWatch(errorWatch.Value) };
+            var schedules = new List<SystemScheduleDto>
+            {
+                DescribeErrorWatch(errorWatch.Value),
+                DescribeHealthCheck(healthCheck.Value),
+            };
             return Results.Ok(new SystemSchedulesResponse(schedules));
         });
 
         return group;
     }
+
+    private static SystemScheduleDto DescribeHealthCheck(HealthCheckOptions o) => new(
+        Key: "healthcheck",
+        Name: "OpenAI health check",
+        Icon: "alert",
+        Description: "Probes the chat/proxy endpoint on an interval and alerts you on WhatsApp if it stops answering.",
+        Enabled: o.Enabled,
+        Status: o.Enabled ? "Running" : "Disabled",
+        Tags:
+        [
+            $"every {FormatInterval(o.Interval)}",
+            $"timeout {FormatInterval(o.EffectiveTimeout)}",
+        ]);
 
     private static SystemScheduleDto DescribeErrorWatch(ErrorWatchOptions o) => new(
         Key: "errorwatch",

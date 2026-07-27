@@ -33,7 +33,7 @@ Erda is a **.NET 10 solution** built on the **Microsoft Agent Framework (MAF) 1.
 Four projects with one-directional references — **`Erda.Server` → `Erda.Agents` → `Erda.Core`**.
 Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 
-- **`Erda.Core`** (`Microsoft.NET.Sdk`) — host-agnostic business logic: `Configuration/`, `Data/` (EF + migrations), `Services/` (Vault, Reasoner, Transcriber, ActivityRecorder, clock, `Seq/`), `Scheduling/` (`Reminders/` + `ErrorWatch/`), `WhatsApp/` (channel/sender/queue/worker), and `Abstractions/` (the `IAgentResponder`/`IMemoProcessor` seams that keep Core free of any MAF/ASP.NET dependency). `AddErdaCore()` wires it all.
+- **`Erda.Core`** (`Microsoft.NET.Sdk`) — host-agnostic business logic: `Configuration/`, `Data/` (EF + migrations), `Services/` (Vault, Reasoner, Transcriber, ActivityRecorder, clock, `Seq/`), `Scheduling/` (`Reminders/` + `ErrorWatch/` + `HealthCheck/`), `WhatsApp/` (channel/sender/queue/worker), and `Abstractions/` (the `IAgentResponder`/`IMemoProcessor` seams that keep Core free of any MAF/ASP.NET dependency). `AddErdaCore()` wires it all.
 - **`Erda.Agents`** (`Microsoft.NET.Sdk`) — the MAF layer: `Orchestration/` (the `erda` agent + responder), `Tools/`, `Workflows/`. `AddErdaAgents()` wires it.
 - **`Erda.Server`** (`Microsoft.NET.Sdk.Web`) — the only runnable app: `Program.cs`, `Api/`, `WhatsApp/WhatsAppEndpoints.cs`, `Hosting/`. Serves the SPA from `wwwroot`.
 - **`Erda.Tests`** (xUnit) — references all three.
@@ -60,6 +60,7 @@ The chat agent runs `gpt-5.5` on a local OpenAI-compatible endpoint via the **Re
 - `Erda.Core/Services/Transcriber.cs` — OpenAI audio transcription
 - `Erda.Agents/Workflows/VoiceMemoWorkflow.cs` — voice memo pipeline (transcribe → `IReasoner` → write); wrapped as `process_voice_memo` tool via `AsAIFunction`; implements `IMemoProcessor` via `MemoProcessor`
 - `Erda.Core/Scheduling/ErrorWatch/ErrorWatchScheduler.cs` — background loop: polls Seq for errors, deduplicates by signature, analyzes via `IReasoner`, alerts via WhatsApp
+- `Erda.Core/Scheduling/HealthCheck/HealthCheckScheduler.cs` — background loop: on an interval, sends a tiny probe prompt through `IReasoner` (the same streamed Responses path the chat agent uses) to confirm the local OpenAI-compatible endpoint (codex/proxy) is still answering; alerts on WhatsApp when it goes down (failure/timeout/empty output) and again when it recovers. In-memory state only (no watermark to persist)
 - `Erda.Core/WhatsApp/` — bridge integration: inbound queue, background worker, channel service (dispatches text/voice/image to the agent), sender; the HTTP endpoint is `Erda.Server/WhatsApp/WhatsAppEndpoints.cs`
 - `Erda.Core/Upload/UploadIntake.cs` + `Erda.Server/Upload/UploadEndpoints.cs` — `POST /upload`: a bearer-authenticated audio upload (iOS Shortcut) accepting either a **raw body** (Shortcut "Request Body: File") or `multipart/form-data` with a field named `audio`. The file is saved and enqueued onto the WhatsApp inbound queue, so it runs the **same** Apple-Voice-Memo pipeline (transcribe → `IReasoner` → `1 Inbox/`) and replies over WhatsApp. Returns `202` immediately; gated by `Upload:Enabled` and requires `WhatsApp:Enabled`
 
@@ -96,7 +97,7 @@ default — required values are validated at startup** (`ValidateOnStart`) and a
 app naming the key. Always-required: `CredentialsOptions` (flat `OPENAI_API_KEY`, `[Required]`) + all
 of `ErdaOptions` (`VaultPath`, `DbPath`, the chat-endpoint/model settings — `[Required]`; optional
 `ChatApiKey` defaults to `"local"`). Feature settings are required only when the feature's `Enabled` switch is on,
-via per-feature `IValidateOptions` (`WhatsApp`/`Browser`/`ErrorWatch`/`Reminder` `OptionsValidator`).
+via per-feature `IValidateOptions` (`WhatsApp`/`Browser`/`ErrorWatch`/`Reminder`/`HealthCheck` `OptionsValidator`).
 Bool switches are off when absent (default-true behaviours like `AnalyzeWithCodex`/`NotifyOnError`/
 `IngestToErda` are now switches you set in `.env`). The only non-config values are fixed mechanics
 expressed as read-only constants on `BrowserOptions` (`McpCommand`, `McpArgs`, `MaxSteps`, `OpCommand`,
@@ -110,6 +111,7 @@ expressed as read-only constants on `BrowserOptions` (`McpCommand`, `McpArgs`, `
 | `Upload` | `Enabled`, `ApiKey`, `MaxUploadMb` | `POST /upload` HTTP audio intake → same voice-memo pipeline (`ApiKey`/`MaxUploadMb` required when `Enabled`; 50 MB recommended; requires `WhatsApp:Enabled`) |
 | `ErrorWatch` | `Enabled`, `PollInterval`, `MinLevel`, `MaxAlertsPerPoll`, `AnalyzeWithCodex`, `ReAlertAfter`, `SignatureProperties` | Error-watch scheduler (interval/level/cap required when `Enabled`; `ReAlertAfter` re-alerts an ongoing error after a cooldown, absent ⇒ once-ever; `SignatureProperties` folds named properties into the dedup signature for constant-template events) |
 | `Reminders` | `Enabled`, `TimeZone`, `PollInterval`, `OverdueGrace`, `PreScript*` | Reminder scheduler (zone/intervals required when `Enabled`; pre-script limits when `PreScriptEnabled`) |
+| `HealthCheck` | `Enabled`, `Interval`, `Timeout`, `ReAlertAfter` | OpenAI/chat connection health check (`Interval` required when `Enabled`; probes the endpoint via `IReasoner` and alerts on WhatsApp when it's down/recovered; `Timeout` absent ⇒ 60s; `ReAlertAfter` re-alerts an ongoing outage after a cooldown, absent ⇒ once down + once recovered) |
 | `Seq` | `ServerUrl`, `ApiKey`, `IngestToErda` | Seq sink for Serilog + OTLP target (optional; blank ⇒ off) |
 | `Observability` | `Enabled`, `CaptureMessageContent` | OTel master switch; content capture gate |
 | `Erda:Browser` | `Enabled`, `ShowWindow`, `UserDataDir`, `OutputDir` | Agentic browser (`UserDataDir`/`OutputDir` required when `Enabled`; absent `ShowWindow` ⇒ headless) |

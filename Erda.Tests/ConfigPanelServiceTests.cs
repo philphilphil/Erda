@@ -21,6 +21,7 @@ public class ConfigPanelServiceTests
             Options.Create(seq ?? new SeqOptions()),
             Options.Create(new ErrorWatchOptions()),
             Options.Create(new ReminderOptions()),
+            Options.Create(new HealthCheckOptions()),
             Options.Create(new ObservabilityOptions()),
             Options.Create(new BrowserOptions()),
             Options.Create(new UploadOptions()));

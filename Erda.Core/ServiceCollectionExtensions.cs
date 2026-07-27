@@ -70,6 +70,11 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<ReminderOptions>, ReminderOptionsValidator>();
 
+        services.AddOptions<HealthCheckOptions>()
+            .Bind(configuration.GetSection(HealthCheckOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<HealthCheckOptions>, HealthCheckOptionsValidator>();
+
         services.Configure<ObservabilityOptions>(configuration.GetSection(ObservabilityOptions.SectionName));
         services.Configure<SeqOptions>(configuration.GetSection(SeqOptions.SectionName));
 
@@ -124,6 +129,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ReminderStateStore>();
         services.AddSingleton<ReminderDispatcher>();
         services.AddHostedService<ReminderScheduler>();
+
+        // --- OpenAI/chat health check (IReasoner probe -> WhatsApp) ---
+        // Periodically probes the local OpenAI-compatible endpoint (codex/proxy) through the shared
+        // IReasoner seam and alerts Phil if it stops answering. IReasoner is registered in AddErdaAgents.
+        services.AddHostedService<HealthCheckScheduler>();
 
         return services;
     }
