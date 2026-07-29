@@ -97,6 +97,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CurrentTimeContext>();
         services.AddSingleton<IPromptStore, PromptStore>();
         services.AddSingleton<IActivityRecorder, ActivityRecorder>();
+        // Durable archive of API-uploaded voice memos (audio + produced note) for the panel.
+        services.AddSingleton<IVoiceMemoArchive, VoiceMemoArchive>();
 
         // --- WhatsApp channel ---
         // A whatsmeow "bridge" sidecar holds the WhatsApp socket; Erda POSTs replies to its /send and

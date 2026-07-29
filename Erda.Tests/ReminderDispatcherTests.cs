@@ -1,3 +1,4 @@
+using Erda.Core.Abstractions;
 using Erda.Core.Configuration;
 using Erda.Core.Scheduling;
 using Erda.Core.Services;
@@ -74,6 +75,33 @@ public class ReminderDispatcherTests
         Assert.True(delivered);
         Assert.Empty(responder.RunOnceCalls);                          // verbatim → no model call
         Assert.Equal("Call mom", Assert.Single(sender.Sent).Text);      // sent as-is, no ⏰ prefix
+    }
+
+    [Fact]
+    public async Task Upstream_model_failure_is_reported_instead_of_no_response()
+    {
+        var (d, responder, sender, recorder) = Make();
+        responder.Reply = new AgentReply("", null, null, null, []);   // empty, no usage, no tools
+
+        var delivered = await d.DispatchAsync(Prompt("news", "What's up?"), Owner, manual: false, default);
+
+        Assert.True(delivered);                                       // still sent and still recorded
+        var sent = Assert.Single(sender.Sent);
+        Assert.Contains("may be overloaded", sent.Text);
+        Assert.DoesNotContain("(no response)", sent.Text);
+        Assert.StartsWith("⏰", sent.Text);
+        Assert.Single(recorder.Records);
+    }
+
+    [Fact]
+    public async Task Empty_reply_with_usage_still_falls_back_to_no_response()
+    {
+        var (d, responder, sender, _) = Make();
+        responder.Reply = new AgentReply("", 10, 0, 10, []);          // the model answered — with nothing
+
+        await d.DispatchAsync(Prompt("news", "What's up?"), Owner, manual: false, default);
+
+        Assert.Equal("⏰ (no response)", Assert.Single(sender.Sent).Text);
     }
 
     [Fact]

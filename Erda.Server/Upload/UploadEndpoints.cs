@@ -74,6 +74,7 @@ public static class UploadEndpoints
             //   • multipart — curl -F / Shortcut "Form" with a file field named "audio".
             Stream audio;
             long? declaredLength;
+            string? fileName = null;
             if (request.HasFormContentType)
             {
                 // Match the multipart length limit to the body cap so an over-cap part is a clean 413,
@@ -101,18 +102,22 @@ public static class UploadEndpoints
                     return Results.Json(new { error = "no audio file (expected a raw body or a form field named 'audio')" }, statusCode: StatusCodes.Status400BadRequest);
                 audio = file.OpenReadStream();
                 declaredLength = file.Length;
+                fileName = file.FileName; // original name → shown in the archive; raw bodies have none
             }
             else
             {
                 // Raw audio body. Content-Length (iOS sets it) gives the size up front; when absent the
-                // bounded save in UploadIntake still enforces the cap against the bytes written.
+                // bounded save in UploadIntake still enforces the cap against the bytes written. A raw
+                // body carries no filename; an optional X-Filename header lets a Shortcut supply one.
                 audio = request.Body;
                 declaredLength = request.ContentLength;
+                var hinted = request.Headers["X-Filename"].ToString();
+                if (!string.IsNullOrWhiteSpace(hinted)) fileName = hinted;
             }
 
             try
             {
-                var outcome = await intake.IngestAsync(declaredLength, audio, ct);
+                var outcome = await intake.IngestAsync(declaredLength, audio, fileName, ct);
                 return outcome switch
                 {
                     UploadOutcome.TooLarge => await Reject(StatusCodes.Status413PayloadTooLarge, "file too large"),

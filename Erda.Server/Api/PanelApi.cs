@@ -65,6 +65,7 @@ public static class PanelApi
         data.MapWorkflowEndpoints();
         data.MapPromptEndpoints();
         data.MapActivityEndpoints();
+        data.MapVoiceMemoEndpoints();
         data.MapConfigEndpoints();
         data.MapSystemScheduleEndpoints();
         data.MapStatusEndpoints();

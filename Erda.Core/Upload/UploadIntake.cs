@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using Erda.Core.Configuration;
+using Erda.Core.Data;
+using Erda.Core.Services;
 using Erda.Core.WhatsApp;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,6 +31,7 @@ public sealed class UploadIntake(
     IOptions<UploadOptions> uploadOptions,
     IOptions<WhatsAppOptions> whatsAppOptions,
     WhatsAppInboundQueue queue,
+    IVoiceMemoArchive archive,
     ILogger<UploadIntake> logger)
 {
     /// <summary>
@@ -60,7 +63,7 @@ public sealed class UploadIntake(
     /// when unknown (a raw body with no Content-Length), in which case the cap is enforced against the
     /// bytes actually written.
     /// </summary>
-    public async Task<UploadOutcome> IngestAsync(long? declaredLength, Stream content, CancellationToken cancellationToken = default)
+    public async Task<UploadOutcome> IngestAsync(long? declaredLength, Stream content, string? fileName = null, CancellationToken cancellationToken = default)
     {
         var maxBytes = (long)uploadOptions.Value.MaxUploadMb * 1024 * 1024;
 
@@ -92,6 +95,13 @@ public sealed class UploadIntake(
             return UploadOutcome.TooLarge;
         }
 
+        // Archive the upload (durable audio copy + row) so it shows in the panel's voice-memo archive.
+        // Best-effort: a null id (archiving failed) just means no archive row — the memo still processes.
+        var displayName = string.IsNullOrWhiteSpace(fileName)
+            ? $"voice-{DateTimeOffset.Now:yyyy-MM-dd_HHmm}.m4a"
+            : Path.GetFileName(fileName!.Trim());
+        var archiveId = await archive.RecordAsync(displayName, path, VoiceMemoSource.Upload, cancellationToken);
+
         var ownerJid = WhatsAppJid.FromNumber(whatsAppOptions.Value.OwnerNumber);
         await queue.EnqueueAsync(new InboundMessage
         {
@@ -104,6 +114,7 @@ public sealed class UploadIntake(
             // Timestamp 0: an HTTP upload is a one-shot request, never a replayed bridge message, so it
             // must not be subject to the channel's replay-drop guard (Timestamp > 0 && < process-start).
             Timestamp = 0,
+            VoiceArchiveId = archiveId,
         }, cancellationToken);
 
         logger.LogInformation("Upload accepted: {Bytes} bytes saved to {Path}, enqueued for the voice-memo pipeline.", written, path);

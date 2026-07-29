@@ -2,6 +2,7 @@ using Erda.Agents;
 using Erda.Core;
 using Erda.Core.Configuration;
 using Erda.Core.Data;
+using Erda.Core.Services;
 using Erda.Server.Api;
 using Erda.Server.Hosting;
 using Erda.Server.Upload;
@@ -116,6 +117,10 @@ using (var scope = app.Services.CreateScope())
     var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<ErdaDbContext>>();
     using var db = dbFactory.CreateDbContext();
     db.Database.Migrate();
+
+    // The inbound queue is in-memory: any voice-memo row still "pending" belongs to a previous process
+    // and can never be processed, so retire it instead of showing it as pending forever in the panel.
+    await scope.ServiceProvider.GetRequiredService<IVoiceMemoArchive>().ReconcileStalePendingAsync();
 }
 
 LogStartupConfig(app);
