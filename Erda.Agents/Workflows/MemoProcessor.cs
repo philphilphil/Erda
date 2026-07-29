@@ -20,6 +20,9 @@ public sealed class MemoProcessor(
 {
     private const string InboxFolder = "1 Inbox";
 
+    /// <summary>How many suffixed names to try before falling back to a random one.</summary>
+    private const int MaxSuffixAttempts = 100;
+
     public async Task<MemoResult> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("MemoProcessor: processing {Chars}-char transcript.", transcript.Length);
@@ -33,14 +36,15 @@ public sealed class MemoProcessor(
     public Task<string> SaveRawAsync(string transcript, CancellationToken cancellationToken = default)
     {
         // Seconds precision (not the HHmm the formatted path uses): raw saves are a failure fallback and
-        // may retry within the same minute, and WriteNote overwrites — so avoid clobbering.
+        // may retry within the same minute. The stamp alone guarantees nothing — the queue drains memos
+        // back-to-back, so two raw saves land in the same second routinely — so the write goes through
+        // WriteWithoutOverwriting, which never clobbers an existing note.
         var stamp = DateTimeOffset.Now.ToString("yyyy-MM-dd_HHmmss");
-        var relative = $"{InboxFolder}/{stamp}_voice-memo-raw.md";
         var body =
             "# Voice memo (raw transcript)\n\n" +
             "> ⚠️ Automatic formatting failed (model unavailable); this is the unprocessed transcript.\n\n" +
             transcript + "\n";
-        vault.WriteNote(relative, body);
+        var relative = WriteWithoutOverwriting($"{InboxFolder}/{stamp}_voice-memo-raw", body);
         logger.LogWarning("MemoProcessor: saved RAW transcript ({Chars} chars) to {Path} after a formatting failure.",
             transcript.Length, relative);
         return Task.FromResult(relative);
@@ -48,10 +52,33 @@ public sealed class MemoProcessor(
 
     private string WriteToInbox(string note)
     {
+        // Minute precision plus a title slug: two memos processed in the same minute whose titles
+        // slugify alike would land on the same path, so the write goes through WriteWithoutOverwriting.
         var stamp = DateTimeOffset.Now.ToString("yyyy-MM-dd_HHmm");
         var slug = ExtractSlug(note);
-        var relative = $"{InboxFolder}/{stamp}_{slug}.md";
-        vault.WriteNote(relative, note);
+        return WriteWithoutOverwriting($"{InboxFolder}/{stamp}_{slug}", note);
+    }
+
+    /// <summary>
+    /// Write <paramref name="content"/> to the first free path: <c>{basePath}.md</c> when nothing is
+    /// there yet, else <c>{basePath}-2.md</c>, <c>{basePath}-3.md</c>, … An existing note is never
+    /// overwritten (<see cref="VaultService.WriteNote"/> clobbers unconditionally). After
+    /// <see cref="MaxSuffixAttempts"/> taken names it falls back to a random suffix rather than looping
+    /// on. Returns the vault-relative path actually written.
+    /// </summary>
+    private string WriteWithoutOverwriting(string basePath, string content)
+    {
+        var relative = $"{basePath}.md";
+        for (var n = 2; vault.Exists(relative); n++)
+        {
+            if (n > MaxSuffixAttempts)
+            {
+                relative = $"{basePath}-{Guid.NewGuid():N}.md";
+                break;
+            }
+            relative = $"{basePath}-{n}.md";
+        }
+        vault.WriteNote(relative, content);
         return relative;
     }
 

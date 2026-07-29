@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { getVoiceMemos, deleteVoiceMemo, voiceMemoAudioUrl } from '../api/client'
-import type { VoiceMemoDto } from '../api/types'
+import type { VoiceMemoDto, VoiceMemoSource } from '../api/types'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -71,12 +71,37 @@ function noteName(path: string | null): string | null {
 
 const STATUS_COLOR: Record<string, string> = {
   filed: 'var(--green)',
-  raw: 'var(--amber, var(--blue))',
+  raw: 'var(--amber)',
   failed: 'var(--red)',
+  answered: 'var(--blue)',
   pending: 'var(--text-faint)',
 }
 function statusColor(s: string): string {
   return STATUS_COLOR[s] ?? 'var(--text-faint)'
+}
+
+// Source badge: where the audio came from. Reuses the global .badge chip + colour classes.
+const SOURCE_LABEL: Record<VoiceMemoSource, string> = {
+  upload: 'Upload',
+  'apple-memo': 'Apple memo',
+  'whatsapp-voice': 'WhatsApp',
+}
+const SOURCE_CLASS: Record<VoiceMemoSource, string> = {
+  upload: 'b-blue',
+  'apple-memo': 'b-violet',
+  'whatsapp-voice': 'b-cyan',
+}
+function sourceLabel(s: VoiceMemoSource): string {
+  return SOURCE_LABEL[s] ?? s
+}
+function sourceClass(s: VoiceMemoSource): string {
+  return SOURCE_CLASS[s] ?? 'b-muted'
+}
+
+// One-line preview of an answered turn's transcript (the full text goes in the title attribute).
+function transcriptPreview(t: string | null): string {
+  const flat = (t ?? '').replace(/\s+/g, ' ').trim()
+  return flat || '—'
 }
 
 const count = computed(() => memos.value.length)
@@ -88,8 +113,9 @@ const count = computed(() => memos.value.length)
       <div>
         <div class="h-title">Voice memos</div>
         <div class="h-sub">
-          Archive of voice memos uploaded via the API (iOS Shortcut). Play the original audio or delete
-          the entry — the Obsidian note it produced is always kept.
+          Archive of every voice message Erda receives: API uploads (iOS Shortcut), Apple Voice Memos
+          shared through WhatsApp, and WhatsApp voice notes. Play the original audio or delete the entry
+          — the Obsidian note it produced is always kept.
         </div>
       </div>
       <div class="h-actions">
@@ -101,14 +127,14 @@ const count = computed(() => memos.value.length)
 
     <div v-if="error" class="banner-error">{{ error }}</div>
 
-    <Card flush title="Uploaded memos" icon="mic" :sub="count ? `${count}` : undefined">
+    <Card flush title="Archived memos" icon="mic" :sub="count ? `${count}` : undefined">
       <div v-if="loading" class="vm-note faint">Loading…</div>
 
       <EmptyState
         v-else-if="count === 0"
         icon="mic"
-        title="No uploaded voice memos yet"
-        sub="Memos you send through the /upload endpoint (iOS Shortcut) will appear here."
+        title="No voice memos yet"
+        sub="Voice notes sent over WhatsApp and memos uploaded through the /upload endpoint (iOS Shortcut) will appear here."
       />
 
       <div v-else class="vm-scroll">
@@ -117,7 +143,8 @@ const count = computed(() => memos.value.length)
             <tr>
               <th class="col-date">Date</th>
               <th class="col-file">File</th>
-              <th class="col-note">Obsidian note</th>
+              <th class="col-source">Source</th>
+              <th class="col-note">Result</th>
               <th class="col-play">Audio</th>
               <th class="col-del"></th>
             </tr>
@@ -129,11 +156,23 @@ const count = computed(() => memos.value.length)
                 <span class="vm-file">{{ m.fileName }}</span>
                 <span class="vm-size faint">{{ fmtBytes(m.audioBytes) }}</span>
               </td>
+              <td class="col-source">
+                <span class="badge sq" :class="sourceClass(m.source)">
+                  <span class="dot" />{{ sourceLabel(m.source) }}
+                </span>
+              </td>
               <td class="col-note">
+                <!-- filed/raw memos link the note they produced; an answered agent turn has only its
+                     transcript (no note is written), so preview that instead. -->
                 <span v-if="noteName(m.notePath)" class="vm-noteline">
                   <Icon name="note" :size="13" />
                   <span class="vm-notename" :title="m.notePath ?? undefined">{{ noteName(m.notePath) }}</span>
                 </span>
+                <span
+                  v-else-if="m.status === 'answered'"
+                  class="vm-transcript"
+                  :title="m.transcript ?? 'answered — no note'"
+                >{{ transcriptPreview(m.transcript) }}</span>
                 <span
                   v-else
                   class="vm-status"
@@ -216,6 +255,18 @@ const count = computed(() => memos.value.length)
 }
 .vm-notename {
   word-break: break-word;
+}
+.col-source {
+  white-space: nowrap;
+}
+/* one-line transcript preview; the full text is in the title attribute */
+.vm-transcript {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
 }
 .vm-status {
   font-size: var(--fs-xs);

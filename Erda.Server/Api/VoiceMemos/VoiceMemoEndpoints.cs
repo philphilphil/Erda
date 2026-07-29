@@ -3,9 +3,10 @@ using Erda.Core.Services;
 namespace Erda.Server.Api;
 
 /// <summary>
-/// JSON + audio endpoints over <see cref="IVoiceMemoArchive"/> for the panel's Voice-memo archive: the
-/// memos uploaded via <c>POST /upload</c>. List rows, stream a row's audio for playback, and delete a
-/// row (audio + entry; the Obsidian note is left in place).
+/// JSON + audio endpoints over <see cref="IVoiceMemoArchive"/> for the panel's Voice-memo archive: every
+/// piece of inbound voice audio — <c>POST /upload</c> memos, Apple Voice Memos shared through WhatsApp,
+/// and WhatsApp voice notes. List rows, stream a row's audio for playback, and delete a row (audio +
+/// entry; the Obsidian note is left in place).
 /// </summary>
 public static class VoiceMemoEndpoints
 {

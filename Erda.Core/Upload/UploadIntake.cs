@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Erda.Core.Configuration;
+using Erda.Core.Data;
 using Erda.Core.Services;
 using Erda.Core.WhatsApp;
 using Microsoft.Extensions.Logging;
@@ -99,7 +100,7 @@ public sealed class UploadIntake(
         var displayName = string.IsNullOrWhiteSpace(fileName)
             ? $"voice-{DateTimeOffset.Now:yyyy-MM-dd_HHmm}.m4a"
             : Path.GetFileName(fileName!.Trim());
-        var archiveId = await archive.RecordAsync(displayName, path, cancellationToken);
+        var archiveId = await archive.RecordAsync(displayName, path, VoiceMemoSource.Upload, cancellationToken);
 
         var ownerJid = WhatsAppJid.FromNumber(whatsAppOptions.Value.OwnerNumber);
         await queue.EnqueueAsync(new InboundMessage

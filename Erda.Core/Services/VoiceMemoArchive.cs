@@ -5,13 +5,20 @@ using Microsoft.Extensions.Options;
 
 namespace Erda.Core.Services;
 
-/// <summary>A row for the panel's voice-memo archive plus whether its audio file is still on disk.</summary>
+/// <summary>
+/// A row for the panel's voice-memo archive plus whether its audio file is still on disk.
+/// <paramref name="Source"/> and <paramref name="Status"/> are the enums' lowercase-kebab wire
+/// spelling (<c>apple-memo</c>, <c>answered</c>, …), mapped explicitly so the panel JSON never
+/// depends on how System.Text.Json would serialize the enums.
+/// </summary>
 public sealed record VoiceMemoView(
     long Id,
     DateTimeOffset CreatedAtUtc,
     string FileName,
+    string Source,
     string? NotePath,
     string Status,
+    string? Transcript,
     long AudioBytes,
     bool HasAudio);
 
@@ -19,25 +26,37 @@ public sealed record VoiceMemoView(
 public sealed record VoiceMemoAudio(Stream Content, string ContentType, string FileName);
 
 /// <summary>
-/// Durable archive of voice memos uploaded via the HTTP <c>/upload</c> endpoint. Stores each upload's
-/// audio in a dedicated directory next to the DB (so the media-temp cleanup never touches it) and a row
-/// in <see cref="ErdaDbContext.VoiceMemos"/> linking date + filename + produced note. Only API uploads
-/// are archived — WhatsApp voice notes never call this.
+/// Durable archive of every piece of inbound voice audio — HTTP <c>/upload</c> memos, Apple Voice Memos
+/// shared through WhatsApp, and WhatsApp-recorded voice notes (see <see cref="VoiceMemoSource"/>). Stores
+/// each memo's audio in a dedicated directory next to the DB (so the media-temp cleanup never touches it)
+/// and a row in <see cref="ErdaDbContext.VoiceMemos"/> linking date + filename + source + what it produced
+/// (a note, or a transcript for an agent turn).
 /// </summary>
 public interface IVoiceMemoArchive
 {
     /// <summary>
-    /// Copy the just-saved upload audio into the archive and create a <c>pending</c> row. Returns the row
+    /// Copy the just-saved audio into the archive and create a <c>pending</c> row. Returns the row
     /// id to thread through the pipeline (so <see cref="CompleteAsync"/>/<see cref="FailAsync"/> can link
-    /// the note), or null if archiving failed (best-effort — a failure here must not block the upload).
+    /// the note), or null if archiving failed (best-effort — a failure here must not block the memo).
     /// </summary>
-    Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, CancellationToken ct = default);
+    Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, VoiceMemoSource source, CancellationToken ct = default);
 
-    /// <summary>Mark a row processed, linking the produced note and a terminal status (<c>filed</c>/<c>raw</c>).</summary>
-    Task CompleteAsync(long id, string? notePath, string status, CancellationToken ct = default);
+    /// <summary>
+    /// Mark a row processed, linking the produced note and a terminal status (<c>filed</c>/<c>raw</c>), or
+    /// — for an <c>answered</c> agent turn, which produces no note — the transcript.
+    /// </summary>
+    Task CompleteAsync(long id, string? notePath, VoiceMemoStatus status, string? transcript = null, CancellationToken ct = default);
 
-    /// <summary>Mark a row <c>failed</c> (transcription/save could not produce a note).</summary>
+    /// <summary>Mark a row <c>failed</c> (transcription/processing could not produce anything).</summary>
     Task FailAsync(long id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sweep leftover <c>pending</c> rows to <c>failed</c> and return how many were touched. The inbound
+    /// queue is in-memory, so a row still <c>pending</c> at startup belongs to a run that ended before the
+    /// pipeline finished and can never be processed — it would otherwise show as pending forever. The
+    /// audio is still in the archive and playable; only the note link is lost.
+    /// </summary>
+    Task<int> ReconcileStalePendingAsync(CancellationToken ct = default);
 
     /// <summary>All archived memos, newest first.</summary>
     Task<IReadOnlyList<VoiceMemoView>> ListAsync(CancellationToken ct = default);
@@ -68,7 +87,7 @@ public sealed class VoiceMemoArchive(
     }
 
     /// <inheritdoc />
-    public async Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, CancellationToken ct = default)
+    public async Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, VoiceMemoSource source, CancellationToken ct = default)
     {
         try
         {
@@ -83,9 +102,10 @@ public sealed class VoiceMemoArchive(
             {
                 CreatedAtUtc = DateTimeOffset.UtcNow,
                 FileName = string.IsNullOrWhiteSpace(displayFileName) ? storedName : displayFileName,
+                Source = source,
                 AudioFileName = storedName,
                 AudioBytes = bytes,
-                Status = "pending",
+                Status = VoiceMemoStatus.Pending,
             };
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             db.VoiceMemos.Add(row);
@@ -94,13 +114,13 @@ public sealed class VoiceMemoArchive(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Could not archive uploaded voice memo {File}; continuing without an archive row.", displayFileName);
+            logger.LogWarning(ex, "Could not archive {Source} voice memo {File}; continuing without an archive row.", source, displayFileName);
             return null;
         }
     }
 
     /// <inheritdoc />
-    public async Task CompleteAsync(long id, string? notePath, string status, CancellationToken ct = default)
+    public async Task CompleteAsync(long id, string? notePath, VoiceMemoStatus status, string? transcript = null, CancellationToken ct = default)
     {
         try
         {
@@ -108,6 +128,7 @@ public sealed class VoiceMemoArchive(
             var row = await db.VoiceMemos.FindAsync([id], ct);
             if (row is null) return;
             row.NotePath = notePath;
+            row.Transcript = transcript;
             row.Status = status;
             await db.SaveChangesAsync(ct);
         }
@@ -118,7 +139,32 @@ public sealed class VoiceMemoArchive(
     }
 
     /// <inheritdoc />
-    public Task FailAsync(long id, CancellationToken ct = default) => CompleteAsync(id, null, "failed", ct);
+    public Task FailAsync(long id, CancellationToken ct = default) => CompleteAsync(id, null, VoiceMemoStatus.Failed, ct: ct);
+
+    /// <inheritdoc />
+    public async Task<int> ReconcileStalePendingAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var stale = await db.VoiceMemos.Where(v => v.Status == VoiceMemoStatus.Pending).ToListAsync(ct);
+            if (stale.Count == 0) return 0;
+
+            foreach (var row in stale)
+                row.Status = VoiceMemoStatus.Failed;
+            await db.SaveChangesAsync(ct);
+
+            logger.LogWarning(
+                "Marked {Count} stale pending voice-memo archive row(s) as failed; they were left over from a previous process and can never be processed.",
+                stale.Count);
+            return stale.Count;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not reconcile stale pending voice-memo archive rows.");
+            return 0;
+        }
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<VoiceMemoView>> ListAsync(CancellationToken ct = default)
@@ -127,7 +173,7 @@ public sealed class VoiceMemoArchive(
         var rows = await db.VoiceMemos.OrderByDescending(v => v.Id).ToListAsync(ct);
         var dir = ArchiveDir;
         return rows.Select(r => new VoiceMemoView(
-            r.Id, r.CreatedAtUtc, r.FileName, r.NotePath, r.Status, r.AudioBytes,
+            r.Id, r.CreatedAtUtc, r.FileName, r.Source.ToWire(), r.NotePath, r.Status.ToWire(), r.Transcript, r.AudioBytes,
             HasAudio: r.AudioFileName.Length > 0 && File.Exists(Path.Combine(dir, r.AudioFileName)))).ToList();
     }
 

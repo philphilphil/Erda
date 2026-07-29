@@ -72,13 +72,22 @@ export interface SaveVoicePromptBody {
 }
 
 // Voice-memo archive (memos uploaded via the /upload endpoint)
+// Which inbound path the audio arrived on: the /upload API, an Apple Voice Memo shared through
+// WhatsApp, or a WhatsApp-recorded voice note.
+export type VoiceMemoSource = 'upload' | 'apple-memo' | 'whatsapp-voice'
+
+// 'answered' = an agent turn that replied without producing a note (transcript is the record).
+export type VoiceMemoStatus = 'pending' | 'filed' | 'raw' | 'failed' | 'answered'
+
 export interface VoiceMemoDto {
   id: number
   createdAtUtc: string
   fileName: string
+  source: VoiceMemoSource
   notePath: string | null
-  // 'pending' | 'filed' | 'raw' | 'failed'
-  status: string
+  status: VoiceMemoStatus
+  // Only set for 'answered' rows; the memo pipelines link a note instead.
+  transcript: string | null
   audioBytes: number
   hasAudio: boolean
 }

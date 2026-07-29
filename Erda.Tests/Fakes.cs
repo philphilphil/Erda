@@ -46,15 +46,20 @@ public sealed class FakeMemoProcessor : IMemoProcessor
 public sealed class FakeVoiceMemoArchive : IVoiceMemoArchive
 {
     public long? NextId { get; set; } = 1;
-    public List<(long Id, string? NotePath, string Status)> Completed { get; } = [];
+    public List<(string DisplayFileName, string SourceAudioPath, VoiceMemoSource Source)> Recorded { get; } = [];
+    public List<(long Id, string? NotePath, VoiceMemoStatus Status, string? Transcript)> Completed { get; } = [];
     public List<long> Failed { get; } = [];
+    public int ReconcileCalls { get; private set; }
 
-    public Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, CancellationToken ct = default)
-        => Task.FromResult(NextId);
-
-    public Task CompleteAsync(long id, string? notePath, string status, CancellationToken ct = default)
+    public Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, VoiceMemoSource source, CancellationToken ct = default)
     {
-        Completed.Add((id, notePath, status));
+        Recorded.Add((displayFileName, sourceAudioPath, source));
+        return Task.FromResult(NextId);
+    }
+
+    public Task CompleteAsync(long id, string? notePath, VoiceMemoStatus status, string? transcript = null, CancellationToken ct = default)
+    {
+        Completed.Add((id, notePath, status, transcript));
         return Task.CompletedTask;
     }
 
@@ -62,6 +67,12 @@ public sealed class FakeVoiceMemoArchive : IVoiceMemoArchive
     {
         Failed.Add(id);
         return Task.CompletedTask;
+    }
+
+    public Task<int> ReconcileStalePendingAsync(CancellationToken ct = default)
+    {
+        ReconcileCalls++;
+        return Task.FromResult(0);
     }
 
     public Task<IReadOnlyList<VoiceMemoView>> ListAsync(CancellationToken ct = default)

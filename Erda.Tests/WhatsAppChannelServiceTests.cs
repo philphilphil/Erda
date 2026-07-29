@@ -1,4 +1,5 @@
 using Erda.Core.Configuration;
+using Erda.Core.Data;
 using Erda.Core.Services;
 using Erda.Core.WhatsApp;
 using Microsoft.Extensions.AI;
@@ -227,7 +228,8 @@ public class WhatsAppChannelServiceTests
     public async Task Upload_memo_links_produced_note_to_the_archive_row()
     {
         // An API upload carries a VoiceArchiveId; once filed, the channel links the note path + status
-        // back to that archive row so the panel can show which note the memo produced.
+        // back to that archive row so the panel can show which note the memo produced. It must NOT be
+        // archived a second time — UploadIntake already created the row.
         var memo = new FakeMemoProcessor { NotePath = "1 Inbox/2026_groceries.md" };
         var archive = new FakeVoiceMemoArchive();
         var svc = MakeWith(memo, out _, out _, out var transcriber, archive: archive);
@@ -240,10 +242,110 @@ public class WhatsAppChannelServiceTests
             MediaPath = media, MimeType = "audio/mp4", Ptt = false, VoiceArchiveId = 42,
         });
 
-        var (id, notePath, status) = Assert.Single(archive.Completed);
+        Assert.Empty(archive.Recorded);   // no second row for an already-archived upload
+        var (id, notePath, status, transcript) = Assert.Single(archive.Completed);
         Assert.Equal(42, id);
         Assert.Equal("1 Inbox/2026_groceries.md", notePath);
-        Assert.Equal("filed", status);
+        Assert.Equal(VoiceMemoStatus.Filed, status);
+        Assert.Null(transcript);          // the note is the record; no transcript kept
+    }
+
+    [Fact]
+    public async Task Ptt_voice_note_is_archived_as_an_answered_whatsapp_voice_row_with_its_transcript()
+    {
+        // A WhatsApp-recorded voice note produces no Obsidian note, so the archive keeps the transcript
+        // as the record of what was said.
+        var archive = new FakeVoiceMemoArchive { NextId = 7 };
+        var svc = MakeWith(new FakeMemoProcessor(), out _, out _, out var transcriber, archive: archive);
+        transcriber.Transcript = "what's the weather tomorrow";
+        var media = TempMedia(".ogg", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "audio",
+            MediaPath = media, MimeType = "audio/ogg", Ptt = true,
+        });
+
+        var recorded = Assert.Single(archive.Recorded);
+        Assert.Equal(VoiceMemoSource.WhatsAppVoice, recorded.Source);
+        Assert.Equal(media, recorded.SourceAudioPath);          // archived while the temp file still exists
+        Assert.StartsWith("whatsapp-voice-", recorded.DisplayFileName);
+        Assert.EndsWith(".ogg", recorded.DisplayFileName);       // real extension kept
+
+        var (id, notePath, status, transcript) = Assert.Single(archive.Completed);
+        Assert.Equal(7, id);
+        Assert.Null(notePath);                                   // a conversational turn files nothing
+        Assert.Equal(VoiceMemoStatus.Answered, status);
+        Assert.Equal("what's the weather tomorrow", transcript);
+        Assert.Empty(archive.Failed);
+    }
+
+    [Fact]
+    public async Task Apple_memo_shared_via_whatsapp_is_archived_as_a_filed_apple_memo_row()
+    {
+        var memo = new FakeMemoProcessor { NotePath = "1 Inbox/2026_call_mom.md" };
+        var archive = new FakeVoiceMemoArchive { NextId = 9 };
+        var svc = MakeWith(memo, out _, out _, out var transcriber, archive: archive);
+        transcriber.Transcript = "remember to call mom";
+        var media = TempMedia(".m4a", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "audio",
+            MediaPath = media, MimeType = "audio/mp4", Ptt = false,
+        });
+
+        var recorded = Assert.Single(archive.Recorded);
+        Assert.Equal(VoiceMemoSource.AppleMemo, recorded.Source);
+        Assert.StartsWith("voice-memo-", recorded.DisplayFileName);
+        Assert.EndsWith(".m4a", recorded.DisplayFileName);
+
+        var (id, notePath, status, transcript) = Assert.Single(archive.Completed);
+        Assert.Equal(9, id);
+        Assert.Equal("1 Inbox/2026_call_mom.md", notePath);
+        Assert.Equal(VoiceMemoStatus.Filed, status);
+        Assert.Null(transcript);   // the note holds the content
+    }
+
+    [Fact]
+    public async Task Upstream_model_failure_on_a_voice_note_fails_its_archive_row()
+    {
+        var archive = new FakeVoiceMemoArchive { NextId = 3 };
+        var svc = MakeWith(new FakeMemoProcessor(), out var responder, out _, out var transcriber, archive: archive);
+        transcriber.Transcript = "what's the weather tomorrow";
+        responder.Reply = new Erda.Core.Abstractions.AgentReply("", null, null, null, []);
+        var media = TempMedia(".ogg", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "audio",
+            MediaPath = media, MimeType = "audio/ogg", Ptt = true,
+        });
+
+        Assert.Single(archive.Recorded);
+        Assert.Equal(3, Assert.Single(archive.Failed));
+        Assert.Empty(archive.Completed);
+        Assert.True(File.Exists(media)); // media still kept for a retry
+        File.Delete(media);
+    }
+
+    [Fact]
+    public async Task Images_and_text_are_never_archived()
+    {
+        var archive = new FakeVoiceMemoArchive();
+        var svc = MakeWith(new FakeMemoProcessor(), out _, out _, out _, archive: archive);
+        var media = TempMedia(".jpg", [255, 216, 255, 224]);
+
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "text", Text = "hi" });
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "image", Text = "what is this?",
+            MediaPath = media, MimeType = "image/jpeg",
+        });
+
+        Assert.Empty(archive.Recorded);
+        Assert.Empty(archive.Completed);
+        Assert.Empty(archive.Failed);
     }
 
     [Fact]

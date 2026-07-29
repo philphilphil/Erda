@@ -99,7 +99,20 @@ public sealed class ReminderDispatcher(
         }
 
         var reply = await responder.RunOnceAsync([timeContext.Message(), new ChatMessage(ChatRole.User, promptText)], ct);
-        var replyText = string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text;
+
+        // An upstream model failure must not masquerade as "(no response)" — say so, and log it. The
+        // send/record flow is unchanged: a failed turn is still delivered and still recorded.
+        string replyText;
+        if (reply.IsUpstreamFailure)
+        {
+            logger.LogWarning("Reminder {Id}: no response — upstream model failure (no text, no usage, no tools).", r.Id);
+            replyText = "⚠️ The model didn't return anything (it may be overloaded).";
+        }
+        else
+        {
+            replyText = string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text;
+        }
+
         var sent = await sender.SendAsync(ownerJid, $"⏰ {replyText}", ct);
         if (sent)
             recorder.Record("scheduled_fire", $"Prompt '{r.Id}' ran{tag}", new { r.Id, r.When, reply.ToolsUsed, manual });

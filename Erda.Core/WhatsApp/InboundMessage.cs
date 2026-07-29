@@ -46,8 +46,8 @@ public sealed record InboundMessage
 
     /// <summary>
     /// Set only for audio that arrived via the HTTP <c>/upload</c> endpoint: the id of its row in the
-    /// voice-memo archive. The channel links the produced note back to this row after processing. Null
-    /// for WhatsApp messages (which are never archived).
+    /// voice-memo archive, created by the intake before enqueueing. The channel links the produced note
+    /// back to this row after processing. Null for WhatsApp messages — the channel archives those itself.
     /// </summary>
     public long? VoiceArchiveId { get; init; }
 
