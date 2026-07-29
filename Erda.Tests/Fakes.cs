@@ -23,12 +23,54 @@ public sealed class FakeMemoProcessor : IMemoProcessor
 {
     public List<string> Transcripts { get; } = [];
     public string Reply { get; set; } = "Saved voice memo to 1 Inbox/memo.md (10 chars).";
+    public string NotePath { get; set; } = "1 Inbox/memo.md";
 
-    public Task<string> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
+    public List<string> RawTranscripts { get; } = [];
+    public bool ThrowOnProcess { get; set; }
+
+    public Task<MemoResult> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
     {
         Transcripts.Add(transcript);
-        return Task.FromResult(Reply);
+        if (ThrowOnProcess)
+            throw new InvalidOperationException("reasoner unavailable");
+        return Task.FromResult(new MemoResult(Reply, NotePath));
     }
+
+    public Task<string> SaveRawAsync(string transcript, CancellationToken cancellationToken = default)
+    {
+        RawTranscripts.Add(transcript);
+        return Task.FromResult("1 Inbox/raw.md");
+    }
+}
+
+public sealed class FakeVoiceMemoArchive : IVoiceMemoArchive
+{
+    public long? NextId { get; set; } = 1;
+    public List<(long Id, string? NotePath, string Status)> Completed { get; } = [];
+    public List<long> Failed { get; } = [];
+
+    public Task<long?> RecordAsync(string displayFileName, string sourceAudioPath, CancellationToken ct = default)
+        => Task.FromResult(NextId);
+
+    public Task CompleteAsync(long id, string? notePath, string status, CancellationToken ct = default)
+    {
+        Completed.Add((id, notePath, status));
+        return Task.CompletedTask;
+    }
+
+    public Task FailAsync(long id, CancellationToken ct = default)
+    {
+        Failed.Add(id);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<VoiceMemoView>> ListAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<VoiceMemoView>>([]);
+
+    public Task<VoiceMemoAudio?> OpenAudioAsync(long id, CancellationToken ct = default)
+        => Task.FromResult<VoiceMemoAudio?>(null);
+
+    public Task<bool> DeleteAsync(long id, CancellationToken ct = default) => Task.FromResult(true);
 }
 
 public sealed class FakeAgentResponder : IAgentResponder

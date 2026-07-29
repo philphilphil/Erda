@@ -82,6 +82,10 @@ async function handleLogout() {
         <Icon name="activity" />
         <span class="label">Activity</span>
       </RouterLink>
+      <RouterLink to="/voice-memos" class="nav-item" active-class="active">
+        <Icon name="mic" />
+        <span class="label">Voice memos</span>
+      </RouterLink>
       <RouterLink to="/workflows" class="nav-item" active-class="active">
         <Icon name="workflow" />
         <span class="label">Workflows</span>

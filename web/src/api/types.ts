@@ -71,6 +71,18 @@ export interface SaveVoicePromptBody {
   content: string
 }
 
+// Voice-memo archive (memos uploaded via the /upload endpoint)
+export interface VoiceMemoDto {
+  id: number
+  createdAtUtc: string
+  fileName: string
+  notePath: string | null
+  // 'pending' | 'filed' | 'raw' | 'failed'
+  status: string
+  audioBytes: number
+  hasAudio: boolean
+}
+
 // Agent status
 export interface StatusResponse {
   online: boolean

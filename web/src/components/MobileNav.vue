@@ -28,6 +28,7 @@ const { state, logout } = useAuth()
 
 // Routes that don't get a primary tab live behind the More sheet.
 const overflow = [
+  { to: '/voice-memos', icon: 'mic', label: 'Voice memos' },
   { to: '/workflows', icon: 'workflow', label: 'Workflows' },
   { to: '/config', icon: 'sliders', label: 'Config' },
   { to: '/capabilities', icon: 'zap', label: 'Capabilities' },

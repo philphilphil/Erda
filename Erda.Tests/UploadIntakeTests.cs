@@ -20,7 +20,7 @@ public class UploadIntakeTests
         queue = new WhatsAppInboundQueue();
         var upload = Options.Create(new UploadOptions { Enabled = true, ApiKey = apiKey, MaxUploadMb = maxMb });
         var whatsApp = Options.Create(new WhatsAppOptions { Enabled = true, OwnerNumber = OwnerNumber, MediaTempDir = mediaDir });
-        return new UploadIntake(upload, whatsApp, queue, NullLogger<UploadIntake>.Instance);
+        return new UploadIntake(upload, whatsApp, queue, new FakeVoiceMemoArchive(), NullLogger<UploadIntake>.Instance);
     }
 
     [Theory]
@@ -165,7 +165,8 @@ public class UploadIntakeTests
             var whatsApp = Options.Create(new WhatsAppOptions { Enabled = true, OwnerNumber = OwnerNumber, MediaTempDir = mediaDir });
             var queue = new WhatsAppInboundQueue();
             var upload = Options.Create(new UploadOptions { Enabled = true, ApiKey = ApiKey, MaxUploadMb = 50 });
-            var intake = new UploadIntake(upload, whatsApp, queue, NullLogger<UploadIntake>.Instance);
+            var archive = new FakeVoiceMemoArchive();
+            var intake = new UploadIntake(upload, whatsApp, queue, archive, NullLogger<UploadIntake>.Instance);
 
             await intake.IngestAsync(4, new MemoryStream([1, 2, 3, 4]));
             var msg = await Dequeue(queue);
@@ -179,7 +180,7 @@ public class UploadIntakeTests
             var timeContext = new CurrentTimeContext(new FakeClock(), Options.Create(new ReminderOptions()));
             var env = new FakeHostEnvironment { EnvironmentName = Environments.Production };
             var channel = new WhatsAppChannelService(
-                whatsApp, new FakeAgentResponder(), transcriber, memo, sender, env, timeContext,
+                whatsApp, new FakeAgentResponder(), transcriber, memo, sender, archive, env, timeContext,
                 NullLogger<WhatsAppChannelService>.Instance);
 
             await channel.ProcessAsync(msg);

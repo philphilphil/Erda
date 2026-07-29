@@ -21,11 +21,13 @@ public class WhatsAppChannelServiceTests
 
     private static WhatsAppChannelService MakeWith(
         FakeMemoProcessor memo, out FakeAgentResponder responder, out FakeWhatsAppSender sender,
-        out FakeTranscriber transcriber, string environment = "Production", string devPrefix = "@dev")
+        out FakeTranscriber transcriber, string environment = "Production", string devPrefix = "@dev",
+        FakeVoiceMemoArchive? archive = null)
     {
         responder = new FakeAgentResponder();
         sender = new FakeWhatsAppSender();
         transcriber = new FakeTranscriber();
+        archive ??= new FakeVoiceMemoArchive();
         var opts = Options.Create(new WhatsAppOptions
         {
             Enabled = true,
@@ -35,7 +37,7 @@ public class WhatsAppChannelServiceTests
         });
         var timeContext = new CurrentTimeContext(new FakeClock(), Options.Create(new ReminderOptions()));
         var env = new FakeHostEnvironment { EnvironmentName = environment };
-        return new WhatsAppChannelService(opts, responder, transcriber, memo, sender, env, timeContext, NullLogger<WhatsAppChannelService>.Instance);
+        return new WhatsAppChannelService(opts, responder, transcriber, memo, sender, archive, env, timeContext, NullLogger<WhatsAppChannelService>.Instance);
     }
 
     private static string TempMedia(string ext, byte[] bytes)
@@ -181,6 +183,67 @@ public class WhatsAppChannelServiceTests
         Assert.Single(responder.Calls);   // handled conversationally by the agent
         Assert.Contains(responder.Calls[0][^1].Contents.OfType<TextContent>(), t => t.Text.Contains("what's the weather"));
         Assert.False(File.Exists(media)); // cleaned up
+    }
+
+    [Fact]
+    public async Task Upstream_model_failure_is_surfaced_and_media_is_kept()
+    {
+        // An empty reply with no usage/tools = the Responses backend failed (overloaded). The owner must
+        // be told (not a silent "(no response)"), and the voice note must NOT be deleted, so it survives.
+        var svc = Make(out var responder, out var sender, out var transcriber);
+        transcriber.Transcript = "what's the weather tomorrow";
+        responder.Reply = new Erda.Core.Abstractions.AgentReply("", null, null, null, []);
+        var media = TempMedia(".ogg", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "audio", MediaPath = media, MimeType = "audio/ogg", Ptt = true });
+
+        Assert.Single(sender.Sent);
+        Assert.Contains("overloaded", sender.Sent[0].Text);
+        Assert.NotEqual("(no response)", sender.Sent[0].Text);
+        Assert.True(File.Exists(media)); // kept so the memo isn't lost
+        File.Delete(media);
+    }
+
+    [Fact]
+    public async Task Memo_reasoner_failure_saves_raw_transcript_and_cleans_media()
+    {
+        // If the reasoner is unavailable, the transcript must not be lost: fall back to a raw save, and
+        // since the content is now safely in the vault the audio can be cleaned up.
+        var memo = new FakeMemoProcessor { ThrowOnProcess = true };
+        var svc = MakeWith(memo, out _, out var sender, out var transcriber);
+        transcriber.Transcript = "remember to call mom";
+        var media = TempMedia(".m4a", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage { From = OwnerJid, Chat = OwnerJid, Type = "audio", MediaPath = media, MimeType = "audio/mp4", Ptt = false });
+
+        Assert.Single(memo.Transcripts);           // formatting was attempted
+        Assert.Single(memo.RawTranscripts);         // …and fell back to a raw save
+        Assert.Equal("remember to call mom", memo.RawTranscripts[0]);
+        Assert.Contains("raw transcript", sender.Sent[0].Text);
+        Assert.False(File.Exists(media));           // content is safe in the vault → audio cleaned
+    }
+
+    [Fact]
+    public async Task Upload_memo_links_produced_note_to_the_archive_row()
+    {
+        // An API upload carries a VoiceArchiveId; once filed, the channel links the note path + status
+        // back to that archive row so the panel can show which note the memo produced.
+        var memo = new FakeMemoProcessor { NotePath = "1 Inbox/2026_groceries.md" };
+        var archive = new FakeVoiceMemoArchive();
+        var svc = MakeWith(memo, out _, out _, out var transcriber, archive: archive);
+        transcriber.Transcript = "buy groceries";
+        var media = TempMedia(".m4a", [1, 2, 3]);
+
+        await svc.ProcessAsync(new InboundMessage
+        {
+            From = OwnerJid, Chat = OwnerJid, Type = "audio",
+            MediaPath = media, MimeType = "audio/mp4", Ptt = false, VoiceArchiveId = 42,
+        });
+
+        var (id, notePath, status) = Assert.Single(archive.Completed);
+        Assert.Equal(42, id);
+        Assert.Equal("1 Inbox/2026_groceries.md", notePath);
+        Assert.Equal("filed", status);
     }
 
     [Fact]

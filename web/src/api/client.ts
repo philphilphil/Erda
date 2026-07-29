@@ -12,6 +12,7 @@ import type {
   ConfigItemDto,
   VoicePromptResponse,
   SaveVoicePromptBody,
+  VoiceMemoDto,
   StatusResponse,
   SystemSchedulesResponse,
   WorkflowsResponse,
@@ -184,6 +185,21 @@ export function getVoicePrompt(): Promise<VoicePromptResponse> {
 
 export function saveVoicePrompt(body: SaveVoicePromptBody): Promise<void> {
   return put<void>('/api/prompt/voice', body)
+}
+
+// ── Voice-memo archive ─────────────────────────────────────────────────────────
+
+export function getVoiceMemos(): Promise<VoiceMemoDto[]> {
+  return get<VoiceMemoDto[]>('/api/voice-memos')
+}
+
+export function deleteVoiceMemo(id: number): Promise<void> {
+  return del<void>(`/api/voice-memos/${id}`)
+}
+
+// Direct URL for the <audio> element; the browser sends the auth cookie automatically.
+export function voiceMemoAudioUrl(id: number): string {
+  return `/api/voice-memos/${id}/audio`
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────

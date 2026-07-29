@@ -16,6 +16,7 @@ public sealed class ErdaDbContext(DbContextOptions<ErdaDbContext> options) : DbC
     public DbSet<ReminderRow> Reminders => Set<ReminderRow>();
     public DbSet<ErrorWatchRow> ErrorWatchState => Set<ErrorWatchRow>();
     public DbSet<ActivityEntry> Activity => Set<ActivityEntry>();
+    public DbSet<VoiceMemoRow> VoiceMemos => Set<VoiceMemoRow>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -33,6 +34,11 @@ public sealed class ErdaDbContext(DbContextOptions<ErdaDbContext> options) : DbC
         {
             e.HasKey(a => a.Id);
             e.HasIndex(a => a.Id); // newest-first paging
+        });
+        b.Entity<VoiceMemoRow>(e =>
+        {
+            e.HasKey(v => v.Id);
+            e.HasIndex(v => v.Id); // newest-first listing
         });
     }
 }

@@ -20,14 +20,30 @@ public sealed class MemoProcessor(
 {
     private const string InboxFolder = "1 Inbox";
 
-    public async Task<string> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
+    public async Task<MemoResult> ProcessAsync(string transcript, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("MemoProcessor: processing {Chars}-char transcript.", transcript.Length);
         var instruction = prompts.GetActiveContent(PromptKind.Voice) ?? "";
         var note = await reasoner.RunAsync(instruction, transcript, cancellationToken);
         var relative = WriteToInbox(note);
         logger.LogInformation("MemoProcessor: saved {Chars} chars to {Path}.", note.Length, relative);
-        return $"Saved voice memo to {relative} ({note.Length} chars).";
+        return new MemoResult($"Saved voice memo to {relative} ({note.Length} chars).", relative);
+    }
+
+    public Task<string> SaveRawAsync(string transcript, CancellationToken cancellationToken = default)
+    {
+        // Seconds precision (not the HHmm the formatted path uses): raw saves are a failure fallback and
+        // may retry within the same minute, and WriteNote overwrites — so avoid clobbering.
+        var stamp = DateTimeOffset.Now.ToString("yyyy-MM-dd_HHmmss");
+        var relative = $"{InboxFolder}/{stamp}_voice-memo-raw.md";
+        var body =
+            "# Voice memo (raw transcript)\n\n" +
+            "> ⚠️ Automatic formatting failed (model unavailable); this is the unprocessed transcript.\n\n" +
+            transcript + "\n";
+        vault.WriteNote(relative, body);
+        logger.LogWarning("MemoProcessor: saved RAW transcript ({Chars} chars) to {Path} after a formatting failure.",
+            transcript.Length, relative);
+        return Task.FromResult(relative);
     }
 
     private string WriteToInbox(string note)

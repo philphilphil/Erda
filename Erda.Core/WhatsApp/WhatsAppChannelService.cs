@@ -23,6 +23,7 @@ public sealed class WhatsAppChannelService(
     ITranscriber transcriber,
     IMemoProcessor memoProcessor,
     IWhatsAppSender sender,
+    IVoiceMemoArchive voiceArchive,
     IHostEnvironment hostEnvironment,
     CurrentTimeContext timeContext,
     ILogger<WhatsAppChannelService> logger)
@@ -87,19 +88,33 @@ public sealed class WhatsAppChannelService(
         // iOS PTT notes can arrive with an m4a/mp4 MIME that the format heuristic alone misreads.
         if (message.Kind == InboundKind.Audio && !message.Ptt && IsSharedVoiceMemo(message))
         {
+            var memoHandled = false;
             try
             {
-                var reply = await ProcessAsMemoAsync(message, cancellationToken);
-                await sender.SendAsync(replyTarget, reply, cancellationToken);
+                // ProcessAsMemoAsync saves a raw-transcript fallback if the reasoner fails, so a normal
+                // return means the memo's content is safely in the vault and the audio can be deleted.
+                var outcome = await ProcessAsMemoAsync(message, cancellationToken);
+                await sender.SendAsync(replyTarget, outcome.Reply, cancellationToken);
+                // Link the produced note (or terminal status) back to the archive row, for API uploads.
+                if (message.VoiceArchiveId is { } archiveId)
+                    await voiceArchive.CompleteAsync(archiveId, outcome.NotePath, outcome.Status, cancellationToken);
+                memoHandled = true;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error processing Apple Voice Memo.");
-                await sender.SendAsync(replyTarget, $"⚠️ Something went wrong: {ex.Message}", cancellationToken);
+                // We couldn't even transcribe/save (not just a formatting failure) — keep the temp audio,
+                // and say so. (An API upload's audio is also durably kept in the archive regardless.)
+                logger.LogError(ex, "Error processing Apple Voice Memo; keeping audio {Path} for retry.", message.MediaPath);
+                await sender.SendAsync(replyTarget,
+                    $"⚠️ Couldn't process that voice memo: {ex.Message}. I kept the audio so it isn't lost.",
+                    cancellationToken);
+                if (message.VoiceArchiveId is { } archiveId)
+                    await voiceArchive.FailAsync(archiveId, cancellationToken);
             }
             finally
             {
-                CleanupMedia(message, o.MediaTempDir);
+                if (memoHandled)
+                    CleanupMedia(message, o.MediaTempDir);
             }
             return;
         }
@@ -109,11 +124,16 @@ public sealed class WhatsAppChannelService(
         // the finally cancels the loop and clears back to "paused".
         using var typingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task? typing = null;
+        // Only delete downloaded media once the turn is safely handled. On an upstream model failure (or
+        // an exception) we KEEP it, so a voice note/image isn't lost to a transient outage.
+        var handled = false;
         try
         {
             var messages = await BuildMessagesAsync(message, cancellationToken);
             if (messages is null)
             {
+                // Unsupported type, unreadable media, or an empty transcript — nothing to retry.
+                handled = true;
                 await sender.SendAsync(replyTarget, "Sorry — I can only handle text, voice notes, and images right now.", cancellationToken);
                 return;
             }
@@ -133,7 +153,25 @@ public sealed class WhatsAppChannelService(
                 "WhatsApp turn complete: type={Type} tokensIn={TokensIn} tokensOut={TokensOut} tokensTotal={TokensTotal} tools={Tools} replyChars={ReplyChars} ms={ElapsedMs}",
                 message.Type, reply.InputTokens, reply.OutputTokens, reply.TotalTokens, reply.ToolsUsed, reply.Text.Length, sw.ElapsedMilliseconds);
 
-            await sender.SendAsync(replyTarget, string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text, cancellationToken);
+            // An empty reply with no token usage AND no tool calls is not a real answer — it's an upstream
+            // model failure (e.g. the Responses backend returning `response.failed`/overloaded, which the
+            // streaming aggregation surfaces as empty text with null usage). Make it loud instead of a
+            // silent "(no response)", and don't mark the turn handled — so the media is kept for a retry.
+            var upstreamFailed = string.IsNullOrWhiteSpace(reply.Text) && reply.TotalTokens is null && reply.ToolsUsed.Count == 0;
+            if (upstreamFailed)
+            {
+                logger.LogWarning(
+                    "WhatsApp {Type} turn produced no response — upstream model failure (no text, no usage, no tools). Media kept: {Media}.",
+                    message.Type, message.MediaPath ?? "(none)");
+                await sender.SendAsync(replyTarget,
+                    "⚠️ The model didn't return anything (it may be overloaded). Please try again in a moment.",
+                    cancellationToken);
+            }
+            else
+            {
+                handled = true;
+                await sender.SendAsync(replyTarget, string.IsNullOrWhiteSpace(reply.Text) ? "(no response)" : reply.Text, cancellationToken);
+            }
         }
         catch (Exception ex)
         {
@@ -151,7 +189,10 @@ public sealed class WhatsAppChannelService(
             // Use None, not cancellationToken: on cancellation the token is already tripped, so passing it
             // would abort the "paused" POST mid-flight and leave WhatsApp stuck showing "typing…".
             await sender.SetPresenceAsync(replyTarget, "paused", CancellationToken.None);
-            CleanupMedia(message, o.MediaTempDir);
+            if (handled)
+                CleanupMedia(message, o.MediaTempDir);
+            else if (!string.IsNullOrEmpty(message.MediaPath))
+                logger.LogWarning("Kept undeleted media {Path} after an unhandled turn so it isn't lost.", message.MediaPath);
         }
     }
 
@@ -188,15 +229,32 @@ public sealed class WhatsAppChannelService(
         return Path.GetExtension(message.MediaPath ?? "").Equals(".m4a", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The user-facing reply, the vault note it produced (if any), and a terminal archive status.</summary>
+    private readonly record struct MemoOutcome(string Reply, string? NotePath, string Status);
+
     /// <summary>Transcribe the audio and run it through the memo pipeline (Codex → 1 Inbox/).</summary>
-    private async Task<string> ProcessAsMemoAsync(InboundMessage message, CancellationToken cancellationToken)
+    private async Task<MemoOutcome> ProcessAsMemoAsync(InboundMessage message, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(message.MediaPath) || !File.Exists(message.MediaPath))
-            return "⚠️ Could not find the audio file.";
+            return new MemoOutcome("⚠️ Could not find the audio file.", null, "failed");
         var transcript = await transcriber.TranscribeAsync(message.MediaPath, cancellationToken);
         if (string.IsNullOrWhiteSpace(transcript))
-            return "⚠️ Transcription returned no text.";
-        return await memoProcessor.ProcessAsync(transcript, cancellationToken);
+            return new MemoOutcome("⚠️ Transcription returned no text.", null, "failed");
+        try
+        {
+            var result = await memoProcessor.ProcessAsync(transcript, cancellationToken);
+            return new MemoOutcome(result.Reply, result.NotePath, "filed");
+        }
+        catch (Exception ex)
+        {
+            // The reasoner is down/overloaded (see ResponsesReasoner). We already have the transcript, so
+            // don't lose the memo — save it raw to the inbox and tell the owner it wasn't formatted.
+            var saved = await memoProcessor.SaveRawAsync(transcript, cancellationToken);
+            logger.LogWarning(ex, "Memo formatting failed; saved raw transcript to {Path}.", saved);
+            return new MemoOutcome(
+                $"⚠️ Couldn't format that voice memo (model unavailable) — saved the raw transcript to {saved}.",
+                saved, "raw");
+        }
     }
 
     /// <summary>True for a "clear"/"reset" command (optionally slash-prefixed) that wipes context.</summary>

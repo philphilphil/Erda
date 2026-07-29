@@ -44,6 +44,13 @@ public sealed record InboundMessage
 
     public long Timestamp { get; init; }
 
+    /// <summary>
+    /// Set only for audio that arrived via the HTTP <c>/upload</c> endpoint: the id of its row in the
+    /// voice-memo archive. The channel links the produced note back to this row after processing. Null
+    /// for WhatsApp messages (which are never archived).
+    /// </summary>
+    public long? VoiceArchiveId { get; init; }
+
     public InboundKind Kind => Type?.Trim().ToLowerInvariant() switch
     {
         "text" => InboundKind.Text,
