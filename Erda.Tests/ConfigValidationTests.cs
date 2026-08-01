@@ -116,6 +116,36 @@ public class ConfigValidationTests
     }
 
     [Fact]
+    public void AppleBridge_disabled_needs_nothing()
+    {
+        var result = new AppleBridgeOptionsValidator().Validate(null, new AppleBridgeOptions { Enabled = false });
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public void AppleBridge_enabled_lists_every_missing_key()
+    {
+        var result = new AppleBridgeOptionsValidator().Validate(null, new AppleBridgeOptions { Enabled = true });
+        Assert.True(result.Failed);
+        Assert.Contains("AppleBridge__BaseUrl", result.FailureMessage);
+        Assert.Contains("AppleBridge__ApiKey", result.FailureMessage);
+        Assert.Contains("AppleBridge__TimeoutSeconds", result.FailureMessage); // unset int = 0
+    }
+
+    [Fact]
+    public void AppleBridge_enabled_and_complete_passes()
+    {
+        var result = new AppleBridgeOptionsValidator().Validate(null, new AppleBridgeOptions
+        {
+            Enabled = true,
+            BaseUrl = "http://192.168.178.106:17832",
+            ApiKey = "secret",
+            TimeoutSeconds = 5,
+        });
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
     public void Erda_options_require_models_and_chat_settings()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

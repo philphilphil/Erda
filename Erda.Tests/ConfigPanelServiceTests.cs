@@ -23,7 +23,8 @@ public class ConfigPanelServiceTests
             Options.Create(new ReminderOptions()),
             Options.Create(new ObservabilityOptions()),
             Options.Create(new BrowserOptions()),
-            Options.Create(new UploadOptions()));
+            Options.Create(new UploadOptions()),
+            Options.Create(new AppleBridgeOptions()));
 
     [Fact]
     public void GetItems_projects_effective_option_values()

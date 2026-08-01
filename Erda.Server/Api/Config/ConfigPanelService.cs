@@ -17,7 +17,8 @@ public sealed class ConfigPanelService(
     IOptions<ReminderOptions> reminders,
     IOptions<ObservabilityOptions> observability,
     IOptions<BrowserOptions> browser,
-    IOptions<UploadOptions> upload)
+    IOptions<UploadOptions> upload,
+    IOptions<AppleBridgeOptions> appleBridge)
 {
     private static string Show(object? v) => v?.ToString() is { Length: > 0 } s ? s : "(not set)";
     private static string Secret(string? v) => string.IsNullOrWhiteSpace(v) ? "(not set)" : "(set)";
@@ -33,6 +34,7 @@ public sealed class ConfigPanelService(
         var o = observability.Value;
         var b = browser.Value;
         var up = upload.Value;
+        var ab = appleBridge.Value;
 
         return
         [
@@ -70,6 +72,11 @@ public sealed class ConfigPanelService(
             new("Upload", "Enabled", Show(up.Enabled)),
             new("Upload", "Bearer token", Secret(up.ApiKey)),
             new("Upload", "Max upload MB", Show(up.MaxUploadMb)),
+
+            new("Apple Reminders bridge", "Enabled", Show(ab.Enabled)),
+            new("Apple Reminders bridge", "Base URL", Show(ab.BaseUrl)),
+            new("Apple Reminders bridge", "Bridge API key", Secret(ab.ApiKey)),
+            new("Apple Reminders bridge", "Timeout (s)", Show(ab.TimeoutSeconds)),
         ];
     }
 }

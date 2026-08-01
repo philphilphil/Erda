@@ -80,6 +80,19 @@ public sealed class ErrorWatchOptionsValidator : IValidateOptions<ErrorWatchOpti
     }
 }
 
+/// <summary>Requires the bridge URL / API key / timeout whenever the Apple Reminders bridge is enabled.</summary>
+public sealed class AppleBridgeOptionsValidator : IValidateOptions<AppleBridgeOptions>
+{
+    public ValidateOptionsResult Validate(string? name, AppleBridgeOptions o)
+    {
+        if (!o.Enabled) return ValidateOptionsResult.Success;
+        return RequiredWhenEnabled.Check(AppleBridgeOptions.SectionName,
+            (nameof(o.BaseUrl), RequiredWhenEnabled.Str(o.BaseUrl)),
+            (nameof(o.ApiKey), RequiredWhenEnabled.Str(o.ApiKey)),
+            (nameof(o.TimeoutSeconds), RequiredWhenEnabled.Pos(o.TimeoutSeconds)));
+    }
+}
+
 /// <summary>Requires the timezone / intervals when reminders are enabled (and the
 /// pre-script limits when pre-run scripts are enabled).</summary>
 public sealed class ReminderOptionsValidator : IValidateOptions<ReminderOptions>

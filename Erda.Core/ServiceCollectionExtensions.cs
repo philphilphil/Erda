@@ -70,6 +70,11 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<ReminderOptions>, ReminderOptionsValidator>();
 
+        services.AddOptions<AppleBridgeOptions>()
+            .Bind(configuration.GetSection(AppleBridgeOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AppleBridgeOptions>, AppleBridgeOptionsValidator>();
+
         services.Configure<ObservabilityOptions>(configuration.GetSection(ObservabilityOptions.SectionName));
         services.Configure<SeqOptions>(configuration.GetSection(SeqOptions.SectionName));
 
@@ -108,6 +113,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<WhatsAppChannelService>();
         services.AddHostedService<WhatsAppInboundWorker>();
         services.AddHostedService<StartupNotifier>();
+
+        // --- Apple Reminders bridge (macOS ErdaBridge app, LAN HTTP) ---
+        services.AddHttpClient<IAppleBridgeClient, AppleBridgeClient>((sp, client) =>
+        {
+            var o = sp.GetRequiredService<IOptions<AppleBridgeOptions>>().Value;
+            if (o.TimeoutSeconds > 0)
+                client.Timeout = TimeSpan.FromSeconds(o.TimeoutSeconds);
+        });
 
         // --- HTTP upload intake (iOS Shortcut → same voice-memo pipeline) ---
         // Saves the uploaded audio and enqueues it onto the WhatsApp inbound queue above, so the

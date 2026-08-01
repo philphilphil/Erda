@@ -1,12 +1,10 @@
 using System.ClientModel;
-using OpenAI;
 using OpenAI.Responses;
 using Erda.Core.Configuration;
 using Erda.Core.Data;
 using Erda.Core.Services;
 using Erda.Agents.Services;
 using Erda.Agents.Tools;
-using Erda.Core.Abstractions;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -53,6 +51,12 @@ public static class ErdaAgent
 
         // card_price is pure HTTP (Scryfall + a prebuilt Cardmarket link) — always available.
         tools.AddRange(services.GetRequiredService<CardPriceTool>().AsTools());
+
+        // Apple Reminders (macOS ErdaBridge), only when configured — same null-when-disabled posture
+        // as BrowserAgent.TryCreateTool, so a Phil without the bridge running never sees these tools.
+        var appleBridge = services.GetRequiredService<IOptions<AppleBridgeOptions>>().Value;
+        if (appleBridge.Enabled)
+            tools.AddRange(services.GetRequiredService<AppleReminderTools>().AsTools());
 
         var browseTool = BrowserAgent.TryCreateTool(services);
         if (browseTool is not null) tools.Add(browseTool);
