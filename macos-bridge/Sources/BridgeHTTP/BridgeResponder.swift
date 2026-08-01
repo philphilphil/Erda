@@ -54,7 +54,7 @@ public struct BridgeResponder: Sendable {
                 requestId: request.requestId,
                 tokenId: trace.tokenId,
                 operation: trace.operation,
-                alias: trace.alias,
+                list: trace.list,
                 result: result,
                 status: response.status,
                 durationMs: Int((services.clock.now.timeIntervalSince(started) * 1000).rounded()),
@@ -207,12 +207,11 @@ public struct BridgeResponder: Sendable {
     // MARK: - Step 9: the domain
 
     private func statusResponse() async throws -> BridgeResponse {
-        let allowlist = await services.allowlist()
-        let availability = await services.reminders.availability()
         let payload = StatusResponse(
-            availability: availability,
-            aliases: allowlist.healthyAliases,
-            brokenAliases: allowlist.brokenAliases
+            availability: await services.reminders.availability(),
+            // The names a caller may address. It has to be able to learn them: with no allowlist
+            // and no aliases, the name in Reminders.app is the only handle there is.
+            lists: await services.reminders.availableLists()
         )
         // Status reports unavailability in its body rather than as a 503: a monitoring client
         // needs to be able to ask "are you well?" and get an answer, not an error.
@@ -230,7 +229,7 @@ public struct BridgeResponder: Sendable {
         // Step 7: strict decode. Unknown keys, over-length fields, a naive timestamp and a
         // priority outside 0…9 all fail here, before anything reaches EventKit.
         let decoded = try StrictJSON.decode(CreateReminderRequest.self, from: Data(request.body))
-        trace.alias = decoded.alias
+        trace.list = decoded.list
 
         try await requireAvailable()
         let snapshot = try await services.reminders.create(decoded.command(id: BridgeID.generate()))
@@ -243,8 +242,7 @@ public struct BridgeResponder: Sendable {
         return BridgeResponse(status: 200, body: try encode(outcome))
     }
 
-    /// Revoked access, or an allowlist with nothing healthy in it, is a 503 with a `Retry-After`
-    /// — never a 500 and never a stack trace.
+    /// Revoked access is a 503 with a `Retry-After` — never a 500 and never a stack trace.
     private func requireAvailable() async throws {
         if await services.reminders.availability() != .ok {
             throw HTTPFailure.remindersUnavailable()

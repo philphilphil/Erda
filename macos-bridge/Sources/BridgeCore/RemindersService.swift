@@ -14,6 +14,11 @@ public protocol RemindersService: Sendable {
     /// Cheap enough to call on every request; anything but `.ok` short-circuits to 503.
     func availability() async -> ReminderAvailability
 
+    /// The names a caller may address, for `GET /v1/status`. A readout rather than an operation:
+    /// it answers `[]` when access is not usable instead of throwing, so the status route can keep
+    /// its promise to always answer.
+    func availableLists() async -> [ListName]
+
     func list(_ query: ListRemindersQuery) async throws -> [ReminderSnapshot]
 
     func create(_ command: CreateReminderCommand) async throws -> ReminderSnapshot

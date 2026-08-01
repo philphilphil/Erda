@@ -11,9 +11,9 @@ import Foundation
 /// reads EventKit properties off an object it does not own.
 ///
 /// It is deliberately *not* a `ReminderSnapshot`: it still speaks EventKit's identifiers. Turning
-/// `itemId` into a `BridgeID` and `calendarId` into an `Alias` needs the identity store and the
-/// allowlist, neither of which may be touched from a completion block, so that happens back on
-/// the actor in `EventKitReminders`.
+/// `itemId` into a `BridgeID` and `calendarId` into a `ListName` needs the identity store and the
+/// live list of calendars, neither of which may be touched from a completion block, so that
+/// happens back on the actor in `EventKitReminders`.
 struct RawReminder: Sendable, Equatable {
     let itemId: String
     /// `calendarItemExternalIdentifier`, carried for diagnostics only — the header lists four
@@ -70,10 +70,10 @@ struct RawReminder: Sendable, Equatable {
     }
 
     /// The wire shape, once the caller has resolved the two identifiers it cannot resolve itself.
-    func snapshot(id: BridgeID, alias: Alias) -> ReminderSnapshot {
+    func snapshot(id: BridgeID, list: ListName) -> ReminderSnapshot {
         ReminderSnapshot(
             id: id,
-            alias: alias,
+            list: list,
             title: title,
             notes: notes,
             dueAt: dueAt,

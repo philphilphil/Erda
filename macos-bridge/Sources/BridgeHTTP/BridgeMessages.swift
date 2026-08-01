@@ -77,6 +77,6 @@ struct HTTPFailure: Error {
 final class AuditTrace {
     var operation: AuditOperation = .unrouted
     var tokenId: TokenId?
-    var alias: Alias?
+    var list: ListName?
     var replay = false
 }

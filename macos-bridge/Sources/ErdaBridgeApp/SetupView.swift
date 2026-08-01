@@ -7,9 +7,13 @@ enum SetupWindow {
     static let id = "setup"
 }
 
-/// The whole local control surface: authorization, bind address, allowlist, broken bindings and
-/// the token. None of it is reachable over HTTP — the remote API has no route that can change any
-/// of these, which is why this window exists at all.
+/// The whole local control surface: authorization, bind address and the token. None of it is
+/// reachable over HTTP — the remote API has no route that can change any of these, which is why
+/// this window exists at all.
+///
+/// There is no list picker. The bridge reaches every reminder list on this Mac, so there is
+/// nothing here to choose; the list section below is a read-only inventory, and it is there
+/// because the names it shows are exactly what Erda has to send.
 struct SetupView: View {
     @Bindable var model: AppModel
 
@@ -19,9 +23,6 @@ struct SetupView: View {
             AccessSection(model: model)
             ListenerSection(model: model)
             ListsSection(model: model)
-            if !model.brokenBindings.isEmpty {
-                BrokenSection(model: model)
-            }
             TokenSection(model: model)
             FilesSection(model: model)
 
@@ -52,10 +53,7 @@ private struct StatusSection: View {
             }
             LabeledContent("Reminders access", value: model.authorization.displayText)
             LabeledContent("Listener", value: model.listenerText)
-            LabeledContent(
-                "Allowlist",
-                value: "\(model.healthyBindingCount) usable, \(model.brokenBindings.count) broken"
-            )
+            LabeledContent("Scope", value: model.scopeText)
             LabeledContent("Last request", value: model.lastRequestText)
         }
     }
@@ -142,183 +140,43 @@ private struct ListenerSection: View {
 
 // MARK: - Lists
 
+/// Read-only on purpose. Erda addresses a list by the name shown here, so the one job of this
+/// section is to show the exact spelling — there is nothing to allow, bind or unbind.
 private struct ListsSection: View {
     @Bindable var model: AppModel
 
     var body: some View {
         Section("Reminder lists") {
-            if !model.authorization.isUsable {
-                Text("Grant Reminders access to see the lists on this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if model.listRows.isEmpty {
-                Text("No reminder lists found.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(model.listRows) { row in
-                    ListRowView(
-                        row: row,
-                        rejection: { model.aliasRejection($0, for: row.list) },
-                        onAllow: { model.allow(row.list, alias: $0) },
-                        onUnbind: { model.unbind($0) }
-                    )
-                    .id(row.id)
-                }
-                Button("Reload lists") { model.reloadLists() }
-            }
-        }
-    }
-}
-
-private struct ListRowView: View {
-    let row: ListRow
-    let rejection: (String) -> String?
-    let onAllow: (String) -> Void
-    let onUnbind: (Alias) -> Void
-
-    @State private var draft = ""
-    @State private var confirmingUnbind = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.list.title)
-                    Text("\(row.list.source) · \(row.list.isWritable ? "writable" : "read-only")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let binding = row.binding {
-                    Text(binding.alias.rawValue).monospaced()
-                    Button("Unbind") { confirmingUnbind = true }
-                }
-            }
-
-            if row.binding == nil {
-                HStack {
-                    TextField("alias", text: $draft)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 180)
-                    Button("Allow") {
-                        onAllow(draft)
-                        draft = ""
-                    }
-                    .disabled(draft.isEmpty || rejection(draft) != nil)
-                }
-                if let message = rejection(draft) {
-                    Text(message).font(.caption).foregroundStyle(.red)
-                }
-                if !row.list.isWritable {
-                    Text("Read-only: reminders here can be listed and completed, but not created.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-        }
-        .confirmationDialog(
-            "Remove the alias “\(row.binding?.alias.rawValue ?? "")”?",
-            isPresented: $confirmingUnbind,
-            titleVisibility: .visible
-        ) {
-            Button("Remove", role: .destructive) {
-                if let binding = row.binding { onUnbind(binding.alias) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Erda will get alias_unknown for this list until you allow it again. No reminders are changed.")
-        }
-    }
-}
-
-// MARK: - Broken bindings
-
-private struct BrokenSection: View {
-    @Bindable var model: AppModel
-
-    var body: some View {
-        Section("Broken bindings") {
             Text(
                 """
-                A list identifier is not sync-proof, so an iCloud resync can leave an alias \
-                pointing at nothing. ErdaBridge will never re-point one by matching the title — \
-                that is how it would end up writing into somebody else's shared list. Pick the \
-                right list yourself.
+                ErdaBridge can read and write **all** of these — macOS grants Reminders access \
+                all-or-nothing, and this app no longer pretends otherwise with a list of its own. \
+                Erda names a list by its title, exactly as it reads here.
                 """
             )
             .font(.caption)
             .foregroundStyle(.secondary)
 
-            ForEach(model.brokenBindings) { broken in
-                BrokenRowView(
-                    broken: broken,
-                    candidates: model.rebindCandidates(for: broken.entry),
-                    onRebind: { model.rebind(broken.entry.alias, to: $0) },
-                    onRemove: { model.unbind(broken.entry.alias) }
-                )
-                .id(broken.id)
-            }
-        }
-    }
-}
-
-private struct BrokenRowView: View {
-    let broken: BrokenBinding
-    let candidates: [ReminderListInfo]
-    let onRebind: (ReminderListInfo) -> Void
-    let onRemove: () -> Void
-
-    /// Starts empty and is never pre-filled: the confirmation has to name a list a human chose.
-    @State private var choice: String = ""
-    @State private var confirming = false
-
-    private var chosen: ReminderListInfo? {
-        candidates.first { $0.calendarId == choice }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(broken.entry.alias.rawValue).monospaced()
-                Spacer()
-                Text("was “\(broken.entry.titleAtBind)” in \(broken.entry.sourceAtBind)")
+            if !model.authorization.isUsable {
+                Text("Grant Reminders access to see the lists on this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            Text(broken.explanation).font(.caption).foregroundStyle(.orange)
-
-            if candidates.isEmpty {
-                Text("No lists are visible to re-bind to.").font(.caption).foregroundStyle(.secondary)
+            } else if model.lists.isEmpty {
+                Text("No reminder lists found.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             } else {
-                Picker("Re-bind to", selection: $choice) {
-                    Text("Choose a list…").tag("")
-                    ForEach(candidates, id: \.calendarId) { list in
-                        Text("\(list.title) — \(list.source)").tag(list.calendarId)
+                ForEach(model.lists, id: \.calendarId) { list in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(list.title).textSelection(.enabled)
+                        Spacer()
+                        Text("\(list.source) · \(list.isWritable ? "writable" : "read-only")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
+                Button("Reload lists") { model.reloadLists() }
             }
-
-            HStack {
-                Button("Re-bind…") { confirming = true }
-                    .disabled(chosen == nil)
-                Button("Remove alias", role: .destructive) { onRemove() }
-            }
-        }
-        .confirmationDialog(
-            "Re-bind “\(broken.entry.alias.rawValue)” to “\(chosen?.title ?? "")”?",
-            isPresented: $confirming,
-            titleVisibility: .visible
-        ) {
-            Button("Re-bind") {
-                if let chosen { onRebind(chosen) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                "Erda will read and write reminders in \(chosen.map { "“\($0.title)” (\($0.source))" } ?? "this list") "
-                    + "under the alias “\(broken.entry.alias.rawValue)”. Check it is the list you mean."
-            )
         }
     }
 }

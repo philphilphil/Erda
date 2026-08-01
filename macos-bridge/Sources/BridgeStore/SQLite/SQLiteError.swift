@@ -45,8 +45,8 @@ public enum StoreError: Error, Equatable, CustomStringConvertible {
     /// opening it read-write would silently ignore columns and tables this build cannot see,
     /// and writing through them loses data.
     case schemaTooNew(found: Int, supported: Int)
-    /// A stored value no longer satisfies its own type's rules (a hand-edited alias, say).
-    /// Fails closed rather than skipping the row, which would quietly shrink the allowlist.
+    /// A stored value no longer satisfies its own type's rules (a hand-edited list name, say).
+    /// Fails closed rather than skipping the row, which would quietly lose a mapping.
     case corruptRow(table: String, column: String)
     case nestedTransaction
     case databaseClosed

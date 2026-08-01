@@ -7,7 +7,6 @@ public struct BridgeStoreHandle: Sendable {
     public let db: SQLiteDB
     public let meta: MetaRepository
     public let bindSettings: BindSettingsRepository
-    public let allowlist: AllowlistRepository
     public let reminderMap: ReminderMapRepository
     public let idempotency: IdempotencyRepository
     public let schemaVersion: Int
@@ -31,7 +30,6 @@ public struct BridgeStoreHandle: Sendable {
             db: db,
             meta: meta,
             bindSettings: BindSettingsRepository(meta: meta),
-            allowlist: AllowlistRepository(db: db),
             reminderMap: ReminderMapRepository(db: db),
             idempotency: IdempotencyRepository(db: db, clock: clock),
             schemaVersion: version

@@ -27,7 +27,7 @@ public final class SQLiteDB: @unchecked Sendable {
     /// Opens (creating if needed) the database at `path` and applies the connection pragmas.
     ///
     /// The file is created by us rather than by SQLite so it can be born `0600`; SQLite would
-    /// create it `0644 & ~umask`, leaving a window where the allowlist is world-readable.
+    /// create it `0644 & ~umask`, leaving a window where the database is world-readable.
     public init(path: String, busyTimeoutMs: Int32 = SQLiteDB.defaultBusyTimeoutMs) throws {
         self.path = path
 

@@ -38,12 +38,12 @@ public class AppleBridgeClientTests
             Options.Create(new AppleBridgeOptions { Enabled = true, BaseUrl = baseUrl, ApiKey = apiKey, TimeoutSeconds = 5 }),
             NullLogger<AppleBridgeClient>.Instance);
 
-    private static readonly object StatusOk = new { availability = "ok", aliases = Array.Empty<string>(), brokenAliases = Array.Empty<string>() };
+    private static readonly object StatusOk = new { availability = "ok", lists = new[] { "Groceries" } };
 
-    private static object ReminderBody(string alias = "groceries", string title = "Buy milk") => new
+    private static object ReminderBody(string list = "Groceries", string title = "Buy milk") => new
     {
         id = "rem_11111111-1111-1111-1111-111111111111",
-        alias,
+        list,
         title,
         notes = (string?)null,
         dueAt = (DateTimeOffset?)null,
@@ -71,7 +71,7 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ResponseBody = ReminderBody() };
         var client = Make(handler);
 
-        var result = await client.CreateReminderAsync("groceries", "Buy milk");
+        var result = await client.CreateReminderAsync("Groceries", "Buy milk");
 
         Assert.True(result.Success);
         Assert.True(handler.Request!.Headers.Contains("Idempotency-Key"));
@@ -102,7 +102,7 @@ public class AppleBridgeClientTests
     }
 
     [Fact]
-    public async Task List_reminders_unwraps_the_items_object_and_builds_a_repeated_alias_query()
+    public async Task List_reminders_unwraps_the_items_object_and_builds_a_repeated_list_query()
     {
         var handler = new CapturingHandler
         {
@@ -110,14 +110,48 @@ public class AppleBridgeClientTests
         };
         var client = Make(handler);
 
-        var result = await client.ListRemindersAsync(["groceries", "work"], limit: 10);
+        var result = await client.ListRemindersAsync(["Groceries", "Work"], limit: 10);
 
         Assert.True(result.Success);
         Assert.Single(result.Value!);
         Assert.Equal("Buy milk", result.Value![0].Title);
+        Assert.Equal("Groceries", result.Value![0].List);
+        // AbsoluteUri, not ToString(): ToString() unescapes for display, so it cannot see whether
+        // the request line is actually escaped. AbsoluteUri is what HttpClient writes.
         Assert.Equal(
-            "http://192.168.1.50:17832/v1/reminders?alias=groceries&alias=work&limit=10",
-            handler.Request!.RequestUri!.ToString());
+            "http://192.168.1.50:17832/v1/reminders?list=Groceries&list=Work&limit=10",
+            handler.Request!.RequestUri!.AbsoluteUri);
+    }
+
+    // Lists are addressed by their real name now, so the query has to survive spaces and non-ASCII.
+    // A raw space would break the request line itself, and the bridge does not treat "+" as a
+    // space — so a space has to go out as %20 and nothing else.
+    [Fact]
+    public async Task List_reminders_percent_encodes_a_name_with_spaces_and_non_ascii()
+    {
+        var handler = new CapturingHandler { ResponseBody = new { items = Array.Empty<object>() } };
+
+        await Make(handler).ListRemindersAsync(["To Do", "Einkäufe"]);
+
+        var uri = handler.Request!.RequestUri!;
+        Assert.Equal("/v1/reminders?list=To%20Do&list=Eink%C3%A4ufe", uri.PathAndQuery);
+        Assert.DoesNotContain(" ", uri.PathAndQuery);
+        Assert.DoesNotContain("+", uri.PathAndQuery);
+    }
+
+    [Fact]
+    public async Task Status_reports_the_list_names_the_bridge_can_reach()
+    {
+        var handler = new CapturingHandler
+        {
+            ResponseBody = new { availability = "ok", lists = new[] { "Groceries", "Work" } },
+        };
+
+        var result = await Make(handler).GetStatusAsync();
+
+        Assert.True(result.Success);
+        Assert.Equal("ok", result.Value!.Availability);
+        Assert.Equal(["Groceries", "Work"], result.Value!.Lists);
     }
 
     [Fact]
@@ -131,7 +165,7 @@ public class AppleBridgeClientTests
             ResponseBody = new
             {
                 id = "rem_11111111-1111-1111-1111-111111111111",
-                alias = "groceries",
+                list = "Groceries",
                 title = "Buy milk",
                 notes = (string?)null,
                 dueAt = due, // the bridge would normally echo this back as UTC "Z" (ISO8601.string);
@@ -143,7 +177,7 @@ public class AppleBridgeClientTests
         };
         var client = Make(handler);
 
-        var result = await client.CreateReminderAsync("groceries", "Buy milk", dueAt: due);
+        var result = await client.CreateReminderAsync("Groceries", "Buy milk", dueAt: due);
 
         Assert.True(result.Success);
 
@@ -165,48 +199,50 @@ public class AppleBridgeClientTests
     [InlineData("rate_limited")]
     [InlineData("idempotency_key_reuse")]
     [InlineData("request_in_progress")]
-    [InlineData("alias_unknown")]
-    [InlineData("alias_broken")]
+    [InlineData("no_such_list")]
+    [InlineData("list_read_only")]
     [InlineData("reminders_unavailable")]
     [InlineData("internal")]
     public async Task Every_closed_error_code_maps_to_a_non_empty_message(string code)
     {
         var handler = new CapturingHandler { Status = HttpStatusCode.BadRequest, ResponseBody = new { error = code, requestId = "req-1" } };
-        var result = await Make(handler).CreateReminderAsync("groceries", "Buy milk");
+        var result = await Make(handler).CreateReminderAsync("Groceries", "Buy milk");
 
         Assert.False(result.Success);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));
     }
 
+    // The two list-side failures call for different fixes — use a different name vs. use a
+    // different list — so they must not read the same.
     [Fact]
-    public async Task Alias_unknown_and_alias_broken_produce_visibly_different_messages()
+    public async Task No_such_list_and_list_read_only_produce_visibly_different_messages()
     {
-        var unknown = await Make(new CapturingHandler { Status = HttpStatusCode.BadRequest, ResponseBody = new { error = "alias_unknown", requestId = "r1" } })
-            .CreateReminderAsync("nope", "x");
-        var broken = await Make(new CapturingHandler { Status = HttpStatusCode.Conflict, ResponseBody = new { error = "alias_broken", requestId = "r2" } })
-            .CreateReminderAsync("nope", "x");
+        var missing = await Make(new CapturingHandler { Status = HttpStatusCode.NotFound, ResponseBody = new { error = "no_such_list", requestId = "r1" } })
+            .CreateReminderAsync("Nope", "x");
+        var readOnly = await Make(new CapturingHandler { Status = HttpStatusCode.Conflict, ResponseBody = new { error = "list_read_only", requestId = "r2" } })
+            .CreateReminderAsync("Shared", "x");
 
-        Assert.NotEqual(unknown.Error, broken.Error);
-        Assert.Contains("allowlist", unknown.Error, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("re-bind", broken.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(missing.Error, readOnly.Error);
+        Assert.Contains("no Reminders list with that name", missing.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("read-only", readOnly.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Reminders_unavailable_names_the_macos_permission_not_the_allowlist()
+    public async Task Reminders_unavailable_names_the_macos_permission_not_the_list()
     {
         var result = await Make(new CapturingHandler { Status = HttpStatusCode.ServiceUnavailable, ResponseBody = new { error = "reminders_unavailable", requestId = "r1" } })
-            .CreateReminderAsync("groceries", "x");
+            .CreateReminderAsync("Groceries", "x");
 
         Assert.False(result.Success);
         Assert.Contains("Reminders permission", result.Error);
-        Assert.DoesNotContain("allowlist", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no Reminders list with that name", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task Unknown_error_code_still_yields_a_readable_message()
     {
         var result = await Make(new CapturingHandler { Status = (HttpStatusCode)599, ResponseBody = new { error = "something_new", requestId = "r1" } })
-            .CreateReminderAsync("groceries", "x");
+            .CreateReminderAsync("Groceries", "x");
 
         Assert.False(result.Success);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));
@@ -218,7 +254,7 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ThrowOnSend = new HttpRequestException("connection refused") };
         var client = Make(handler);
 
-        var result = await client.CreateReminderAsync("groceries", "Buy milk");
+        var result = await client.CreateReminderAsync("Groceries", "Buy milk");
 
         Assert.False(result.Success);
         Assert.Contains("Couldn't reach", result.Error);
@@ -233,7 +269,7 @@ public class AppleBridgeClientTests
             Options.Create(new AppleBridgeOptions { BaseUrl = "", ApiKey = "x" }),
             NullLogger<AppleBridgeClient>.Instance);
 
-        var result = await client.CreateReminderAsync("groceries", "Buy milk");
+        var result = await client.CreateReminderAsync("Groceries", "Buy milk");
 
         Assert.False(result.Success);
         Assert.Null(handler.Request);
@@ -280,7 +316,7 @@ public class AppleBridgeClientTests
     {
         var handler = new YieldingHandler { ResponseBody = ReminderBody() };
 
-        var result = await MakeYielding(handler).CreateReminderAsync("groceries", "Buy milk");
+        var result = await MakeYielding(handler).CreateReminderAsync("Groceries", "Buy milk");
 
         Assert.True(result.Success);
         Assert.NotNull(handler.Body);

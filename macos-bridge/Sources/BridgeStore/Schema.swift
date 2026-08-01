@@ -4,7 +4,7 @@ import Foundation
 public enum Schema {
     /// Bump this and append to `migrations` — never edit an existing migration, or two Macs
     /// that ran different builds end up with silently different tables at the same version.
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     static let schemaVersionKey = "schema_version"
 
@@ -43,7 +43,27 @@ public enum Schema {
                 )
                 """,
             ]
-        )
+        ),
+        (
+            2,
+            [
+                // The allowlist is gone. Phil decided that a bridge which can reach every reminder
+                // list on his own Mac is the behaviour he wants — Apple grants reminder access
+                // all-or-nothing anyway — so the alias table bounded nothing and cost an
+                // indirection. Lists are addressed by their real name now.
+                //
+                // Undoing v1's `CREATE TABLE` in v2 rather than editing v1 looks redundant on a
+                // fresh database, but a v1 database already exists on that Mac: editing v1 would
+                // leave it with an `alias` column this build no longer writes, and every mapping
+                // insert would fail silently (they are best-effort) until nothing could be
+                // completed.
+                "DROP TABLE IF EXISTS allowlist",
+                // Kept for diagnostics only, exactly as `alias` was: nothing resolves through it.
+                // Rows written before this migration hold the old alias rather than a real list
+                // name, which is harmless for the same reason.
+                "ALTER TABLE reminder_map RENAME COLUMN alias TO list_name",
+            ]
+        ),
     ]
 
     /// Brings the database up to `currentVersion`, or refuses to touch it.

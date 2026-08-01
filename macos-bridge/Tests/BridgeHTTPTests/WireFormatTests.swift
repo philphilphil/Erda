@@ -16,32 +16,33 @@ import Testing
 struct WireFormatTests {
     /// Every key a `ReminderSnapshot` can carry.
     static let snapshotKeys: Set<String> = [
-        "id", "alias", "title", "notes", "dueAt", "priority", "isCompleted", "completedAt",
+        "id", "list", "title", "notes", "dueAt", "priority", "isCompleted", "completedAt",
     ]
 
     /// The subset always present: `notes`, `dueAt` and `completedAt` are optional, and the encoder
     /// omits an optional that is nil rather than writing `null`.
-    static let requiredSnapshotKeys: Set<String> = ["id", "alias", "title", "priority", "isCompleted"]
+    static let requiredSnapshotKeys: Set<String> = ["id", "list", "title", "priority", "isCompleted"]
 
     /// A create carrying every optional the request can express, so the response body shows the
     /// spelling of `notes`, `dueAt` and `priority` as well as the mandatory fields.
     static let fullCreateBody = #"""
-    {"alias":"inbox","title":"Buy milk","notes":"semi-skimmed","dueAt":"2026-08-01T09:00:00Z","priority":5}
+    {"list":"Groceries","title":"Buy milk","notes":"semi-skimmed","dueAt":"2026-08-01T09:00:00Z","priority":5}
     """#
 
     // MARK: - GET /v1/status
 
-    @Test("GET /v1/status is an object with exactly availability, aliases and brokenAliases")
+    @Test("GET /v1/status is an object with exactly availability and lists")
     func statusShape() async throws {
         let harness = try TestHarness()
         let response = await harness.responder.respond(to: harness.request(.GET, "/v1/status"))
 
         #expect(response.status == 200)
         let payload = try harness.json(response)
-        #expect(Set(payload.keys) == ["availability", "aliases", "brokenAliases"], "got \(payload.keys)")
+        #expect(Set(payload.keys) == ["availability", "lists"], "got \(payload.keys)")
         #expect(payload["availability"] as? String == "ok")
-        #expect(payload["aliases"] as? [String] == ["inbox", "work"])
-        #expect(payload["brokenAliases"] as? [String] == [])
+        // Sorted, so a client can present them without re-sorting. `brokenAliases` is gone with
+        // the allowlist that produced it.
+        #expect(payload["lists"] as? [String] == ["Groceries", "Work"])
     }
 
     // MARK: - POST /v1/reminders
@@ -59,7 +60,7 @@ struct WireFormatTests {
         #expect(Set(payload.keys) == Self.snapshotKeys.subtracting(["completedAt"]), "got \(payload.keys)")
 
         #expect((payload["id"] as? String)?.hasPrefix("rem_") == true)
-        #expect(payload["alias"] as? String == "inbox")
+        #expect(payload["list"] as? String == "Groceries")
         #expect(payload["title"] as? String == "Buy milk")
         #expect(payload["notes"] as? String == "semi-skimmed")
         #expect(payload["dueAt"] as? String == "2026-08-01T09:00:00Z")
@@ -127,7 +128,7 @@ struct WireFormatTests {
         await harness.reminders.seed(
             ReminderSnapshot(
                 id: BridgeID.generate(),
-                alias: try alias("inbox"),
+                list: try listName("Groceries"),
                 title: "Seeded",
                 notes: "n",
                 dueAt: Date(timeIntervalSince1970: 1_780_000_000),

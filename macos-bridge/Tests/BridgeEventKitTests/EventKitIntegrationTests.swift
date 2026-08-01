@@ -18,6 +18,10 @@ import Testing
 /// the tests **fail loudly** rather than falling back to a default list — picking a list on the
 /// user's behalf is the one mistake that would write into real data.
 ///
+/// That matters more than it used to. The bridge can now reach every list on the Mac, so the only
+/// thing keeping these tests off real data is the name in that variable: every write below names
+/// it explicitly, and nothing here ever calls a list-wide write.
+///
 /// ## What these are and are not
 ///
 /// They are a convenience, not the acceptance criteria. `swift test` runs under the test host
@@ -47,8 +51,7 @@ struct EventKitEnvironment {
 )
 struct EventKitIntegrationTests {
     private let identity = MemoryReminderIdentityStore()
-    private let inbox: Alias
-    private let allowlist: Allowlist
+    private let scratch: ListName
     private let service: EventKitReminders
 
     init() throws {
@@ -64,26 +67,14 @@ struct EventKitIntegrationTests {
 
         let candidates = RemindersAccess.lists().filter { $0.title == title }
         try #require(!candidates.isEmpty, "no Reminders list titled \(title)")
-        // Two lists with the same title would make "the throwaway one" ambiguous, and guessing
-        // is how a test writes into the wrong list.
+        // Two lists with the same title would make "the throwaway one" ambiguous — and the bridge
+        // itself refuses an ambiguous name for the same reason, so it could not resolve it either.
         try #require(candidates.count == 1, "\(candidates.count) Reminders lists are titled \(title)")
         let list = try #require(candidates.first)
         try #require(list.isWritable, "\(title) cannot hold reminders")
 
-        self.inbox = try #require(Alias(rawValue: "scratch"))
-        self.allowlist = Allowlist(entries: [
-            AllowlistEntry(
-                alias: inbox,
-                calendarId: list.calendarId,
-                titleAtBind: list.title,
-                sourceAtBind: list.source,
-                boundAt: Date(),
-                state: .ok
-            )
-        ])
-        let allowlist = self.allowlist
+        self.scratch = try #require(ListName(rawValue: title), "\(title) is not a usable list name")
         self.service = EventKitReminders(
-            allowlist: { allowlist },
             identity: identity,
             timeZone: TimeZone(identifier: "Europe/Berlin")!
         )
@@ -92,7 +83,7 @@ struct EventKitIntegrationTests {
     private func command(_ title: String, dueAt: Date? = nil, priority: Int = 0) -> CreateReminderCommand {
         CreateReminderCommand(
             id: .generate(),
-            alias: inbox,
+            list: scratch,
             // Tagged so anything left behind is obviously test debris.
             title: "[erdabridge-test] \(title) \(UUID().uuidString.prefix(8))",
             notes: "written by EventKitIntegrationTests",
@@ -106,16 +97,21 @@ struct EventKitIntegrationTests {
         #expect(await service.availability() == .ok)
     }
 
+    @Test("the throwaway list is among the names status reports")
+    func availableListsIncludesTheScratchList() async {
+        #expect(await service.availableLists().contains(scratch))
+    }
+
     @Test("a created reminder comes back from list, with its mapping persisted")
     func createThenList() async throws {
         let due = Date().addingTimeInterval(3600)
         let created = try await service.create(command("create-then-list", dueAt: due, priority: 5))
 
-        #expect(created.alias == inbox)
+        #expect(created.list == scratch)
         #expect(created.isCompleted == false)
         #expect(try identity.itemId(for: created.id) != nil)
 
-        let listed = try await service.list(try ListRemindersQuery(aliases: [inbox], limit: 200))
+        let listed = try await service.list(try ListRemindersQuery(lists: [scratch], limit: 200))
         let match = try #require(listed.first { $0.id == created.id })
         #expect(match.title == created.title)
         #expect(match.priority == 5)
@@ -135,7 +131,7 @@ struct EventKitIntegrationTests {
         )
 
         let created = try await service.create(command("timed-due", dueAt: due))
-        let listed = try await service.list(try ListRemindersQuery(aliases: [inbox], limit: 200))
+        let listed = try await service.list(try ListRemindersQuery(lists: [scratch], limit: 200))
         let match = try #require(listed.first { $0.id == created.id })
 
         let readBack = try #require(match.dueAt)
@@ -147,7 +143,7 @@ struct EventKitIntegrationTests {
     @Test("a reminder with no due date is listed rather than silently dropped")
     func undatedRemindersAreListed() async throws {
         let created = try await service.create(command("undated"))
-        let listed = try await service.list(try ListRemindersQuery(aliases: [inbox], limit: 200))
+        let listed = try await service.list(try ListRemindersQuery(lists: [scratch], limit: 200))
 
         let match = try #require(
             listed.first { $0.id == created.id },
@@ -167,7 +163,7 @@ struct EventKitIntegrationTests {
         let second = try await service.complete(id: created.id)
         #expect(second.alreadyCompleted == true)
 
-        let listed = try await service.list(try ListRemindersQuery(aliases: [inbox], limit: 200))
+        let listed = try await service.list(try ListRemindersQuery(lists: [scratch], limit: 200))
         #expect(!listed.contains { $0.id == created.id })
     }
 
@@ -186,46 +182,22 @@ struct EventKitIntegrationTests {
             bridgeId: ghost,
             itemId: "x-apple-reminderkit://REMCDReminder/00000000-0000-0000-0000-000000000000",
             externalId: nil,
-            alias: inbox,
+            list: scratch,
             at: Date()
         )
         await #expect(throws: ApiError.notFound) { try await service.complete(id: ghost) }
     }
 
-    /// The core containment property: a list nobody allowlisted is invisible, whatever else is on
-    /// this Mac.
-    @Test("list never returns anything from outside the allowlist")
-    func listStaysInsideTheAllowlist() async throws {
-        _ = try await service.create(command("containment"))
-        let listed = try await service.list(try ListRemindersQuery(aliases: [], limit: 200))
-        #expect(listed.allSatisfy { $0.alias == inbox })
-    }
-
-    /// `calendarIdentifier` is not sync-proof; a binding that no longer resolves must fail closed
-    /// and mark the alias, never fall back to matching the list by title.
-    @Test("a binding whose calendar is gone fails closed and marks the alias broken")
-    func brokenBindingFailsClosed() async throws {
-        let orphanAlias = try #require(Alias(rawValue: "orphan"))
-        let orphaned = Allowlist(entries: [
-            AllowlistEntry(
-                alias: orphanAlias,
-                calendarId: "00000000-DEAD-BEEF-0000-000000000000",
-                // Deliberately the *real* list's title: if anything ever re-bound by title, this
-                // is the test that would start passing writes through to it.
-                titleAtBind: EventKitEnvironment.listTitle ?? "",
-                sourceAtBind: "iCloud",
-                boundAt: Date(),
-                state: .ok
-            )
-        ])
-        let identity = MemoryReminderIdentityStore()
-        let service = EventKitReminders(allowlist: { orphaned }, identity: identity)
-
-        await #expect(throws: ApiError.aliasBroken) {
+    /// A name nobody's list wears fails, on a Mac full of real lists — no default, no nearest
+    /// match, no "the first writable one".
+    @Test("a name that matches no list fails closed against the real database")
+    func unknownNameFailsClosed() async throws {
+        let missing = try #require(ListName(rawValue: "erdabridge-no-such-list-\(UUID().uuidString)"))
+        await #expect(throws: ApiError.noSuchList) {
             try await service.create(
                 CreateReminderCommand(
                     id: .generate(),
-                    alias: orphanAlias,
+                    list: missing,
                     title: "[erdabridge-test] must not be created",
                     notes: nil,
                     dueAt: nil,
@@ -233,8 +205,19 @@ struct EventKitIntegrationTests {
                 )
             )
         }
-        #expect(identity.brokenAliases.contains(orphanAlias))
+        await #expect(throws: ApiError.noSuchList) {
+            try await service.list(try ListRemindersQuery(lists: [missing], limit: 200))
+        }
         #expect(identity.mappingCount == 0)
+    }
+
+    /// A filtered list stays inside the list it named. (The unfiltered case deliberately spans
+    /// every list now — that is the point of the change — so it is not asserted here.)
+    @Test("a filtered list returns nothing from any other list")
+    func filteredListStaysInsideItsList() async throws {
+        _ = try await service.create(command("containment"))
+        let listed = try await service.list(try ListRemindersQuery(lists: [scratch], limit: 200))
+        #expect(listed.allSatisfy { $0.list == scratch })
     }
 
     /// A reminder the bridge did not create has no mapping. Minting one on first sight is what
@@ -244,10 +227,9 @@ struct EventKitIntegrationTests {
     func mintsMappingsOnFirstSight() async throws {
         let created = try await service.create(command("mint-on-sight"))
         let forgetful = MemoryReminderIdentityStore()
-        let allowlist = self.allowlist
-        let fresh = EventKitReminders(allowlist: { allowlist }, identity: forgetful)
+        let fresh = EventKitReminders(identity: forgetful)
 
-        let listed = try await fresh.list(try ListRemindersQuery(aliases: [inbox], limit: 200))
+        let listed = try await fresh.list(try ListRemindersQuery(lists: [scratch], limit: 200))
         let match = try #require(listed.first { $0.title == created.title })
         // A different id than the original — the mapping was minted, not recovered.
         #expect(try forgetful.itemId(for: match.id) != nil)

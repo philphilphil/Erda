@@ -112,13 +112,44 @@ struct RouterTests {
     func parsesQuery() throws {
         guard case .listReminders(let query) = try Router.route(
             method: .GET,
-            uri: "/v1/reminders?alias=inbox&alias=work&limit=50"
+            uri: "/v1/reminders?list=Groceries&list=Work&limit=50"
         ) else {
             Issue.record("should list")
             return
         }
-        #expect(query.aliases.map(\.rawValue) == ["inbox", "work"])
+        #expect(query.lists.map(\.rawValue) == ["Groceries", "Work"])
         #expect(query.limit == 50)
+    }
+
+    /// Lists are addressed by their real name now, and real names have spaces, umlauts and emoji
+    /// in them — so a `list` value is percent-decoded, unlike the path, which never is.
+    @Test("a list name is percent-decoded", arguments: [
+        ("/v1/reminders?list=To%20Do", "To Do"),
+        ("/v1/reminders?list=Eink%C3%A4ufe", "Einkäufe"),
+        ("/v1/reminders?list=Work%20%2F%20Admin", "Work / Admin"),
+        ("/v1/reminders?list=%F0%9F%A7%BE", "🧾"),
+        ("/v1/reminders?list=Groceries", "Groceries"),
+    ])
+    func decodesListName(uri: String, expected: String) throws {
+        guard case .listReminders(let query) = try Router.route(method: .GET, uri: uri) else {
+            Issue.record("should list")
+            return
+        }
+        #expect(query.lists.map(\.rawValue) == [expected])
+    }
+
+    /// `+` is a form-encoding convention, not RFC 3986. A list genuinely called "a+b" must not
+    /// silently become "a b".
+    @Test("a plus is a plus, not a space")
+    func plusIsNotASpace() throws {
+        guard case .listReminders(let query) = try Router.route(
+            method: .GET,
+            uri: "/v1/reminders?list=a%2Bb"
+        ) else {
+            Issue.record("should list")
+            return
+        }
+        #expect(query.lists.map(\.rawValue) == ["a+b"])
     }
 
     @Test("an empty query is the default query")
@@ -127,25 +158,41 @@ struct RouterTests {
             Issue.record("should list")
             return
         }
-        #expect(query.aliases.isEmpty)
+        #expect(query.lists.isEmpty)
         #expect(query.limit == Limits.listLimitDefault)
     }
 
     @Test("a bad query is a 400, matching the JSON decoder's strictness", arguments: [
         "/v1/reminders?unknown=1",
-        "/v1/reminders?alias=INBOX",
-        "/v1/reminders?alias=in%20box",
-        "/v1/reminders?alias=inbox&alias=inbox",
+        "/v1/reminders?alias=Groceries",          // the old parameter name is gone, not tolerated
+        "/v1/reminders?list=",                    // an empty name resolves nothing
+        "/v1/reminders?list=%20%20",              // …and neither does whitespace
+        "/v1/reminders?list=Groceries&list=Groceries",
+        "/v1/reminders?list=%zz",                 // malformed escape
+        "/v1/reminders?list=%2",                  // truncated escape
+        "/v1/reminders?list=%",
+        "/v1/reminders?list=%C3%28",              // invalid UTF-8
+        "/v1/reminders?list=%00",                 // a NUL, decoded and then refused
+        "/v1/reminders?list=a%0Ab",               // a newline, likewise
         "/v1/reminders?limit=0",
         "/v1/reminders?limit=201",
         "/v1/reminders?limit=abc",
         "/v1/reminders?limit=+5",
         "/v1/reminders?limit=05",
-        "/v1/reminders?alias",
-        "/v1/reminders?&alias=inbox",
+        "/v1/reminders?list",
+        "/v1/reminders?&list=Groceries",
     ])
     func badQueryIs400(uri: String) {
         #expect(throws: ApiError.invalidRequest) { try Router.route(method: .GET, uri: uri) }
+    }
+
+    /// Decoding is confined to query values. A traversal in the path still fails to match a route
+    /// rather than being normalised into one.
+    @Test("percent-decoding a query value does not leak into the path")
+    func decodingStaysInTheQuery() {
+        #expect(throws: ApiError.notFound) {
+            try Router.route(method: .GET, uri: "/v1/%72eminders?list=Groceries")
+        }
     }
 
     @Test("the query only affects the list route")
@@ -158,6 +205,7 @@ struct RouterTests {
         #expect(Route.status.auditOperation == .statusRead)
         #expect(Route.status.rateLimitClass == .read)
         #expect(try Route.listReminders(ListRemindersQuery()).rateLimitClass == .read)
+        #expect(try Route.listReminders(ListRemindersQuery()).auditOperation == .remindersList)
         #expect(Route.createReminder.auditOperation == .remindersCreate)
         #expect(Route.createReminder.rateLimitClass == .mutation)
         #expect(Route.completeReminder(BridgeID.generate()).rateLimitClass == .mutation)

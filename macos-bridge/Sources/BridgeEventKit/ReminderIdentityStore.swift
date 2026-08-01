@@ -7,7 +7,7 @@ import Foundation
 /// It is deliberately *not* declared in `BridgeCore`: unlike `RemindersService` or
 /// `IdempotencyStore`, nothing outside this target consumes it. `ErdaBridgeApp` — the one module
 /// that already depends on both `BridgeStore` and `BridgeEventKit` — supplies the real
-/// implementation over `ReminderMapRepository` and `AllowlistRepository`.
+/// implementation over `ReminderMapRepository`.
 ///
 /// Every method is synchronous and blocking, matching `SQLiteDB`. That is safe here and only
 /// here: the actor that calls them runs on its own `DispatchSerialQueue`, never on a cooperative
@@ -17,11 +17,15 @@ public protocol ReminderIdentityStore: Sendable {
     ///
     /// Written after a successful save, and again the first time `list` sees a reminder the
     /// bridge did not create — without a mapping a reminder can never be completed.
+    ///
+    /// The list name is recorded for diagnostics only — it resolves nothing. `complete` always
+    /// re-reads the reminder's *current* calendar, so a row naming a list the reminder has since
+    /// left can never authorise a write.
     func recordMapping(
         bridgeId: BridgeID,
         itemId: String,
         externalId: String?,
-        alias: Alias,
+        list: ListName,
         at date: Date
     ) throws
 
@@ -31,13 +35,6 @@ public protocol ReminderIdentityStore: Sendable {
 
     /// Resets the pruning clock for a mapping EventKit still resolves.
     func touch(_ bridgeId: BridgeID, at date: Date) throws
-
-    /// Records that an alias' bound `calendarIdentifier` no longer resolves.
-    ///
-    /// This only ever *marks*. Re-binding by title — which Apple suggests in `EKCalendar.h` — is
-    /// how a bridge would start writing into a stranger's shared list after an iCloud resync, so
-    /// it is a human decision made in the local setup UI and has no code path here.
-    func markAliasBroken(_ alias: Alias) throws
 }
 
 /// An in-memory `ReminderIdentityStore`, for tests and for exercising the actor without a
@@ -48,7 +45,6 @@ public final class MemoryReminderIdentityStore: ReminderIdentityStore, @unchecke
     private var itemIdsByBridgeId: [BridgeID: String] = [:]
     private var bridgeIdsByItemId: [String: BridgeID] = [:]
     private var lastSeen: [BridgeID: Date] = [:]
-    private var broken: Set<Alias> = []
     /// When set, every mutating call throws it — for exercising the best-effort write paths.
     private var writeFailure: (any Error)?
 
@@ -60,12 +56,6 @@ public final class MemoryReminderIdentityStore: ReminderIdentityStore, @unchecke
         lock.lock()
         defer { lock.unlock() }
         writeFailure = error
-    }
-
-    public var brokenAliases: Set<Alias> {
-        lock.lock()
-        defer { lock.unlock() }
-        return broken
     }
 
     public var mappingCount: Int {
@@ -86,7 +76,7 @@ public final class MemoryReminderIdentityStore: ReminderIdentityStore, @unchecke
         bridgeId: BridgeID,
         itemId: String,
         externalId: String?,
-        alias: Alias,
+        list: ListName,
         at date: Date
     ) throws {
         lock.lock()
@@ -115,12 +105,5 @@ public final class MemoryReminderIdentityStore: ReminderIdentityStore, @unchecke
         if let writeFailure { throw writeFailure }
         guard itemIdsByBridgeId[bridgeId] != nil else { return }
         lastSeen[bridgeId] = date
-    }
-
-    public func markAliasBroken(_ alias: Alias) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        if let writeFailure { throw writeFailure }
-        broken.insert(alias)
     }
 }

@@ -7,10 +7,11 @@ namespace Erda.Core.Services;
 
 /// <summary>One Apple Reminders task as reported by the bridge. Mirrors the wire shape of the
 /// Swift <c>ReminderSnapshot</c> (macos-bridge/Sources/BridgeCore/Model/ReminderDTOs.swift):
-/// <c>id</c> is a bridge-issued id (<c>rem_&lt;uuid&gt;</c>), never an EventKit identifier.</summary>
+/// <c>id</c> is a bridge-issued id (<c>rem_&lt;uuid&gt;</c>), never an EventKit identifier, and
+/// <c>list</c> is the list's name as it reads in Reminders.app.</summary>
 public sealed record AppleReminder(
     string Id,
-    string Alias,
+    string List,
     string Title,
     string? Notes,
     DateTimeOffset? DueAt,
@@ -23,8 +24,8 @@ public sealed record AppleReminder(
 public sealed record AppleReminderCompletion(string Id, bool AlreadyCompleted);
 
 /// <summary>The bridge's <c>GET /v1/status</c> response: whether Reminders access is currently
-/// usable, and which allowlisted list aliases are healthy vs. broken.</summary>
-public sealed record AppleBridgeStatus(string Availability, IReadOnlyList<string> Aliases, IReadOnlyList<string> BrokenAliases);
+/// usable, and the names of every reminder list on the Mac — the names a caller may address.</summary>
+public sealed record AppleBridgeStatus(string Availability, IReadOnlyList<string> Lists);
 
 /// <summary>
 /// The outcome of one <see cref="IAppleBridgeClient"/> call. Never an exception — like
@@ -49,29 +50,30 @@ public sealed class AppleBridgeResult<T>
     public static AppleBridgeResult<T> Fail(string error) => new(false, default, error);
 }
 
-/// <summary>Client for the macOS ErdaBridge HTTP API (create/list/complete Apple Reminders in
-/// explicitly allowlisted lists). See <see cref="AppleBridgeOptions"/> for configuration.</summary>
+/// <summary>Client for the macOS ErdaBridge HTTP API (create/list/complete Apple Reminders). The
+/// bridge reaches every reminder list on the Mac and lists are addressed by their real name — see
+/// <see cref="AppleBridgeOptions"/> for configuration and macos-bridge/README.md for why.</summary>
 public interface IAppleBridgeClient
 {
-    /// <summary>Checks whether the bridge can currently serve requests (Reminders access granted,
-    /// at least one healthy allowlisted list) and which list aliases are available.</summary>
+    /// <summary>Checks whether the bridge can currently serve requests (Reminders access granted) and
+    /// which list names exist on the Mac.</summary>
     Task<AppleBridgeResult<AppleBridgeStatus>> GetStatusAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Creates a reminder in the given allowlisted list. <paramref name="alias"/> must be one
-    /// of the bridge's configured list aliases — there is no default list, and an unknown or broken
-    /// alias fails.</summary>
+    /// <summary>Creates a reminder in the named list. <paramref name="list"/> is the list's name as it
+    /// reads in Reminders.app — there is no default list, and a name that matches no list (or is
+    /// ambiguous across two accounts) fails rather than landing somewhere plausible.</summary>
     Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
-        string alias,
+        string list,
         string title,
         string? notes = null,
         DateTimeOffset? dueAt = null,
         int? priority = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Lists incomplete reminders. Omitting <paramref name="aliases"/> lists every healthy
-    /// allowlisted list — never a default list.</summary>
+    /// <summary>Lists incomplete reminders. Omitting <paramref name="lists"/> lists every reminder
+    /// list on the Mac.</summary>
     Task<AppleBridgeResult<IReadOnlyList<AppleReminder>>> ListRemindersAsync(
-        IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? lists = null,
         int? limit = null,
         CancellationToken cancellationToken = default);
 
@@ -98,7 +100,7 @@ public sealed class AppleBridgeClient(
         "Couldn't reach the ErdaBridge app on the Mac — it may be asleep, off the LAN, or not running.";
 
     // System.Text.Json's "Web" defaults (camelCase property names) match the bridge's wire format
-    // (alias, title, notes, dueAt, priority, isCompleted, completedAt, ...) without per-property
+    // (list, title, notes, dueAt, priority, isCompleted, completedAt, ...) without per-property
     // [JsonPropertyName] attributes — see ScryfallClient for the same convention.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -117,7 +119,7 @@ public sealed class AppleBridgeClient(
     }
 
     public async Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
-        string alias,
+        string list,
         string title,
         string? notes = null,
         DateTimeOffset? dueAt = null,
@@ -129,7 +131,7 @@ public sealed class AppleBridgeClient(
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(new { alias, title, notes, dueAt, priority }, options: Json),
+            Content = JsonContent.Create(new { list, title, notes, dueAt, priority }, options: Json),
         };
         ApplyAuth(request);
         ApplyIdempotencyKey(request);
@@ -137,19 +139,21 @@ public sealed class AppleBridgeClient(
     }
 
     public async Task<AppleBridgeResult<IReadOnlyList<AppleReminder>>> ListRemindersAsync(
-        IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? lists = null,
         int? limit = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryBuildUrl("/v1/reminders", out var baseUrl, out var configError))
             return AppleBridgeResult<IReadOnlyList<AppleReminder>>.Fail(configError!);
 
-        // GET /v1/reminders takes a repeated ?alias=x&alias=y query parameter (matching
-        // ListRemindersQuery.aliases; omitted means every healthy allowlisted list) plus ?limit=n.
+        // GET /v1/reminders takes a repeated ?list=x&list=y query parameter (matching
+        // ListRemindersQuery.lists; omitted means every reminder list on the Mac) plus ?limit=n.
+        // EscapeDataString, not a raw name: list names hold spaces and non-ASCII, and the bridge
+        // percent-decodes this value (a space must arrive as %20, never as +).
         var query = new List<string>();
-        foreach (var alias in aliases ?? [])
-            if (!string.IsNullOrWhiteSpace(alias))
-                query.Add($"alias={Uri.EscapeDataString(alias.Trim())}");
+        foreach (var list in lists ?? [])
+            if (!string.IsNullOrWhiteSpace(list))
+                query.Add($"list={Uri.EscapeDataString(list.Trim())}");
         if (limit is > 0)
             query.Add($"limit={limit.Value}");
 
@@ -246,8 +250,8 @@ public sealed class AppleBridgeClient(
     /// <summary>
     /// Maps the bridge's closed error-code set (macos-bridge/Sources/BridgeCore/Model/ApiError.swift)
     /// to a short message safe to relay to Phil. Three categories need visibly different wording since
-    /// they call for different fixes: <c>alias_unknown</c>/<c>alias_broken</c> point at the bridge's
-    /// allowlist setup (a config problem on the Mac), <c>reminders_unavailable</c> points at macOS
+    /// they call for different fixes: <c>no_such_list</c>/<c>list_read_only</c> mean the list Erda
+    /// named is wrong (retry with a different name), <c>reminders_unavailable</c> points at macOS
     /// Reminders permission (revoked/never granted), and everything else here is either an Erda-side
     /// bug or a transient bridge condition worth retrying. A caught exception (network failure, not an
     /// HTTP error response) never reaches this method — see <see cref="TransportFailureMessage"/>.
@@ -256,7 +260,7 @@ public sealed class AppleBridgeClient(
     {
         "invalid_request" => "The bridge rejected the request as malformed — this looks like an Erda bug.",
         "unauthorized" => "The bridge rejected the API key — check AppleBridge__ApiKey matches the token shown in ErdaBridge's setup UI on the Mac.",
-        "not_found" => "No reminder with that id was found on the Mac (it may have moved to a list that isn't allowlisted).",
+        "not_found" => "No reminder with that id was found on the Mac (it may have been completed, deleted, or moved to a list that no longer exists).",
         "method_not_allowed" => "The bridge rejected the request (unsupported method) — this looks like an Erda bug.",
         "unsupported_media_type" => "The bridge rejected the request (unsupported content type) — this looks like an Erda bug.",
         "unsupported_http_version" => "The bridge rejected the request (unsupported HTTP version) — this looks like an Erda bug.",
@@ -264,8 +268,8 @@ public sealed class AppleBridgeClient(
         "rate_limited" => "The bridge is rate-limiting requests right now — try again in a moment.",
         "idempotency_key_reuse" => "The bridge saw a conflicting duplicate request — try again.",
         "request_in_progress" => "That request is already being processed on the Mac — try again shortly.",
-        "alias_unknown" => "That reminders list isn't set up in ErdaBridge — add it to the allowlist in the bridge's setup UI on the Mac.",
-        "alias_broken" => "That reminders list is broken in ErdaBridge (its underlying Reminders list can no longer be found) — re-bind it in the bridge's setup UI on the Mac.",
+        "no_such_list" => "There's no Reminders list with that name on the Mac — check the exact name in Reminders.app (or list reminders to see the names). If two accounts both have a list with that name, rename one: the bridge won't guess between them.",
+        "list_read_only" => "That Reminders list is read-only, so nothing can be added to it — pick a different list.",
         "reminders_unavailable" => "The Mac has revoked (or never granted) Reminders access to ErdaBridge — check Reminders permission in System Settings on the Mac.",
         "internal" => "The bridge hit an internal error — check its logs on the Mac.",
         _ => "The Apple Reminders bridge returned an unexpected error.",

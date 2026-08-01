@@ -13,19 +13,8 @@ struct CryptoKitHasher: Sha256Hasher {
     }
 }
 
-func alias(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> Alias {
-    try #require(Alias(rawValue: raw), sourceLocation: sourceLocation)
-}
-
-func allowlistEntry(_ raw: String, state: AllowlistState = .ok) throws -> AllowlistEntry {
-    AllowlistEntry(
-        alias: try alias(raw),
-        calendarId: "cal-\(raw)",
-        titleAtBind: "List \(raw)",
-        sourceAtBind: "iCloud",
-        boundAt: Date(timeIntervalSince1970: 1_780_000_000),
-        state: state
-    )
+func listName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> ListName {
+    try #require(ListName(rawValue: raw), sourceLocation: sourceLocation)
 }
 
 /// Everything a test needs to drive the responder, with the knobs it needs to poke.
@@ -39,17 +28,15 @@ struct TestHarness {
     let responder: BridgeResponder
 
     init(
-        aliases: [String] = ["inbox", "work"],
-        broken: [String] = [],
+        lists: [String] = ["Groceries", "Work"],
+        readOnly: [String] = [],
         rateLimiterCapacities: (global: Int, mutation: Int) = (30, 10),
         tokenPresent: Bool = true
     ) throws {
-        let parsedAliases = try aliases.map { try alias($0) }
-        let parsedBroken = try broken.map { try alias($0) }
-        let entries = try aliases.map { try allowlistEntry($0, state: broken.contains($0) ? .broken : .ok) }
-        let allowlist = Allowlist(entries: entries)
-
-        reminders = FakeReminders(aliases: Set(parsedAliases), brokenAliases: Set(parsedBroken))
+        reminders = FakeReminders(
+            lists: Set(try lists.map { try listName($0) }),
+            readOnly: Set(try readOnly.map { try listName($0) })
+        )
         let clock = self.clock
         idempotency = MemoryIdempotencyStore(clock: clock)
 
@@ -61,7 +48,6 @@ struct TestHarness {
 
         services = BridgeServices(
             reminders: reminders,
-            allowlist: { allowlist },
             tokenVerifier: { verifier },
             rateLimiter: RateLimiter(
                 clock: clock,
@@ -134,4 +120,4 @@ struct TestHarness {
     }
 }
 
-let createBody = #"{"alias":"inbox","title":"Buy milk"}"#
+let createBody = #"{"list":"Groceries","title":"Buy milk"}"#

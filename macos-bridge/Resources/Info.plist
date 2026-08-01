@@ -28,10 +28,10 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>ErdaBridge reads and creates reminders in the lists you allow, so your Erda assistant can use them.</string>
+	<string>ErdaBridge reads and creates reminders in your lists, so your Erda assistant can use them.</string>
 	<!-- Legacy pre-macOS-14 key; harmless, cheap insurance. -->
 	<key>NSRemindersUsageDescription</key>
-	<string>ErdaBridge reads and creates reminders in the lists you allow, so your Erda assistant can use them.</string>
+	<string>ErdaBridge reads and creates reminders in your lists, so your Erda assistant can use them.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ErdaBridge accepts requests from your Erda server on the local network.</string>
 	<!-- A server must flush its state before dying. -->

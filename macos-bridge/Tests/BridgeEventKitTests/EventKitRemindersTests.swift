@@ -12,9 +12,8 @@ import Testing
 /// lives in `EventKitIntegrationTests` behind `ERDA_BRIDGE_EVENTKIT_TESTS`.
 @Suite("EventKitReminders — no grant required")
 struct EventKitRemindersTests {
-    private func service(_ allowlist: Allowlist, identity: MemoryReminderIdentityStore = .init()) -> EventKitReminders {
+    private func service(identity: MemoryReminderIdentityStore = .init()) -> EventKitReminders {
         EventKitReminders(
-            allowlist: { allowlist },
             identity: identity,
             clock: ManualClock(),
             timeZone: TimeZone(identifier: "Europe/Berlin")!,
@@ -24,55 +23,62 @@ struct EventKitRemindersTests {
         )
     }
 
-    /// An allowlist nobody has filled in is the state the bridge ships in. It must answer "not
-    /// usable" rather than "everything", whatever the authorization status happens to be.
-    @Test("an empty allowlist is never available")
-    func emptyAllowlistIsNeverOk() async {
-        let availability = await service(Allowlist(entries: [])).availability()
-        #expect(availability != .ok)
+    /// Availability now says one thing and one thing only: is the grant usable. There is no
+    /// allowlist left to be empty, so nothing else can make the back end unavailable.
+    @Test("availability reports the authorization status and nothing else")
+    func availabilityFollowsAuthorization() async {
+        let expected: ReminderAvailability = RemindersAccess.status().isUsable ? .ok : .unauthorized
+        #expect(await service().availability() == expected)
     }
 
-    @Test("an allowlist with nothing healthy is never available")
-    func allBrokenIsNeverOk() async throws {
-        let allowlist = Allowlist(entries: [try allowlistEntry("gone", state: .broken)])
-        #expect(await service(allowlist).availability() != .ok)
-    }
-
-    /// `predicateForReminders(in:)` with an empty array is documented as *all* calendars. If the
-    /// resolved calendar set were ever passed through empty, one `GET` would return every
-    /// reminder on the Mac — so the empty case has to be refused before the predicate is built.
-    @Test("listing with nothing to list is refused, never widened to every calendar")
-    func neverFetchesAcrossEveryCalendar() async throws {
-        let service = service(Allowlist(entries: []))
-        await #expect(throws: ApiError.remindersUnavailable) {
-            try await service.list(try ListRemindersQuery())
+    /// The status readout must answer even with access revoked, because "what can you reach?" has
+    /// to be answerable in order to explain that the answer is "nothing".
+    @Test("the list readout never throws, whatever the grant is")
+    func availableListsNeverThrows() async {
+        let lists = await service().availableLists()
+        if !RemindersAccess.status().isUsable {
+            #expect(lists.isEmpty)
         }
-        // Same answer when only broken bindings exist.
-        let broken = self.service(Allowlist(entries: [try allowlistEntry("gone", state: .broken)]))
-        await #expect(throws: ApiError.remindersUnavailable) {
-            try await broken.list(try ListRemindersQuery())
-        }
+        // Sorted and deduplicated, so a caller can present it directly.
+        #expect(lists == lists.sorted())
+        #expect(Set(lists).count == lists.count)
     }
 
     @Test("an unmapped id never succeeds")
     func unmappedIdNeverSucceeds() async throws {
-        let service = service(Allowlist(entries: [try allowlistEntry("inbox")]))
         // 404 when authorized, 503 when not — never a success, and never a 500.
-        await #expect(throws: ApiError.self) { try await service.complete(id: .generate()) }
+        await #expect(throws: ApiError.self) { try await self.service().complete(id: .generate()) }
     }
 
-    @Test("an alias outside the table is refused before anything is fetched")
-    func unknownAliasIsRefused() async throws {
-        let service = service(Allowlist(entries: [try allowlistEntry("inbox")]))
-        let query = try ListRemindersQuery(aliases: [try alias("personal")])
-        await #expect(throws: ApiError.self) { try await service.list(query) }
+    /// A name no list on this Mac wears must fail, whatever else is here. The string is not one
+    /// anybody would call a list, so this holds on a granted Mac too.
+    @Test("a name that matches no list is refused, never defaulted")
+    func unknownNameIsRefused() async throws {
+        let service = service()
+        let missing = try listName("erdabridge-no-such-list-\(UUID().uuidString)")
+
+        await #expect(throws: ApiError.self) {
+            try await service.list(try ListRemindersQuery(lists: [missing]))
+        }
+        await #expect(throws: ApiError.self) {
+            try await service.create(
+                CreateReminderCommand(
+                    id: .generate(),
+                    list: missing,
+                    title: "[erdabridge-test] must not be created",
+                    notes: nil,
+                    dueAt: nil,
+                    priority: 0
+                )
+            )
+        }
     }
 
     /// The seam's whole point: `EventKitReminders` is substitutable for `FakeReminders` in
     /// `BridgeServices` without the request layer knowing which it got.
     @Test("it satisfies the RemindersService seam")
     func conformsToTheSeam() throws {
-        let service: any RemindersService = service(Allowlist(entries: [try allowlistEntry("inbox")]))
+        let service: any RemindersService = service()
         #expect(service is EventKitReminders)
     }
 }

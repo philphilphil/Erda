@@ -1,12 +1,15 @@
 # ErdaBridge (macOS)
 
-A minimally-privileged macOS bridge that lets Erda (running in Docker on `leela`) create, list and
-complete **Apple Reminders** in explicitly allowlisted lists — and nothing else.
-Chain: `Erda → HTTP + bearer token → ErdaBridge → EventKit → Reminders`.
+A narrow macOS bridge that lets Erda (running in Docker on `leela`) create, list and complete
+**Apple Reminders** — and nothing else. Lists are addressed by their real name, exactly as they
+read in Reminders.app. Chain: `Erda → HTTP + bearer token → ErdaBridge → EventKit → Reminders`.
+
+**It can read and write every reminder list on this Mac.** That is a deliberate decision, not an
+oversight — see the [threat model](#threat-model).
 
 **Status: M0–M7 complete** — `BridgeCore`, `BridgeStore`, `BridgeHTTP`, `BridgeEventKit`, the setup
 UI, and hardening (forbidden-API lint, binary-level symbol checks, an audit-redaction property
-test). 358 tests / 44 suites pass, `make test` and `./scripts/bundle.sh` are clean. **The app has
+test). 368 tests / 42 suites pass, `make test` and `./scripts/bundle.sh` are clean. **The app has
 never been run against real Reminders data or installed to `/Applications`** — that verification is
 this document's main job: see [Needs a human at the screen](#-needs-a-human-at-the-screen) and the
 [manual verification checklist](#manual-verification-checklist).
@@ -46,9 +49,9 @@ permissions on Phil's Mac.
    another host. If an alert appears, that is a one-time approval to document here.
 2. **Grant Reminders access** via the Setup window and confirm the TCC prompt names **ErdaBridge**
    and quotes `NSRemindersFullAccessUsageDescription` ("ErdaBridge reads and creates reminders in
-   the lists you allow, …"). Confirm the status flips to `full access` with a non-zero list count.
-3. **Allowlist a real list**, assign it an alias, and run the full create → list → complete cycle
-   against Reminders.app — this bridge has only ever talked to `FakeReminders` in tests.
+   your lists, …"). Confirm the status flips to `full access` with a non-zero list count.
+3. **Run the full create → list → complete cycle** against a real list in Reminders.app — this
+   bridge has only ever talked to `FakeReminders` in tests.
 4. Work through the [manual verification checklist](#manual-verification-checklist) below.
 5. **Install to `/Applications`** (`make install`), re-approve the Application Firewall at the new
    path, add to Login Items, and point `leela`'s `.env` at the bridge (`AppleBridge__*`).
@@ -63,7 +66,7 @@ permissions on Phil's Mac.
 
 ```bash
 make bundle    # swift build -c release + assemble + codesign + verify + print the DR
-make test      # scripts/lint-forbidden.sh, then swift test (358 tests / 44 suites)
+make test      # scripts/lint-forbidden.sh, then swift test (368 tests / 42 suites)
 make run       # bundle, then `open` the signed .app
 make install   # copy to /Applications/ErdaBridge.app
 make clean
@@ -87,9 +90,8 @@ Do these in order — later steps depend on earlier ones:
 1. **`make run`** — menu bar item appears, no Dock icon (`LSUIElement`).
 2. **Grant Reminders access** from the Setup window (menu bar icon → **Setup…**). Confirms as
    `full access` with a non-zero list count.
-3. **Choose lists and assign aliases** in the list picker (title, source, writability shown for
-   each). An alias is `^[a-z0-9][a-z0-9_-]{0,31}$`, e.g. `inbox`, `groceries`. No alias ever falls
-   back to a default list — an unrecognized, removed or broken alias fails closed.
+3. **Note the list names.** There is nothing to configure here — every reminder list is reachable
+   — but the Setup window shows the exact titles, and the title is how Erda addresses a list.
 4. **Choose the bind address.** The picker offers the addresses currently configured on this Mac;
    nothing is auto-selected — see [Network: the DHCP reservation](#network-the-dhcp-reservation)
    for why the choice must be a LAN address with a DHCP reservation, not "whatever is available."
@@ -97,8 +99,7 @@ Do these in order — later steps depend on earlier ones:
    persisted. Save it somewhere durable now — there is no way to retrieve it again, only to
    rotate it (see [Token rotation](#token-rotation)).
 6. **Start the listener.** The Setup window's readiness line goes green only when Reminders access
-   is `full access`, at least one alias is usable, a token exists, and the listener is bound to a
-   non-loopback address.
+   is `full access`, a token exists, and the listener is bound to a non-loopback address.
 7. **Configure Erda's `.env`** on `leela` (`.env.example` documents these):
    ```
    AppleBridge__Enabled=true
@@ -276,7 +277,7 @@ In order — later steps assume earlier ones are done:
    rm -rf ~/Library/Application\ Support/de.philippbaum.erdabridge/
    rm -rf ~/Library/Logs/ErdaBridge/
    ```
-   This drops the SQLite allowlist/id-map/idempotency store and the JSONL audit log. There is
+   This drops the SQLite id-map/idempotency store and the JSONL audit log. There is
    nothing else on disk — no App Sandbox container, no cache directory, no defaults domain beyond
    what AppKit itself may have written to `~/Library/Preferences` for window state (harmless to
    leave, safe to also delete if you want a completely clean slate:
@@ -304,15 +305,40 @@ by `socketfilterfw`; it is inert once the app is gone and does not need separate
   `WKWebView`, `posix_spawn`, `system(`, `popen`, and `import ScriptingBridge|WebKit|Intents|AppIntents`.
   `scripts/bundle.sh` additionally scans the **linked binary's** undefined symbols for the same
   APIs, so a transitive dependency pulling one in would also be caught.
-- No remote route that can change the allowlist, the token, permissions, or the bind-address/config
-  — those are exclusively local Setup-window actions (or `--rotate-token` at the terminal on this
-  Mac). The four HTTP routes (`GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`,
-  `POST /v1/reminders/{id}/complete`) touch reminders in already-allowlisted lists and nothing
-  else — there is no route shaped like "add a list" or "issue a token."
+- No remote route that can change the token, permissions, or the bind-address/config — those are
+  exclusively local Setup-window actions (or `--rotate-token` at the terminal on this Mac). The four
+  HTTP routes (`GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`,
+  `POST /v1/reminders/{id}/complete`) touch reminders and nothing else — there is no route shaped
+  like "create a list", "delete a list" or "issue a token."
 - Missing functionality is never "solved" by adding a macOS permission or a shell fallback — if a
   capability needs one of the above, the answer is "not in scope," not "add it quietly."
 
-**Two deliberate relaxations of the original spec** (both recorded as accepted-cost decisions, not
+**What it can reach: every reminder list on this Mac.**
+
+The original design carried a per-list allowlist — a table of local aliases, each bound to one
+`calendarIdentifier` a human had picked in the Setup window — because macOS grants EventKit reminder
+access all-or-nothing, and the allowlist was the only place a narrower boundary could be drawn.
+
+**That allowlist was removed on purpose.** Phil decided that a bridge with access to all of his own
+reminder lists is the behaviour he wants on his own Mac, so the alias indirection was buying
+complexity rather than containment. It has not been replaced with a weaker gate: there is no
+implicit default list, no "primary" list, and no compensating filter. What it can reach is what the
+heading says.
+
+Concretely, anyone holding the bearer token can, on any list on this Mac:
+
+- read every incomplete reminder — title, notes, due date, priority — via `GET /v1/reminders` with
+  no filter;
+- create a reminder in any list they can name;
+- complete any reminder the bridge has ever issued an id for.
+
+They still **cannot** delete or edit a reminder, move one between lists, uncomplete one, touch
+calendars or events, or learn any `calendarIdentifier`. A list is addressed by name, and a name that
+matches nothing — or that matches two lists, which happens when two accounts both hold a
+"Reminders" — is refused rather than guessed at, because guessing is how a write lands in somebody
+else's shared list.
+
+**Three deliberate relaxations of the original spec** (all recorded as accepted-cost decisions, not
 gaps that slipped through):
 
 1. **Plain HTTP on the LAN, bearer token, instead of loopback-only + Tailscale Serve.** Both
@@ -320,10 +346,11 @@ gaps that slipped through):
    **Accepted cost: the bearer token crosses the home Wi-Fi in cleartext** on every request.
    Anyone with access to that Wi-Fi (or anything upstream of it, e.g. a compromised router) can
    read the token off the wire and would then have the same reminders-create/list/complete access
-   Erda has, for the allowlisted lists, until the token is rotated. Mitigations in place: the token
-   is only ever useful against this bridge's narrow API (no lateral capability), rotation is cheap
-   (see [Token rotation](#token-rotation)), and the allowlist itself bounds the blast radius to
-   lists a human explicitly opted in.
+   Erda has, on every reminder list, until the token is rotated. Mitigations in place: the token is
+   only ever useful against this bridge's narrow API (no lateral capability, no delete, no edit) and
+   rotation is cheap (see [Token rotation](#token-rotation)). The allowlist used to be listed here
+   as a third mitigation bounding the blast radius; with it gone, the blast radius is every reminder
+   list — see above.
 2. **No App Sandbox, no `SMAppService`.** The app runs with the ambient privileges of Phil's user
    account rather than inside a sandbox container, and login-launch is a manual
    [Login Items](#login-items) entry rather than a programmatic `SMAppService` registration. This
@@ -334,6 +361,8 @@ gaps that slipped through):
    nothing in this codebase currently uses that headroom (no `Process`, no file access outside its
    own `~/Library` directories, no scripting bridges — see above), but the OS-level backstop a
    sandbox would provide is absent.
+3. **No per-list allowlist**, as set out above: a user-approved widening of the boundary, taken with
+   the reasoning written down rather than as a quiet simplification.
 
 ---
 
@@ -351,18 +380,28 @@ any change to `BridgeEventKit`, the router, or the store.
 - [ ] Re-grant → bridge recovers without a restart (confirm via `eventStoreChangedNotification`
       handling, not just a relaunch).
 
-**Allowlist enforcement**
+**List addressing**
 
-- [ ] Allow one list, assign an alias. `POST /v1/reminders` with that alias creates the item and it
-      appears in Reminders.app.
-- [ ] `GET /v1/reminders` returns items from allowed lists only — a non-allowlisted list's items are
-      invisible, not filtered client-side.
-- [ ] Move a reminder that was created via the bridge into a **non-allowlisted** list, then try to
-      complete it by id → `404`, not a silent success.
+- [ ] `POST /v1/reminders` naming a real list by title creates the item, and it appears in that list
+      in Reminders.app.
+- [ ] The same with the title in the wrong case (`groceries` for `Groceries`) lands in the same
+      list — a unique case-insensitive match is accepted.
+- [ ] `POST` naming a list that does not exist → `404 no_such_list`, and **nothing is created
+      anywhere**. Check the other lists, not just the response.
+- [ ] `GET /v1/reminders` with no filter returns items from **every** list — the intended behaviour
+      now, and worth seeing once against real data before relying on it.
+- [ ] `GET /v1/reminders?list=<title>` narrows to that list; a title with a space or an umlaut works
+      when percent-encoded (`?list=To%20Do`).
+- [ ] Make two lists with the same title in two different accounts (e.g. iCloud and On My Mac), then
+      address that title → `404 no_such_list`, **not** a write into either one. Delete one again
+      afterwards.
+- [ ] Add a read-only shared list, then `POST` to it → `409 list_read_only`, not a 500.
+- [ ] Delete a list in Reminders.app that had bridge-created reminders in it, then try to complete
+      one by id → `404`, not a silent success.
+- [ ] Move a bridge-created reminder into another list, then complete it by id → succeeds, and
+      completes it *in the list it is in now* (the bridge re-reads the reminder's current list
+      rather than trusting the stored one).
 - [ ] Complete an already-completed reminder → `200`, idempotent no-op, not an error.
-- [ ] Delete the allowlisted list itself in Reminders.app, then make a request against its alias →
-      alias shows `broken` in the Setup window with title/source candidates offered, **nothing
-      re-bound automatically**, and the API returns `409` rather than silently reusing another list.
 
 **Idempotency**
 
@@ -382,7 +421,7 @@ any change to `BridgeEventKit`, the router, or the store.
 - [ ] `lsof -nP -iTCP:<port> -sTCP:LISTEN` shows a bind to the configured LAN address **only** — not
       `0.0.0.0`, not `127.0.0.1` (unless loopback was deliberately chosen for local-only testing).
 - [ ] The port is unreachable from a host other than the one it's supposed to be reachable from
-      (sanity-check the allowlist is a bind choice, not a firewall rule this app doesn't have).
+      (sanity-check that reachability is a bind choice, not a firewall rule this app doesn't have).
 - [ ] Turn Wi-Fi off with the listener bound → status goes red within ~30s and starts retrying;
       turn it back on → rebinds without a relaunch.
 - [ ] From `leela`: full status → create → list → complete round trip over the real LAN.
@@ -421,23 +460,35 @@ ErdaBridgeApp   @main SwiftUI MenuBarExtra + setup window
   (`NIOHTTPDecoderLimitConfiguration` for headers, `NIOHTTPServerRequestAggregator(maxContentLength:)`
   which emits 413 itself). `NIOAsyncChannel` makes each connection a plain `async` Task, so handlers
   can `await` the EventKit actor without blocking an event loop.
-- **Raw `import SQLite3`** (in the SDK, zero deps) for allowlist / id-map / idempotency; a rotating
+- **Raw `import SQLite3`** (in the SDK, zero deps) for the id-map / idempotency store; a rotating
   **JSONL file** for the audit log so it stays `tail -f`-able and can't be locked out by a
   transaction.
 - **EventKit behind an actor with a custom `DispatchSerialQueue` executor** — serialises mutations
   *and* keeps blocking `saveReminder:` calls off the cooperative pool. EventKit types are
   non-`Sendable` and must never cross an isolation boundary; `[EKReminder]` is mapped to DTOs inside
   the fetch completion closure.
-- **Identifier drift is the main domain risk.** `EKCalendar.calendarIdentifier` and
-  `EKCalendarItem.calendarItemIdentifier` are explicitly *not* sync-proof. An alias whose calendar
-  no longer resolves goes to state `broken` and fails closed; re-binding by title is **never**
-  automatic (that is how you'd write into a stranger's shared list after a resync) — the local UI
-  proposes candidates and a human confirms. A dangling reminder id is always a `404`.
+- **Identifier drift is the main domain risk**, and it is why no list is stored by identifier any
+  more. `EKCalendar.calendarIdentifier` and `EKCalendarItem.calendarItemIdentifier` are explicitly
+  *not* sync-proof, so a list is resolved **by name against EventKit on every request** — which
+  cannot go stale, and which is what made dropping the allowlist a simplification rather than a
+  trade. A name matching nothing, or matching two lists, is refused rather than guessed at. The
+  `reminder_map` table still keys on `calendarItemIdentifier` because a reminder has no other
+  handle; a dangling id is always a `404`, and `complete` re-reads the reminder's *current* list
+  before writing, so a re-homed or orphaned id can never quietly succeed.
 
 ### API
 
 `GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`, `POST /v1/reminders/{id}/complete`.
-Bearer token on all four including status. Errors are `{"error":"<snake_code>","requestId":"…"}`
+Bearer token on all four including status.
+
+A list is named by its title: `{"list":"Groceries","title":"Buy milk"}` on create, and a repeatable
+`?list=<percent-encoded title>` on list (omitted ⇒ every list). `GET /v1/status` answers
+`{"availability":"ok","lists":["Groceries","Work"]}` — the names a caller may address. The list
+route keeps its `{"items":[…]}` wrapper so it can gain a field later. Query **values** are
+percent-decoded (titles have spaces in them); `+` is not a space, and the **path** is still never
+decoded, so an encoded traversal stays a 404.
+
+Errors are `{"error":"<snake_code>","requestId":"…"}`
 with **no message field** — structurally impossible to leak a path or `NSError` description.
 Request order per connection: admission → protocol gate → route table → auth → rate limit →
 content negotiation → strict decode → idempotency → domain → audit (audit always runs, including
@@ -453,8 +504,9 @@ on rejection).
   Unicode titles/notes (plus fixed adversarial strings: a vault path, the bearer token, a token-
   shaped string, an RTL override, a SQL-injection attempt) through the **full handler path** against
   `FakeReminders`, and asserts the emitted JSONL audit line contains none of them and no `/Users/`
-  substring. `AuditEvent` has no free-form `String` field, so this guards a structural guarantee
-  rather than hunting for a leak, which is why it's cheap to run over adversarial input.
+  substring. `AuditEvent` has no bare `String` field — the only thing it takes from a request is the
+  list *name*, and `ListName` caps that and refuses control characters — so this guards a structural
+  guarantee rather than hunting for a leak, which is why it's cheap to run over adversarial input.
 
 ### Setup UI (M5)
 
@@ -490,16 +542,15 @@ choice and re-validates it on **every** attempt:
 The menu bar icon changes shape with the state (`checklist` / triangle / octagon), so a bridge that
 cannot serve a request looks different without opening the window.
 
-**Lists, aliases and broken bindings.** The list picker shows every reminder list with its title,
-source and whether it is writable. An alias is `^[a-z0-9][a-z0-9_-]{0,31}$`; an alias already in use
-must be unbound before it can be re-pointed. When a binding's `calendarIdentifier` no longer
-resolves — which an iCloud full sync can cause — the alias goes to **broken** and fails closed; the
-window offers *candidate* lists ordered by title/source similarity, and a confirmation dialog names
-the list before anything is written. Re-binding by title never happens automatically.
+**Lists are shown, not chosen.** The window lists every reminder list with its title, source and
+whether it is writable — read-only, because there is nothing to pick. Its job is to show the exact
+spelling of each title, since that is what Erda sends. The list picker, alias assignment and
+broken-alias re-bind flows that used to live here went with the allowlist.
 
 **Readiness is a conjunction.** The window says **Ready** only when Reminders access is
-`full access`, at least one alias is usable, a token exists, and the listener is bound to a
-non-loopback address. Anything less is amber or red with the specific reason.
+`full access`, a token exists, and the listener is bound to a non-loopback address. A Mac with no
+reminder lists at all is amber rather than green — there would be nothing to write to. Anything
+less is amber or red with the specific reason.
 
 ### M0 findings
 

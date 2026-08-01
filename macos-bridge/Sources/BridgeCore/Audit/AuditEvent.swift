@@ -27,11 +27,16 @@ public enum AuditResult: Sendable, Hashable {
 
 /// One line of the audit log.
 ///
-/// Every field is either an enum, an integer, a bool, a UUID, or one of the two validated
-/// identifier types (`TokenId` — 8 hex characters; `Alias` — at most 32 characters of
-/// `[a-z0-9_-]`). **There is no free-form `String` property**, so a title, a note, a file path,
-/// a token or a raw idempotency key has nowhere to go: redaction is a property of the type, not
-/// of the discipline of whoever writes the call site.
+/// Every field is either an enum, an integer, a bool, a UUID, a `TokenId` (8 hex characters) or a
+/// `ListName` (a Reminders list title, capped and with control characters refused). **There is no
+/// bare `String` property**, so a title, a note, a file path, a token or a raw idempotency key has
+/// nowhere to go: redaction is a property of the type, not of the discipline of whoever writes the
+/// call site.
+///
+/// `list` is the one field carrying anything the user chose, and it carries the *name of a list*,
+/// never the contents of a reminder. Since the allowlist went away, a list name is no longer drawn
+/// from a short local table — which is why `ListName` caps its length and refuses control
+/// characters, so a line stays one line and stays greppable.
 public struct AuditEvent: Sendable, Equatable {
     public let timestamp: Date
     public let requestId: UUID
@@ -39,7 +44,7 @@ public struct AuditEvent: Sendable, Equatable {
     public let tokenId: TokenId?
     public let operation: AuditOperation
     /// `nil` when the request named no list.
-    public let alias: Alias?
+    public let list: ListName?
     public let result: AuditResult
     public let status: Int
     public let durationMs: Int
@@ -50,7 +55,7 @@ public struct AuditEvent: Sendable, Equatable {
         requestId: UUID,
         tokenId: TokenId?,
         operation: AuditOperation,
-        alias: Alias?,
+        list: ListName?,
         result: AuditResult,
         status: Int,
         durationMs: Int,
@@ -60,7 +65,7 @@ public struct AuditEvent: Sendable, Equatable {
         self.requestId = requestId
         self.tokenId = tokenId
         self.operation = operation
-        self.alias = alias
+        self.list = list
         self.result = result
         self.status = status
         self.durationMs = durationMs
@@ -86,7 +91,7 @@ public struct AuditEvent: Sendable, Equatable {
         let requestId: String
         let tokenId: String?
         let op: String
-        let alias: String?
+        let list: String?
         let result: String
         let status: Int
         let durationMs: Int
@@ -97,7 +102,7 @@ public struct AuditEvent: Sendable, Equatable {
             self.requestId = event.requestId.uuidString.lowercased()
             self.tokenId = event.tokenId?.rawValue
             self.op = event.operation.rawValue
-            self.alias = event.alias?.rawValue
+            self.list = event.list?.rawValue
             self.result = event.result.code
             self.status = event.status
             self.durationMs = event.durationMs
@@ -105,7 +110,7 @@ public struct AuditEvent: Sendable, Equatable {
         }
 
         enum CodingKeys: String, CodingKey {
-            case ts, requestId, tokenId, op, alias, result, status, durationMs, replay
+            case ts, requestId, tokenId, op, list, result, status, durationMs, replay
         }
 
         /// Written by hand so the optional fields emit an explicit `null` instead of vanishing.
@@ -118,7 +123,7 @@ public struct AuditEvent: Sendable, Equatable {
             try container.encode(requestId, forKey: .requestId)
             try container.encode(tokenId, forKey: .tokenId)
             try container.encode(op, forKey: .op)
-            try container.encode(alias, forKey: .alias)
+            try container.encode(list, forKey: .list)
             try container.encode(result, forKey: .result)
             try container.encode(status, forKey: .status)
             try container.encode(durationMs, forKey: .durationMs)

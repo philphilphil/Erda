@@ -9,7 +9,10 @@ public struct ReminderMapEntry: Sendable, Equatable {
     /// four ways it can be duplicated inside one database and warns that it differs between
     /// devices for reminders on Exchange, so it is never used to resolve anything.
     public let eventKitExternalId: String?
-    public let alias: Alias
+    /// The list the reminder was in when the row was written, for diagnostics only. It resolves
+    /// nothing: `complete` always re-reads the reminder's current calendar, so a stale name here
+    /// can never authorise a write.
+    public let listName: ListName
     public let createdAt: Date
     public let lastSeenAt: Date
 
@@ -17,14 +20,14 @@ public struct ReminderMapEntry: Sendable, Equatable {
         bridgeId: BridgeID,
         eventKitItemId: String,
         eventKitExternalId: String? = nil,
-        alias: Alias,
+        listName: ListName,
         createdAt: Date,
         lastSeenAt: Date
     ) {
         self.bridgeId = bridgeId
         self.eventKitItemId = eventKitItemId
         self.eventKitExternalId = eventKitExternalId
-        self.alias = alias
+        self.listName = listName
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
     }
@@ -46,14 +49,14 @@ public struct ReminderMapRepository: Sendable {
     public func insert(_ entry: ReminderMapEntry) throws {
         try db.run(
             """
-            INSERT INTO reminder_map(bridge_id, ek_item_id, ek_external_id, alias, created_at, last_seen_at)
+            INSERT INTO reminder_map(bridge_id, ek_item_id, ek_external_id, list_name, created_at, last_seen_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(entry.bridgeId.rawValue),
                 .text(entry.eventKitItemId),
                 .optionalText(entry.eventKitExternalId),
-                .text(entry.alias.rawValue),
+                .text(entry.listName.rawValue),
                 .date(entry.createdAt),
                 .date(entry.lastSeenAt),
             ]
@@ -100,21 +103,21 @@ public struct ReminderMapRepository: Sendable {
     }
 
     private let selectPrefix = """
-        SELECT bridge_id, ek_item_id, ek_external_id, alias, created_at, last_seen_at FROM reminder_map
+        SELECT bridge_id, ek_item_id, ek_external_id, list_name, created_at, last_seen_at FROM reminder_map
         """
 
     private static func decode(_ row: SQLiteRow) throws -> ReminderMapEntry {
         guard let bridgeId = BridgeID(rawValue: try row.text(0, "bridge_id")) else {
             throw StoreError.corruptRow(table: "reminder_map", column: "bridge_id")
         }
-        guard let alias = Alias(rawValue: try row.text(3, "alias")) else {
-            throw StoreError.corruptRow(table: "reminder_map", column: "alias")
+        guard let listName = ListName(rawValue: try row.text(3, "list_name")) else {
+            throw StoreError.corruptRow(table: "reminder_map", column: "list_name")
         }
         return ReminderMapEntry(
             bridgeId: bridgeId,
             eventKitItemId: try row.text(1, "ek_item_id"),
             eventKitExternalId: row.optionalText(2),
-            alias: alias,
+            listName: listName,
             createdAt: try row.date(4, "created_at"),
             lastSeenAt: try row.date(5, "last_seen_at")
         )

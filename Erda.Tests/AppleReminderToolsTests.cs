@@ -11,7 +11,7 @@ public class AppleReminderToolsTests
     private sealed class FakeAppleBridgeClient : IAppleBridgeClient
     {
         public AppleBridgeResult<AppleBridgeStatus> StatusResult { get; set; } =
-            AppleBridgeResult<AppleBridgeStatus>.Ok(new AppleBridgeStatus("ok", [], []));
+            AppleBridgeResult<AppleBridgeStatus>.Ok(new AppleBridgeStatus("ok", []));
         public AppleBridgeResult<AppleReminder> CreateResult { get; set; } =
             AppleBridgeResult<AppleReminder>.Fail("not configured for this test");
         public AppleBridgeResult<IReadOnlyList<AppleReminder>> ListResult { get; set; } =
@@ -19,25 +19,25 @@ public class AppleReminderToolsTests
         public AppleBridgeResult<AppleReminderCompletion> CompleteResult { get; set; } =
             AppleBridgeResult<AppleReminderCompletion>.Fail("not configured for this test");
 
-        public (string Alias, string Title, string? Notes, DateTimeOffset? DueAt, int? Priority)? CreateCall { get; private set; }
-        public (IReadOnlyList<string>? Aliases, int? Limit)? ListCall { get; private set; }
+        public (string List, string Title, string? Notes, DateTimeOffset? DueAt, int? Priority)? CreateCall { get; private set; }
+        public (IReadOnlyList<string>? Lists, int? Limit)? ListCall { get; private set; }
         public string? CompleteCall { get; private set; }
 
         public Task<AppleBridgeResult<AppleBridgeStatus>> GetStatusAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(StatusResult);
 
         public Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
-            string alias, string title, string? notes = null, DateTimeOffset? dueAt = null, int? priority = null,
+            string list, string title, string? notes = null, DateTimeOffset? dueAt = null, int? priority = null,
             CancellationToken cancellationToken = default)
         {
-            CreateCall = (alias, title, notes, dueAt, priority);
+            CreateCall = (list, title, notes, dueAt, priority);
             return Task.FromResult(CreateResult);
         }
 
         public Task<AppleBridgeResult<IReadOnlyList<AppleReminder>>> ListRemindersAsync(
-            IReadOnlyList<string>? aliases = null, int? limit = null, CancellationToken cancellationToken = default)
+            IReadOnlyList<string>? lists = null, int? limit = null, CancellationToken cancellationToken = default)
         {
-            ListCall = (aliases, limit);
+            ListCall = (lists, limit);
             return Task.FromResult(ListResult);
         }
 
@@ -69,15 +69,15 @@ public class AppleReminderToolsTests
         var fake = new FakeAppleBridgeClient
         {
             CreateResult = AppleBridgeResult<AppleReminder>.Ok(
-                new AppleReminder("rem_1", "groceries", "Buy milk", null, null, 0, false, null)),
+                new AppleReminder("rem_1", "Groceries", "Buy milk", null, null, 0, false, null)),
         };
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["alias"] = "groceries", ["title"] = "Buy milk" }))!).GetString()!;
+            .InvokeAsync(new() { ["list"] = "Groceries", ["title"] = "Buy milk" }))!).GetString()!;
 
         Assert.Contains("Buy milk", result);
-        Assert.Contains("groceries", result);
-        Assert.Equal(("groceries", "Buy milk", (string?)null, (DateTimeOffset?)null, (int?)null), fake.CreateCall);
+        Assert.Contains("Groceries", result);
+        Assert.Equal(("Groceries", "Buy milk", (string?)null, (DateTimeOffset?)null, (int?)null), fake.CreateCall);
     }
 
     [Fact]
@@ -86,18 +86,18 @@ public class AppleReminderToolsTests
         var fake = new FakeAppleBridgeClient { CreateResult = AppleBridgeResult<AppleReminder>.Fail("the list isn't set up") };
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["alias"] = "nope", ["title"] = "x" }))!).GetString()!;
+            .InvokeAsync(new() { ["list"] = "Nope", ["title"] = "x" }))!).GetString()!;
 
         Assert.Contains("the list isn't set up", result);
     }
 
     [Fact]
-    public async Task Create_reminder_refuses_a_blank_alias_without_calling_the_client()
+    public async Task Create_reminder_refuses_a_blank_list_without_calling_the_client()
     {
         var fake = new FakeAppleBridgeClient();
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["alias"] = "", ["title"] = "x" }))!).GetString()!;
+            .InvokeAsync(new() { ["list"] = "", ["title"] = "x" }))!).GetString()!;
 
         Assert.Contains("which Reminders list", result);
         Assert.Null(fake.CreateCall);
@@ -109,37 +109,50 @@ public class AppleReminderToolsTests
         var fake = new FakeAppleBridgeClient();
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["alias"] = "groceries", ["title"] = "  " }))!).GetString()!;
+            .InvokeAsync(new() { ["list"] = "Groceries", ["title"] = "  " }))!).GetString()!;
 
         Assert.Contains("no title", result);
         Assert.Null(fake.CreateCall);
     }
 
     [Fact]
-    public async Task List_reminders_formats_each_item_with_id_title_and_alias()
+    public async Task List_reminders_formats_each_item_with_id_title_and_list()
     {
         var fake = new FakeAppleBridgeClient
         {
             ListResult = AppleBridgeResult<IReadOnlyList<AppleReminder>>.Ok(
-                [new AppleReminder("rem_1", "groceries", "Buy milk", null, null, 0, false, null)]),
+                [new AppleReminder("rem_1", "Groceries", "Buy milk", null, null, 0, false, null)]),
         };
 
         var result = ((JsonElement)(await Tool(Make(fake), "list_apple_reminders").InvokeAsync(new()))!).GetString()!;
 
         Assert.Contains("rem_1", result);
         Assert.Contains("Buy milk", result);
-        Assert.Contains("groceries", result);
+        Assert.Contains("Groceries", result);
     }
 
     [Fact]
-    public async Task List_reminders_passes_a_single_alias_filter_through()
+    public async Task List_reminders_passes_a_single_list_filter_through()
     {
         var fake = new FakeAppleBridgeClient();
 
-        await Tool(Make(fake), "list_apple_reminders").InvokeAsync(new() { ["alias"] = "work" });
+        await Tool(Make(fake), "list_apple_reminders").InvokeAsync(new() { ["list"] = "Work" });
 
         Assert.NotNull(fake.ListCall);
-        Assert.Equal(["work"], fake.ListCall!.Value.Aliases);
+        Assert.Equal(["Work"], fake.ListCall!.Value.Lists);
+    }
+
+    /// <summary>Omitting the list is how the model asks for everything — it must not become a
+    /// filter on the empty string, which the bridge would reject.</summary>
+    [Fact]
+    public async Task List_reminders_with_no_list_asks_for_every_list()
+    {
+        var fake = new FakeAppleBridgeClient();
+
+        await Tool(Make(fake), "list_apple_reminders").InvokeAsync(new());
+
+        Assert.NotNull(fake.ListCall);
+        Assert.Null(fake.ListCall!.Value.Lists);
     }
 
     [Fact]

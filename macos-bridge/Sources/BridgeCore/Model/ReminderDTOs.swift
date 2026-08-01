@@ -9,7 +9,9 @@ import Foundation
 /// into an all-day reminder behind your back (`EKReminder.h`); requiring a full offset-bearing
 /// timestamp means the request can only ever express a timed reminder, with no hidden mode.
 public struct CreateReminderRequest: Sendable, Equatable, Decodable {
-    public let alias: Alias
+    /// The list's name as it reads in Reminders.app. Required: there is no default list, and a
+    /// name that matches nothing fails rather than landing somewhere plausible.
+    public let list: ListName
     /// Trimmed, 1…512.
     public let title: String
     /// ≤ 4096, kept verbatim (not trimmed).
@@ -18,10 +20,10 @@ public struct CreateReminderRequest: Sendable, Equatable, Decodable {
     /// 0 = none, 1 = highest … 9 = lowest.
     public let priority: Int?
 
-    static let allowedKeys: Set<String> = ["alias", "title", "notes", "dueAt", "priority"]
+    static let allowedKeys: Set<String> = ["list", "title", "notes", "dueAt", "priority"]
 
-    public init(alias: Alias, title: String, notes: String? = nil, dueAt: Date? = nil, priority: Int? = nil) {
-        self.alias = alias
+    public init(list: ListName, title: String, notes: String? = nil, dueAt: Date? = nil, priority: Int? = nil) {
+        self.list = list
         self.title = title
         self.notes = notes
         self.dueAt = dueAt
@@ -32,7 +34,7 @@ public struct CreateReminderRequest: Sendable, Equatable, Decodable {
         let container = try decoder.container(keyedBy: AnyCodingKey.self)
         try StrictDecoding.rejectUnknownKeys(in: container, allowed: Self.allowedKeys)
 
-        self.alias = try container.decode(Alias.self, forKey: "alias")
+        self.list = try container.decode(ListName.self, forKey: "list")
         self.title = try Validate.title(container.decode(String.self, forKey: "title"))
         self.notes = try container.decodeIfPresent(String.self, forKey: "notes").map(Validate.notes)
         self.dueAt = try container.decodeIfPresent(Date.self, forKey: "dueAt")
@@ -41,7 +43,7 @@ public struct CreateReminderRequest: Sendable, Equatable, Decodable {
 
     /// Pairs the validated request with the bridge-issued id the handler minted for it.
     public func command(id: BridgeID) -> CreateReminderCommand {
-        CreateReminderCommand(id: id, alias: alias, title: title, notes: notes, dueAt: dueAt, priority: priority ?? 0)
+        CreateReminderCommand(id: id, list: list, title: title, notes: notes, dueAt: dueAt, priority: priority ?? 0)
     }
 }
 
@@ -51,15 +53,15 @@ public struct CreateReminderRequest: Sendable, Equatable, Decodable {
 /// written in the same step as the save.
 public struct CreateReminderCommand: Sendable, Equatable {
     public let id: BridgeID
-    public let alias: Alias
+    public let list: ListName
     public let title: String
     public let notes: String?
     public let dueAt: Date?
     public let priority: Int
 
-    public init(id: BridgeID, alias: Alias, title: String, notes: String?, dueAt: Date?, priority: Int) {
+    public init(id: BridgeID, list: ListName, title: String, notes: String?, dueAt: Date?, priority: Int) {
         self.id = id
-        self.alias = alias
+        self.list = list
         self.title = title
         self.notes = notes
         self.dueAt = dueAt
@@ -70,22 +72,23 @@ public struct CreateReminderCommand: Sendable, Equatable {
 /// `GET /v1/reminders`. Built from query parameters, not a JSON body, so it validates in its
 /// initialiser instead of going through `StrictJSON`.
 public struct ListRemindersQuery: Sendable, Equatable {
-    /// Empty means "every healthy allowlist entry" — resolved by the caller, never a default list.
-    public let aliases: [Alias]
+    /// Empty means every reminder list on this Mac.
+    public let lists: [ListName]
     public let limit: Int
 
-    public init(aliases: [Alias] = [], limit: Int = Limits.listLimitDefault) throws {
-        self.aliases = aliases
+    public init(lists: [ListName] = [], limit: Int = Limits.listLimitDefault) throws {
+        self.lists = lists
         self.limit = try Validate.listLimit(limit)
     }
 }
 
 // MARK: - Wire responses
 
-/// One reminder as the client sees it. Carries a `BridgeID`, never an EventKit identifier.
+/// One reminder as the client sees it. Carries a `BridgeID`, never an EventKit identifier, and the
+/// list's name, never its `calendarIdentifier`.
 public struct ReminderSnapshot: Sendable, Equatable, Codable {
     public let id: BridgeID
-    public let alias: Alias
+    public let list: ListName
     public let title: String
     public let notes: String?
     public let dueAt: Date?
@@ -95,7 +98,7 @@ public struct ReminderSnapshot: Sendable, Equatable, Codable {
 
     public init(
         id: BridgeID,
-        alias: Alias,
+        list: ListName,
         title: String,
         notes: String? = nil,
         dueAt: Date? = nil,
@@ -104,7 +107,7 @@ public struct ReminderSnapshot: Sendable, Equatable, Codable {
         completedAt: Date? = nil
     ) {
         self.id = id
-        self.alias = alias
+        self.list = list
         self.title = title
         self.notes = notes
         self.dueAt = dueAt
@@ -144,13 +147,12 @@ public struct CompleteOutcome: Sendable, Equatable, Codable {
 /// The body of `GET /v1/status`.
 public struct StatusResponse: Sendable, Equatable, Codable {
     public let availability: ReminderAvailability
-    /// Healthy aliases only; a `broken` alias is omitted and counted in `brokenAliases`.
-    public let aliases: [Alias]
-    public let brokenAliases: [Alias]
+    /// Every reminder list on this Mac, sorted — the names a caller may address. Empty when access
+    /// is not usable, which is exactly what `availability` is there to explain.
+    public let lists: [ListName]
 
-    public init(availability: ReminderAvailability, aliases: [Alias], brokenAliases: [Alias]) {
+    public init(availability: ReminderAvailability, lists: [ListName]) {
         self.availability = availability
-        self.aliases = aliases
-        self.brokenAliases = brokenAliases
+        self.lists = lists
     }
 }

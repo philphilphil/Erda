@@ -16,7 +16,7 @@ struct AuditTests {
         #expect(event.operation == .remindersCreate)
         #expect(event.result == .ok)
         #expect(event.status == 201)
-        #expect(event.alias == (try alias("inbox")))
+        #expect(event.list == (try listName("Groceries")))
         #expect(event.tokenId != nil)
         #expect(event.replay == false)
     }
@@ -92,9 +92,10 @@ struct AuditTests {
         #expect(harness.audit.events.count == 5)
     }
 
-    /// Dossier §7.2's last row. `AuditEvent` has no free-form `String` field, so this is guarding
-    /// a structural guarantee rather than hunting for a leak — which is exactly why it is cheap
-    /// to run over a lot of adversarial input.
+    /// Dossier §7.2's last row. `AuditEvent` has no bare `String` field — the only thing it takes
+    /// from a request is the *list name*, which is bounded by `ListName` — so this is guarding a
+    /// structural guarantee rather than hunting for a leak, which is why it is cheap to run over a
+    /// lot of adversarial input.
     @Test("no title, note, path or token ever reaches the audit log")
     func linesCarryNoUserContent() async throws {
         let harness = try TestHarness()
@@ -105,7 +106,7 @@ struct AuditTests {
             harness.token,
             "erdab_9lQ2xR7vT4pN0aZ8sK1yH6bG3jW5cM2d",
             "\u{202E}gnirts ydeerg",
-            "'; DROP TABLE allowlist; --",
+            "'; DROP TABLE reminder_map; --",
         ]
         for _ in 0..<60 {
             secrets.append(generator.unicodeString(maxLength: 40))
@@ -122,7 +123,7 @@ struct AuditTests {
 
             let body = try String(
                 decoding: JSONSerialization.data(
-                    withJSONObject: ["alias": "inbox", "title": title, "notes": secret]
+                    withJSONObject: ["list": "Groceries", "title": title, "notes": secret]
                 ),
                 as: UTF8.self
             )

@@ -3,8 +3,9 @@ namespace Erda.Core.Configuration;
 /// <summary>
 /// Settings for the macOS ErdaBridge integration (bound from the "AppleBridge" config section): a
 /// small, LAN-only HTTP API run by a companion app on Phil's Mac that lets Erda create, list and
-/// complete tasks in explicitly allowlisted Apple Reminders lists. See <c>macos-bridge/</c> for the
-/// bridge itself; <see cref="Services.IAppleBridgeClient"/> is the .NET client for this API.
+/// complete tasks in his Apple Reminders lists, each addressed by its real name. See
+/// <c>macos-bridge/</c> for the bridge itself (and its threat model — it can reach every reminder
+/// list on that Mac); <see cref="Services.IAppleBridgeClient"/> is the .NET client for this API.
 /// </summary>
 public sealed class AppleBridgeOptions
 {

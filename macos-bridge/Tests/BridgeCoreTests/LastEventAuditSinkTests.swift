@@ -15,7 +15,7 @@ struct LastEventAuditSinkTests {
             requestId: UUID(),
             tokenId: TokenId(rawValue: "a1b2c3d4"),
             operation: operation,
-            alias: Alias(rawValue: "inbox"),
+            list: ListName(rawValue: "Inbox"),
             result: result,
             status: 201,
             durationMs: 12

@@ -100,7 +100,7 @@ struct SocketTests {
         try await withServer { harness, port, _ in
             let response = try exchange(
                 port: port,
-                request("GET /v1/reminders?alias=inbox&limit=5 HTTP/1.1", token: harness.token)
+                request("GET /v1/reminders?list=Groceries&limit=5 HTTP/1.1", token: harness.token)
             )
             #expect(response.statusCode == 200)
             #expect(response.jsonItems?.isEmpty == true)
@@ -129,7 +129,7 @@ struct SocketTests {
     func oversizedBodyIs413() async throws {
         try await withServer { harness, port, _ in
             let padding = String(repeating: "x", count: 17 * 1024)
-            let body = #"{"alias":"inbox","title":"\#(padding)"}"#
+            let body = #"{"list":"Groceries","title":"\#(padding)"}"#
             let response = try exchange(
                 port: port,
                 request(
@@ -149,7 +149,7 @@ struct SocketTests {
         try await withServer { harness, port, _ in
             // Notes cap out at 4096, so a large-but-legal body is padded there.
             let notes = String(repeating: "n", count: 4096)
-            let body = #"{"alias":"inbox","title":"Buy milk","notes":"\#(notes)"}"#
+            let body = #"{"list":"Groceries","title":"Buy milk","notes":"\#(notes)"}"#
             #expect(body.utf8.count < 16 * 1024)
 
             let response = try exchange(

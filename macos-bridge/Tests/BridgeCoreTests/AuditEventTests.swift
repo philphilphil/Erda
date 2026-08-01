@@ -10,7 +10,7 @@ struct AuditEventTests {
 
     private func event(
         operation: AuditOperation = .remindersCreate,
-        alias aliasValue: Alias? = nil,
+        list listValue: ListName? = nil,
         result: AuditResult = .ok,
         status: Int = 201,
         replay: Bool = false
@@ -20,7 +20,7 @@ struct AuditEventTests {
             requestId: requestId,
             tokenId: TokenId(rawValue: "a1b2c3d4"),
             operation: operation,
-            alias: aliasValue,
+            list: listValue,
             result: result,
             status: status,
             durationMs: 38,
@@ -30,17 +30,17 @@ struct AuditEventTests {
 
     @Test("a line carries exactly the documented keys")
     func lineHasFixedShape() throws {
-        let line = try event(alias: try alias("inbox")).jsonLine()
+        let line = try event(list: try listName("Groceries")).jsonLine()
         let parsed = try #require(
             try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
         )
 
-        #expect(Set(parsed.keys) == ["ts", "requestId", "tokenId", "op", "alias", "result", "status", "durationMs", "replay"])
+        #expect(Set(parsed.keys) == ["ts", "requestId", "tokenId", "op", "list", "result", "status", "durationMs", "replay"])
         #expect(parsed["ts"] as? String == "2026-07-31T07:00:00.221Z")
         #expect(parsed["requestId"] as? String == "6f0c1b6e-1f4a-4a9d-9f3e-1b2c3d4e5f60")
         #expect(parsed["tokenId"] as? String == "a1b2c3d4")
         #expect(parsed["op"] as? String == "reminders.create")
-        #expect(parsed["alias"] as? String == "inbox")
+        #expect(parsed["list"] as? String == "Groceries")
         #expect(parsed["result"] as? String == "ok")
         #expect(parsed["status"] as? Int == 201)
         #expect(parsed["durationMs"] as? Int == 38)
@@ -49,7 +49,7 @@ struct AuditEventTests {
 
     @Test("a line is one line — JSONL stays parseable")
     func lineHasNoNewlines() throws {
-        let line = try event(alias: try alias("inbox")).jsonLine()
+        let line = try event(list: try listName("Groceries")).jsonLine()
         #expect(!line.contains("\n"))
         #expect(!line.contains("\r"))
     }
@@ -70,7 +70,7 @@ struct AuditEventTests {
             requestId: requestId,
             tokenId: nil,
             operation: .unrouted,
-            alias: nil,
+            list: nil,
             result: .error(.unauthorized),
             status: 401,
             durationMs: 1
@@ -79,7 +79,7 @@ struct AuditEventTests {
             try JSONSerialization.jsonObject(with: Data(try bare.jsonLine().utf8)) as? [String: Any]
         )
         #expect(parsed["tokenId"] is NSNull)
-        #expect(parsed["alias"] is NSNull)
+        #expect(parsed["list"] is NSNull)
     }
 
     @Test("replays are marked")
@@ -89,17 +89,18 @@ struct AuditEventTests {
         #expect(parsed["replay"] as? Bool == true)
     }
 
-    /// The structural claim: an `AuditEvent` has no free-form string field, so there is nowhere
-    /// for a title, a note, a token or a path to be put — accidentally or otherwise.
+    /// The structural claim: an `AuditEvent` has no bare `String` field, so there is nowhere for a
+    /// title, a note, a token or a path to be put — accidentally or otherwise. `list` is the one
+    /// field carrying anything the user chose, and `ListName` bounds what it can carry.
     @Test("the type has no field that could hold user content")
     func typeCannotHoldUserContent() throws {
-        let sample = event(alias: try alias("inbox"))
+        let sample = event(list: try listName("Groceries"))
         let labels = Mirror(reflecting: sample).children.compactMap(\.label)
-        #expect(labels == ["timestamp", "requestId", "tokenId", "operation", "alias", "result", "status", "durationMs", "replay"])
+        #expect(labels == ["timestamp", "requestId", "tokenId", "operation", "list", "result", "status", "durationMs", "replay"])
 
         for child in Mirror(reflecting: sample).children {
-            // `Alias` and `TokenId` are the only string-shaped fields, and both are validated to
-            // a short restricted charset. Nothing here is a bare `String`.
+            // `ListName` and `TokenId` are the only string-shaped fields, and both are validated
+            // — capped, and with control characters refused. Nothing here is a bare `String`.
             #expect(!(child.value is String), "\(child.label ?? "?") is a free-form String")
         }
     }
@@ -118,7 +119,7 @@ struct AuditEventTests {
         var generator = SeededGenerator(seed: 0xA11D_17A5_0000_0001)
         for secret in secrets {
             let request = CreateReminderRequest(
-                alias: try alias("inbox"),
+                list: try listName("Groceries"),
                 title: secret,
                 notes: secret,
                 dueAt: Date(timeIntervalSince1970: Double(generator.next(upperBound: 2_000_000_000)))
@@ -129,7 +130,7 @@ struct AuditEventTests {
                 requestId: requestId,
                 tokenId: TokenId(rawValue: "a1b2c3d4"),
                 operation: .remindersCreate,
-                alias: command.alias,
+                list: command.list,
                 result: .ok,
                 status: 201,
                 durationMs: 12
@@ -144,7 +145,7 @@ struct AuditEventTests {
     @Test("the memory sink collects what it is given")
     func memorySinkCollects() throws {
         let sink = MemoryAuditSink()
-        sink.record(event(alias: try alias("inbox")))
+        sink.record(event(list: try listName("Groceries")))
         sink.record(event(operation: .remindersList, result: .error(.rateLimited), status: 429))
 
         #expect(sink.events.count == 2)

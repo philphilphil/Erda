@@ -55,7 +55,7 @@ public enum ServerFailure: Error, Sendable, Equatable {
 /// What the listener is doing, as the UI is allowed to describe it.
 ///
 /// There is no `.ready`: "listening" is the strongest claim this type can make, and it says
-/// nothing about Reminders authorization or the allowlist. Composing those into a single verdict
+/// nothing about Reminders authorization or the token. Composing those into a single verdict
 /// is the app's job, so that no state here can be mistaken for an all-clear.
 public enum ServerState: Sendable, Equatable {
     case stopped

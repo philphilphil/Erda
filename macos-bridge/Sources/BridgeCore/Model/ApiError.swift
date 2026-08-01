@@ -16,8 +16,8 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
     case rateLimited = "rate_limited"
     case idempotencyKeyReuse = "idempotency_key_reuse"
     case requestInProgress = "request_in_progress"
-    case aliasUnknown = "alias_unknown"
-    case aliasBroken = "alias_broken"
+    case noSuchList = "no_such_list"
+    case listReadOnly = "list_read_only"
     case remindersUnavailable = "reminders_unavailable"
     case `internal` = "internal"
 
@@ -27,13 +27,16 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
     public var httpStatus: Int {
         switch self {
         case .invalidRequest: 400
-        // An unknown alias is a bad *field value* in a request the client authored, not a
-        // missing resource — 404 would additionally imply the URL was wrong.
-        case .aliasUnknown: 400
         case .unauthorized: 401
-        case .notFound: 404
+        // The named list is a resource, and it is not there. Note this covers two cases: no list
+        // matches the name, *and* more than one does (two accounts can both hold a list called
+        // "Reminders"). Picking one of an ambiguous pair would be a guess, and a guess here writes
+        // into the wrong list — so both answer the same way.
+        case .notFound, .noSuchList: 404
         case .methodNotAllowed: 405
-        case .idempotencyKeyReuse, .requestInProgress, .aliasBroken: 409
+        // The list exists but cannot take the reminder — read-only, or an account that does not
+        // do reminders at all. A conflict with the state of the resource, not a bad request.
+        case .idempotencyKeyReuse, .requestInProgress, .listReadOnly: 409
         case .payloadTooLarge: 413
         case .unsupportedMediaType: 415
         case .rateLimited: 429

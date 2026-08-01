@@ -13,9 +13,9 @@ import Observation
 /// the only things crossing an isolation boundary.
 ///
 /// The rule this type exists to enforce: **never claim readiness that is not there.** Every
-/// readout is derived from something just measured — the authorization status, the allowlist
-/// table, the supervisor's own state — and `readiness` is a conjunction of all three, so no
-/// single green light can stand in for the others.
+/// readout is derived from something just measured — the authorization status, the lists EventKit
+/// reports right now, the supervisor's own state — and `readiness` is a conjunction of all of
+/// them, so no single green light can stand in for the others.
 @MainActor
 @Observable
 final class AppModel {
@@ -31,7 +31,6 @@ final class AppModel {
     private(set) var lists: [ReminderListInfo] = []
     /// Distinguishes "no lists" from "we have not been allowed to look".
     private(set) var listsLoaded = false
-    private(set) var allowlist: [AllowlistEntry] = []
     private(set) var tokenSummary: TokenSummary?
     private(set) var lastRequest: AuditEvent?
     private(set) var requestCount = 0
@@ -78,10 +77,9 @@ final class AppModel {
         }
     }
 
-    /// A slow poll of the three cheap readouts: the authorization status (a class method), the
-    /// allowlist table (six columns of local SQLite) and the last audited request. Reminder lists
-    /// are deliberately not in here — each read builds a fresh `EKEventStore`, so those refresh on
-    /// a gesture instead.
+    /// A slow poll of the two cheap readouts: the authorization status (a class method) and the
+    /// last audited request. Reminder lists are deliberately not in here — each read builds a
+    /// fresh `EKEventStore`, so those refresh on a gesture instead.
     private func startPolling() {
         Task {
             while !Task.isCancelled {
@@ -92,7 +90,6 @@ final class AppModel {
                 // Access granted (or revoked) in System Settings while the app runs. Only that
                 // transition pays for a list read, so the poll stays cheap.
                 if usabilityChanged { reloadLists() }
-                reloadAllowlist()
                 reloadLastRequest()
             }
         }
@@ -103,7 +100,6 @@ final class AppModel {
     func reloadAll() {
         authorization = RemindersAccess.status()
         reloadLists()
-        reloadAllowlist()
         reloadToken()
         reloadLastRequest()
         reloadStoredSelection()
@@ -115,11 +111,6 @@ final class AppModel {
             ($0.source, $0.title) < ($1.source, $1.title)
         }
         listsLoaded = authorization.isUsable
-    }
-
-    private func reloadAllowlist() {
-        guard let environment else { return }
-        allowlist = (try? environment.store.allowlist.all()) ?? []
     }
 
     private func reloadToken() {
@@ -158,130 +149,6 @@ final class AppModel {
             authorization = RemindersAccess.status()
             reloadLists()
         }
-    }
-
-    // MARK: - Allowlist
-
-    /// Lists paired with whatever binding currently points at them.
-    var listRows: [ListRow] {
-        let byCalendar = Dictionary(
-            allowlist.map { ($0.calendarId, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return lists.map { ListRow(list: $0, binding: byCalendar[$0.calendarId]) }
-    }
-
-    /// Bindings that cannot be used right now, with the reason.
-    ///
-    /// Two different things land here. An entry the EventKit actor already marked `broken` is the
-    /// authoritative case. An entry still marked `ok` whose calendar is absent from the current
-    /// list snapshot is the same failure caught earlier — but it is only computed when the lists
-    /// were actually readable, because with access revoked *every* binding would look missing.
-    var brokenBindings: [BrokenBinding] {
-        let visible = Set(lists.map(\.calendarId))
-        return allowlist.compactMap { entry in
-            if entry.state == .broken {
-                return BrokenBinding(entry: entry, reason: .markedBroken)
-            }
-            guard listsLoaded, !visible.contains(entry.calendarId) else { return nil }
-            return BrokenBinding(entry: entry, reason: .calendarMissing)
-        }
-    }
-
-    var healthyBindingCount: Int {
-        let visible = Set(lists.map(\.calendarId))
-        return allowlist.filter { entry in
-            entry.state == .ok && (!listsLoaded || visible.contains(entry.calendarId))
-        }.count
-    }
-
-    /// Why an alias cannot be used for this list, or `nil` if it can.
-    func aliasRejection(_ raw: String, for list: ReminderListInfo) -> String? {
-        guard !raw.isEmpty else { return nil }
-        guard Alias.isValid(raw) else {
-            return "1–32 characters: lowercase letters, digits, - or _, starting with a letter or digit."
-        }
-        guard let existing = allowlist.first(where: { $0.alias.rawValue == raw }) else { return nil }
-        guard existing.calendarId != list.calendarId else { return nil }
-        // Re-pointing an alias is the re-bind flow, and that one requires a human to confirm a
-        // named candidate. Silently moving it from a text field would be the same act without
-        // the confirmation.
-        return "Already bound to “\(existing.titleAtBind)”. Unbind it first."
-    }
-
-    func allow(_ list: ReminderListInfo, alias raw: String) {
-        guard let environment, let alias = Alias(rawValue: raw) else { return }
-        guard aliasRejection(raw, for: list) == nil else { return }
-
-        do {
-            try environment.store.allowlist.upsert(
-                AllowlistEntry(
-                    alias: alias,
-                    calendarId: list.calendarId,
-                    titleAtBind: list.title,
-                    sourceAtBind: list.source,
-                    boundAt: Date(),
-                    state: .ok
-                )
-            )
-            actionError = nil
-        } catch {
-            actionError = "Could not allow the list: \(error)"
-        }
-        reloadAllowlist()
-    }
-
-    func unbind(_ alias: Alias) {
-        guard let environment else { return }
-        do {
-            try environment.store.allowlist.remove(alias)
-            actionError = nil
-        } catch {
-            actionError = "Could not remove the alias: \(error)"
-        }
-        reloadAllowlist()
-    }
-
-    /// Re-points a broken alias at a list a human named.
-    ///
-    /// The re-bind is never derived from the title. `EKCalendar.calendarIdentifier` is documented
-    /// as not sync-proof, and Apple's own suggested fallback — match by title — is exactly how a
-    /// resync would start writing into a stranger's shared list that happens to be called
-    /// "Inbox". The UI proposes candidates; only this call, from an explicit confirmation, writes.
-    func rebind(_ alias: Alias, to list: ReminderListInfo) {
-        guard let environment else { return }
-        do {
-            try environment.store.allowlist.upsert(
-                AllowlistEntry(
-                    alias: alias,
-                    calendarId: list.calendarId,
-                    titleAtBind: list.title,
-                    sourceAtBind: list.source,
-                    boundAt: Date(),
-                    state: .ok
-                )
-            )
-            actionError = nil
-        } catch {
-            actionError = "Could not re-bind the alias: \(error)"
-        }
-        reloadAllowlist()
-    }
-
-    /// Every visible list is a candidate, ordered so the most plausible ones come first — same
-    /// title *and* source, then same title, then the rest. Ordering is a hint; it preselects
-    /// nothing.
-    func rebindCandidates(for entry: AllowlistEntry) -> [ReminderListInfo] {
-        lists.sorted { left, right in
-            rank(left, against: entry) < rank(right, against: entry)
-        }
-    }
-
-    private func rank(_ list: ReminderListInfo, against entry: AllowlistEntry) -> Int {
-        if list.title == entry.titleAtBind && list.source == entry.sourceAtBind { return 0 }
-        if list.title == entry.titleAtBind { return 1 }
-        if list.source == entry.sourceAtBind { return 2 }
-        return 3
     }
 
     // MARK: - Token
@@ -435,6 +302,15 @@ final class AppModel {
         }
     }
 
+    /// What the bridge can reach. There is no allowlist to report any more, so this says so
+    /// plainly rather than implying a selection nobody made.
+    var scopeText: String {
+        guard authorization.isUsable else { return "all reminder lists (none visible yet)" }
+        return lists.count == 1
+            ? "all reminder lists (1 visible)"
+            : "all reminder lists (\(lists.count) visible)"
+    }
+
     var lastRequestText: String {
         guard let lastRequest else { return "none since launch" }
         let time = lastRequest.timestamp.formatted(date: .omitted, time: .standard)
@@ -444,10 +320,10 @@ final class AppModel {
 
     /// The single verdict, and the only place the word "ready" is produced.
     ///
-    /// It is a conjunction on purpose. Reminders access, at least one usable binding and a bound
-    /// listener are each necessary, so a green light cannot be shown while any of them is missing
-    /// — including the case where the listener is happily bound to loopback and therefore
-    /// unreachable from the machine that is supposed to call it.
+    /// It is a conjunction on purpose. Reminders access, a bound listener and a token are each
+    /// necessary, so a green light cannot be shown while any of them is missing — including the
+    /// case where the listener is happily bound to loopback and therefore unreachable from the
+    /// machine that is supposed to call it.
     var readiness: Readiness {
         if let startupError { return .blocked("Startup failed: \(startupError)") }
         guard authorization.isUsable else {
@@ -467,18 +343,16 @@ final class AppModel {
         case .listening:
             break
         }
-        guard healthyBindingCount > 0 else {
-            return .blocked("No reminder list is allowed yet.")
-        }
         guard tokenSummary != nil else {
             return .blocked("No API token has been generated.")
         }
         if isBoundToLoopback {
             return .degraded("Bound to loopback — reachable from this Mac only, not from Erda.")
         }
-        if !brokenBindings.isEmpty {
-            let names = brokenBindings.map(\.entry.alias.rawValue).joined(separator: ", ")
-            return .degraded("Broken alias: \(names).")
+        // Access is granted and the lists were readable, so an empty result is the real answer:
+        // there is nothing for Erda to write into, and saying "Ready" would be a lie.
+        if listsLoaded, lists.isEmpty {
+            return .degraded("This Mac has no reminder lists — make one in Reminders.app.")
         }
         return .ready
     }
@@ -499,38 +373,6 @@ final class AppModel {
 }
 
 // MARK: - View models
-
-/// One reminder list plus whatever binding points at it.
-struct ListRow: Identifiable {
-    let list: ReminderListInfo
-    let binding: AllowlistEntry?
-
-    var id: String { list.calendarId }
-}
-
-/// An alias that cannot be used until a human re-points it.
-struct BrokenBinding: Identifiable {
-    enum Reason {
-        /// The EventKit actor failed to resolve the calendar and marked the row.
-        case markedBroken
-        /// The row still says `ok`, but the calendar is not in the current list snapshot.
-        case calendarMissing
-    }
-
-    let entry: AllowlistEntry
-    let reason: Reason
-
-    var id: String { entry.alias.rawValue }
-
-    var explanation: String {
-        switch reason {
-        case .markedBroken:
-            "The list this alias was bound to no longer resolves."
-        case .calendarMissing:
-            "The list this alias was bound to is not among the lists visible right now."
-        }
-    }
-}
 
 /// A local address the picker can offer.
 struct AddressChoice: Identifiable, Hashable {

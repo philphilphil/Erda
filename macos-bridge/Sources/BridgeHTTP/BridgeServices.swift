@@ -9,9 +9,6 @@ import Foundation
 public struct BridgeServices: Sendable {
     /// The seam from dossier §6.2.
     public var reminders: any RemindersService
-    /// Re-read per request rather than captured once: the setup UI can re-bind an alias, and a
-    /// list going `broken` has to take effect without a restart.
-    public var allowlist: @Sendable () async -> Allowlist
     /// `nil` when no token has been generated — every request then 401s, which is the correct
     /// fail-closed answer for a bridge with no credential.
     public var tokenVerifier: @Sendable () async -> TokenVerifier?
@@ -24,7 +21,6 @@ public struct BridgeServices: Sendable {
 
     public init(
         reminders: any RemindersService,
-        allowlist: @escaping @Sendable () async -> Allowlist,
         tokenVerifier: @escaping @Sendable () async -> TokenVerifier?,
         rateLimiter: RateLimiter,
         idempotency: any IdempotencyStore,
@@ -33,7 +29,6 @@ public struct BridgeServices: Sendable {
         clock: any BridgeClock = SystemClock()
     ) {
         self.reminders = reminders
-        self.allowlist = allowlist
         self.tokenVerifier = tokenVerifier
         self.rateLimiter = rateLimiter
         self.idempotency = idempotency

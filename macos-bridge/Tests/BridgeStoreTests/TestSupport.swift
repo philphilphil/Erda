@@ -35,23 +35,24 @@ final class TemporaryRoot: @unchecked Sendable {
     }
 }
 
-func alias(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> Alias {
-    try #require(Alias(rawValue: raw), sourceLocation: sourceLocation)
+func listName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> ListName {
+    try #require(ListName(rawValue: raw), sourceLocation: sourceLocation)
 }
 
-func allowlistEntry(
-    _ raw: String,
-    calendarId: String? = nil,
-    state: AllowlistState = .ok,
-    boundAt: Date = Date(timeIntervalSince1970: 1_780_000_000)
-) throws -> AllowlistEntry {
-    AllowlistEntry(
-        alias: try alias(raw),
-        calendarId: calendarId ?? "cal-\(raw)",
-        titleAtBind: "List \(raw)",
-        sourceAtBind: "iCloud",
-        boundAt: boundAt,
-        state: state
+func mapEntry(
+    _ list: String = "Groceries",
+    bridgeId: BridgeID = .generate(),
+    itemId: String? = nil,
+    externalId: String? = nil,
+    at date: Date = Date(timeIntervalSince1970: 1_780_000_000)
+) throws -> ReminderMapEntry {
+    ReminderMapEntry(
+        bridgeId: bridgeId,
+        eventKitItemId: itemId ?? "ek-\(bridgeId.rawValue)",
+        eventKitExternalId: externalId,
+        listName: try listName(list),
+        createdAt: date,
+        lastSeenAt: date
     )
 }
 
@@ -68,7 +69,7 @@ func auditEvent(
         requestId: UUID(uuidString: "6F0C1B6E-1F4A-4A9D-9F3E-1B2C3D4E5F60")!,
         tokenId: TokenId(rawValue: "a1b2c3d4"),
         operation: .remindersCreate,
-        alias: Alias(rawValue: "inbox"),
+        list: ListName(rawValue: "Groceries"),
         result: .ok,
         status: status,
         durationMs: 38,

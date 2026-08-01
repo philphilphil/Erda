@@ -45,19 +45,8 @@ struct CountingBytes: RandomAccessCollection {
 
 // MARK: - Convenience constructors
 
-func alias(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> Alias {
-    try #require(Alias(rawValue: raw), sourceLocation: sourceLocation)
-}
-
-func allowlistEntry(_ raw: String, state: AllowlistState = .ok) throws -> AllowlistEntry {
-    AllowlistEntry(
-        alias: try alias(raw),
-        calendarId: "cal-\(raw)",
-        titleAtBind: "List \(raw)",
-        sourceAtBind: "iCloud",
-        boundAt: Date(timeIntervalSince1970: 1_780_000_000),
-        state: state
-    )
+func listName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> ListName {
+    try #require(ListName(rawValue: raw), sourceLocation: sourceLocation)
 }
 
 func tokenMaterial(for token: String, salt: [UInt8]? = nil) throws -> TokenMaterial {
@@ -75,4 +64,25 @@ func tokenMaterial(for token: String, salt: [UInt8]? = nil) throws -> TokenMater
 
 func json(_ text: String) -> Data {
     Data(text.utf8)
+}
+
+/// A deterministic generator, so a failure reproduces instead of appearing once a week.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        self.state = seed == 0 ? 0x9E37_79B9_7F4A_7C15 : seed
+    }
+
+    mutating func next() -> UInt64 {
+        // xorshift64*
+        state ^= state >> 12
+        state ^= state << 25
+        state ^= state >> 27
+        return state &* 2_685_821_657_736_338_717
+    }
+
+    mutating func next(upperBound: UInt64) -> UInt64 {
+        upperBound == 0 ? 0 : next() % upperBound
+    }
 }

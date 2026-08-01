@@ -33,7 +33,7 @@ struct DirectoriesTests {
     func databaseFilesArePrivate() throws {
         let store = try root.open()
         // Force a write so the -wal and -shm files exist, then re-harden.
-        try store.allowlist.upsert(try allowlistEntry("inbox"))
+        try store.reminderMap.insert(try mapEntry())
         try root.directories.hardenDatabaseFiles()
 
         #expect(try FilePermissions.mode(of: root.directories.databaseURL) == 0o600)

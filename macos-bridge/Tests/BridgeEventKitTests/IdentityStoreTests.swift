@@ -12,7 +12,7 @@ struct MemoryReminderIdentityStoreTests {
     func resolvesBothWays() throws {
         let store = MemoryReminderIdentityStore()
         let id = BridgeID.generate()
-        try store.recordMapping(bridgeId: id, itemId: "ek-1", externalId: "x", alias: try alias("inbox"), at: now)
+        try store.recordMapping(bridgeId: id, itemId: "ek-1", externalId: "x", list: try listName("Groceries"), at: now)
 
         #expect(try store.itemId(for: id) == "ek-1")
         #expect(try store.bridgeId(forItemId: "ek-1") == id)
@@ -37,18 +37,10 @@ struct MemoryReminderIdentityStoreTests {
     func touchAdvancesLastSeen() throws {
         let store = MemoryReminderIdentityStore()
         let id = BridgeID.generate()
-        try store.recordMapping(bridgeId: id, itemId: "ek-1", externalId: nil, alias: try alias("inbox"), at: now)
+        try store.recordMapping(bridgeId: id, itemId: "ek-1", externalId: nil, list: try listName("Groceries"), at: now)
         try store.touch(id, at: now.addingTimeInterval(3600))
 
         #expect(store.lastSeen(for: id) == now.addingTimeInterval(3600))
-    }
-
-    @Test("marking an alias broken records it and nothing else")
-    func marksBroken() throws {
-        let store = MemoryReminderIdentityStore()
-        try store.markAliasBroken(try alias("gone"))
-        #expect(store.brokenAliases == [try alias("gone")])
-        #expect(store.mappingCount == 0)
     }
 
     @Test("an injected write failure surfaces on the mutating calls only")
@@ -57,9 +49,9 @@ struct MemoryReminderIdentityStoreTests {
         store.setWriteFailure(ApiError.internal)
 
         #expect(throws: ApiError.internal) {
-            try store.recordMapping(bridgeId: .generate(), itemId: "i", externalId: nil, alias: try alias("inbox"), at: now)
+            try store.recordMapping(bridgeId: .generate(), itemId: "i", externalId: nil, list: try listName("Groceries"), at: now)
         }
-        #expect(throws: ApiError.internal) { try store.markAliasBroken(try alias("inbox")) }
+        #expect(throws: ApiError.internal) { try store.touch(.generate(), at: now) }
         // Reads keep working, so the actor can still tell "no mapping" from "cannot write".
         #expect(try store.itemId(for: .generate()) == nil)
     }

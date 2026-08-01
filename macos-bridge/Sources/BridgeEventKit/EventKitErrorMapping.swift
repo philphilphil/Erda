@@ -24,13 +24,18 @@ enum EventKitErrorMapping {
         case .eventStoreNotAuthorized:
             return .remindersUnavailable
 
-        // The binding still resolves to a calendar, but that calendar cannot take this reminder.
-        // A 409 `alias_broken` says exactly that: the alias is unusable and a human has to
-        // re-point it. It is not marked `broken` in the table — the calendar is still there, so
-        // "broken" would misdescribe what the setup UI needs to show.
+        // The name resolved to a real list, but that list cannot take this reminder. A 409
+        // `list_read_only` says exactly that: the list exists, so retrying against it is pointless
+        // and the caller has to pick a different one.
         case .calendarReadOnly, .calendarIsImmutable, .calendarDoesNotAllowReminders,
-             .sourceDoesNotAllowReminders, .noCalendar:
-            return .aliasBroken
+             .sourceDoesNotAllowReminders:
+            return .listReadOnly
+
+        // `EKErrorNoCalendar` means the item has no calendar at all — the list resolution the
+        // handler did has come apart underneath it, which is the same thing the caller sees when
+        // the name matches nothing.
+        case .noCalendar:
+            return .noSuchList
 
         // Rejections of the request's own content. These should all have been caught at the edge
         // by `Limits`/`Validate`; reaching one means the edge and EventKit disagree, and the

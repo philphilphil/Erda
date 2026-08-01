@@ -9,7 +9,7 @@ import Testing
 struct ResponderTests {
     // MARK: - Happy paths
 
-    @Test("GET /v1/status reports availability and the healthy aliases")
+    @Test("GET /v1/status reports availability and the addressable list names")
     func status() async throws {
         let harness = try TestHarness()
         let response = await harness.responder.respond(to: harness.request(.GET, "/v1/status"))
@@ -17,8 +17,7 @@ struct ResponderTests {
         #expect(response.status == 200)
         let payload = try harness.json(response)
         #expect(payload["availability"] as? String == "ok")
-        #expect(payload["aliases"] as? [String] == ["inbox", "work"])
-        #expect(payload["brokenAliases"] as? [String] == [])
+        #expect(payload["lists"] as? [String] == ["Groceries", "Work"])
     }
 
     @Test("POST /v1/reminders creates and returns 201 with a bridge id")
@@ -32,7 +31,7 @@ struct ResponderTests {
         let payload = try harness.json(response)
         #expect((payload["id"] as? String)?.hasPrefix("rem_") == true)
         #expect(payload["title"] as? String == "Buy milk")
-        #expect(payload["alias"] as? String == "inbox")
+        #expect(payload["list"] as? String == "Groceries")
         #expect(payload["isCompleted"] as? Bool == false)
     }
 
@@ -230,12 +229,12 @@ struct ResponderTests {
     // MARK: - Step 7: strict decode
 
     @Test("the body is decoded strictly", arguments: [
-        #"{"alias":"inbox","title":"t","calendarId":"ABC"}"#,   // unknown key
-        #"{"alias":"inbox"}"#,                                    // missing title
-        #"{"alias":"inbox","title":42}"#,                        // wrong type
-        #"{"alias":"INBOX","title":"t"}"#,                       // bad alias
-        #"{"alias":"inbox","title":"t","priority":10}"#,         // priority out of range
-        #"{"alias":"inbox","title":"t","dueAt":"2026-07-31T09:00:00"}"#,  // no offset
+        #"{"list":"Groceries","title":"t","calendarId":"ABC"}"#,   // unknown key
+        #"{"list":"Groceries"}"#,                                  // missing title
+        #"{"list":"Groceries","title":42}"#,                       // wrong type
+        #"{"list":"","title":"t"}"#,                               // unusable list name
+        #"{"list":"Groceries","title":"t","priority":10}"#,        // priority out of range
+        #"{"list":"Groceries","title":"t","dueAt":"2026-07-31T09:00:00"}"#,  // no offset
         #"not json"#,
     ])
     func decodesStrictly(body: String) async throws {
@@ -292,7 +291,7 @@ struct ResponderTests {
             to: harness.request(
                 .POST,
                 "/v1/reminders",
-                body: #"{"alias":"inbox","title":"Something else"}"#,
+                body: #"{"list":"Groceries","title":"Something else"}"#,
                 idempotencyKey: key
             )
         )
@@ -330,24 +329,42 @@ struct ResponderTests {
 
     // MARK: - Step 9: the domain, failing closed
 
-    @Test("an alias outside the allowlist is refused, never defaulted")
-    func unknownAliasFailsClosed() async throws {
+    @Test("a name that matches no list is refused, never defaulted")
+    func unknownListFailsClosed() async throws {
         let harness = try TestHarness()
         let response = await harness.responder.respond(
-            to: harness.request(.POST, "/v1/reminders", body: #"{"alias":"personal","title":"t"}"#)
+            to: harness.request(.POST, "/v1/reminders", body: #"{"list":"Personal","title":"t"}"#)
         )
-        #expect(response.status == 400)
-        #expect(try harness.errorCode(response) == "alias_unknown")
+        #expect(response.status == 404)
+        #expect(try harness.errorCode(response) == "no_such_list")
+
+        // Nothing was written into the lists that do exist.
+        let listed = await harness.responder.respond(to: harness.request(.GET, "/v1/reminders"))
+        #expect(try harness.jsonItems(listed).isEmpty)
     }
 
-    @Test("a broken alias is 409 and is never silently re-bound")
-    func brokenAliasFailsClosed() async throws {
-        let harness = try TestHarness(aliases: ["inbox", "gone"], broken: ["gone"])
+    @Test("a read-only list is a 409 that names the conflict")
+    func readOnlyListIs409() async throws {
+        let harness = try TestHarness(lists: ["Groceries", "Shared"], readOnly: ["Shared"])
         let response = await harness.responder.respond(
-            to: harness.request(.POST, "/v1/reminders", body: #"{"alias":"gone","title":"t"}"#)
+            to: harness.request(.POST, "/v1/reminders", body: #"{"list":"Shared","title":"t"}"#)
         )
         #expect(response.status == 409)
-        #expect(try harness.errorCode(response) == "alias_broken")
+        #expect(try harness.errorCode(response) == "list_read_only")
+    }
+
+    /// Filtering by a name that matches nothing must fail rather than quietly widening to
+    /// everything — which is what an empty filter means now.
+    @Test("listing a name that matches no list is refused, not silently widened")
+    func unknownListOnListFailsClosed() async throws {
+        let harness = try TestHarness()
+        _ = await harness.responder.respond(to: harness.request(.POST, "/v1/reminders", body: createBody))
+
+        let response = await harness.responder.respond(
+            to: harness.request(.GET, "/v1/reminders?list=Personal")
+        )
+        #expect(response.status == 404)
+        #expect(try harness.errorCode(response) == "no_such_list")
     }
 
     @Test("an unknown reminder id is 404")
@@ -377,6 +394,8 @@ struct ResponderTests {
         let status = await harness.responder.respond(to: harness.request(.GET, "/v1/status"))
         #expect(status.status == 200)
         #expect(try harness.json(status)["availability"] as? String == "unauthorized")
+        // …and it says so with an empty list of names, rather than pretending it still knows any.
+        #expect(try #require(try harness.json(status)["lists"] as? [Any]).isEmpty)
     }
 
     // MARK: - Error shape

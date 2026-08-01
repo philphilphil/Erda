@@ -3,7 +3,7 @@ import Foundation
 /// POSIX modes used throughout the store.
 ///
 /// `FileManager` defaults to 0755 for directories and 0644 for files, which on a shared Mac
-/// would leave the allowlist and the audit log readable by every other user account. Every
+/// would leave the id map and the audit log readable by every other user account. Every
 /// directory and file this module creates is set explicitly.
 public enum FilePermissions {
     public static let directory: Int16 = 0o700

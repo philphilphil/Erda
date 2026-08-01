@@ -11,7 +11,11 @@ public enum Limits {
     /// the save with `EKErrorPriorityIsInvalid`, so it is rejected at the edge instead.
     public static let priorityRange = 0...9
 
-    public static let aliasMaxLength = 32
+    /// A Reminders list title. The cap is generous because the name is the user's, not ours —
+    /// it exists so a name cannot be used to bloat a log line or a database row, not to police
+    /// what someone may call their list.
+    public static let listNameMinLength = 1
+    public static let listNameMaxLength = 128
 
     public static let listLimitDefault = 100
     public static let listLimitMax = 200

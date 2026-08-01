@@ -21,6 +21,13 @@ import Foundation
 /// EventKit headers. Keeping the store as actor-isolated state is what makes "no EventKit type
 /// crosses an isolation boundary" a compiler-checked fact: the only value that leaves is a
 /// `RawReminder`, built inside the fetch completion (see `Mapping.swift`).
+///
+/// ## Scope
+///
+/// Every reminder list on this Mac is reachable. There is no allowlist — a deliberate decision,
+/// not an oversight: Apple grants reminder access all-or-nothing, and the alias table that used to
+/// sit here bounded nothing Phil wanted bounded. Lists are addressed by name, and a name that
+/// matches nothing (or matches two lists) fails rather than falling back to a default.
 public actor EventKitReminders: RemindersService {
     // MARK: - Custom serial executor
 
@@ -35,7 +42,6 @@ public actor EventKitReminders: RemindersService {
     /// Long-lived by design: the header asks for one store per process, and objects fetched from
     /// one store cannot be used with another.
     private let store: EKEventStore
-    private let allowlistProvider: @Sendable () async -> Allowlist
     private let identity: any ReminderIdentityStore
     private let clock: any BridgeClock
     /// The zone a due date is *expressed in* once it reaches Reminders.app. The wire format
@@ -46,7 +52,6 @@ public actor EventKitReminders: RemindersService {
     private let changes: EventStoreChangeFlag
 
     public init(
-        allowlist: @escaping @Sendable () async -> Allowlist,
         identity: any ReminderIdentityStore,
         clock: any BridgeClock = SystemClock(),
         timeZone: TimeZone = .current,
@@ -58,7 +63,6 @@ public actor EventKitReminders: RemindersService {
             qos: .userInitiated
         )
         self.store = EKEventStore()
-        self.allowlistProvider = allowlist
         self.identity = identity
         self.clock = clock
         self.timeZone = timeZone
@@ -72,36 +76,60 @@ public actor EventKitReminders: RemindersService {
     /// `authorizationStatus(for:)` is a class method that is always current — including after a
     /// revocation that has not yet produced a change notification.
     public func availability() async -> ReminderAvailability {
-        let allowlist = await allowlistProvider()
-        return allowlist.availability(authorized: RemindersAccess.status().isUsable)
+        RemindersAccess.status().isUsable ? .ok : .unauthorized
+    }
+
+    /// The list names a caller may address. Never throws: `GET /v1/status` has to answer even when
+    /// the answer is "nothing, because access was revoked".
+    public func availableLists() async -> [ListName] {
+        guard RemindersAccess.status().isUsable else { return [] }
+        if changes.consume() { store.reset() }
+        // Deduplicated: two accounts can hold a same-named list, and reporting the name twice
+        // would suggest they are separately addressable when in fact the name is ambiguous and
+        // resolves to neither.
+        return Set(candidates().compactMap(ListLookup.canonicalName)).sorted()
     }
 
     public func list(_ query: ListRemindersQuery) async throws -> [ReminderSnapshot] {
-        let allowlist = await allowlistProvider()
         try prepare()
 
-        let requested = query.aliases.isEmpty ? allowlist.healthyAliases : query.aliases
-        // An empty alias set would make `predicateForReminders(in:)` mean "every list on this
-        // Mac" if it were passed through as an empty array — the exact leak the allowlist exists
-        // to prevent. Nothing to read from is `reminders_unavailable`, never a broad fetch.
-        guard !requested.isEmpty else { throw ApiError.remindersUnavailable }
-
+        let all = store.calendars(for: .reminder)
         var calendars: [EKCalendar] = []
-        var aliasByCalendarId: [String: Alias] = [:]
-        // A repeated alias in the query must not become a repeated calendar in the predicate.
-        for alias in Set(requested).sorted() {
-            let entry = try allowlist.resolve(alias)
-            let calendar = try resolveCalendar(entry)
-            guard aliasByCalendarId[calendar.calendarIdentifier] == nil else { continue }
-            calendars.append(calendar)
-            aliasByCalendarId[calendar.calendarIdentifier] = alias
+        var nameByCalendarId: [String: ListName] = [:]
+
+        if query.lists.isEmpty {
+            // No name given now means *every* reminder list — the behaviour change the removal of
+            // the allowlist is. The array is still assembled explicitly rather than left empty:
+            // `predicateForReminders(in:)` documents nil/empty as "every calendar", which is a
+            // different and much wider thing than "every reminder list".
+            for calendar in all {
+                guard let name = ListLookup.canonicalName(candidate(calendar)) else { continue }
+                calendars.append(calendar)
+                nameByCalendarId[calendar.calendarIdentifier] = name
+            }
+        } else {
+            let candidates = all.map(candidate)
+            for requested in query.lists {
+                let match = try ListLookup.resolve(requested, in: candidates)
+                // Two spellings of the same list must not become the same calendar twice.
+                guard nameByCalendarId[match.calendarId] == nil else { continue }
+                guard let calendar = all.first(where: { $0.calendarIdentifier == match.calendarId }),
+                      let name = ListLookup.canonicalName(match)
+                else { throw ApiError.noSuchList }
+                calendars.append(calendar)
+                nameByCalendarId[match.calendarId] = name
+            }
         }
+
+        // Nothing to read from is an empty answer, not an error and — critically — not a fetch
+        // with an empty calendar array, which EventKit would read as "everything".
+        guard !calendars.isEmpty else { return [] }
 
         // NOT `predicateForIncompleteReminders(withDueDateStarting:ending:calendars:)`. Its
         // nil/nil window is documented as "all incomplete reminders" but the header does not say
         // whether a reminder with no due date falls inside a date window at all, and silently
         // dropping every undated reminder is exactly the kind of bug nobody notices for months.
-        // Fetching everything in the allowed calendars and filtering `!isCompleted` in Swift is
+        // Fetching everything in the chosen calendars and filtering `!isCompleted` in Swift is
         // slower and provably right.
         let raw = try await fetch(matching: store.predicateForReminders(in: calendars))
 
@@ -110,10 +138,10 @@ public actor EventKitReminders: RemindersService {
         for reminder in raw where !reminder.isCompleted {
             // Defence in depth: the predicate already restricted the fetch to these calendars,
             // so anything else here would mean EventKit ignored it.
-            guard let calendarId = reminder.calendarId, let alias = aliasByCalendarId[calendarId] else {
+            guard let calendarId = reminder.calendarId, let name = nameByCalendarId[calendarId] else {
                 continue
             }
-            snapshots.append(reminder.snapshot(id: bridgeId(for: reminder, alias: alias, now: now), alias: alias))
+            snapshots.append(reminder.snapshot(id: bridgeId(for: reminder, list: name, now: now), list: name))
         }
 
         // Sorted by what a caller reads it for — soonest due first, undated last — with the id as
@@ -129,17 +157,18 @@ public actor EventKitReminders: RemindersService {
     }
 
     public func create(_ command: CreateReminderCommand) async throws -> ReminderSnapshot {
-        let allowlist = await allowlistProvider()
         try prepare()
 
-        let entry = try allowlist.resolve(command.alias)
-        let calendar = try resolveCalendar(entry)
-        // A calendar that resolves but cannot hold a reminder is a binding a human has to fix.
-        // Checking here turns an `EKErrorCalendarReadOnly` round trip into an immediate 409, and
-        // the alias is *not* marked broken — the list still exists, it is just the wrong one.
+        let calendar = try resolveCalendar(named: command.list)
+        // A list that resolves but cannot hold a reminder — read-only, or an account that does not
+        // do reminders — is a 409 rather than an `EKErrorCalendarReadOnly` round trip. It is the
+        // caller's list choice that is wrong, and no retry against this list will ever work.
         guard calendar.allowsContentModifications, calendar.allowedEntityTypes.contains(.reminder) else {
-            throw ApiError.aliasBroken
+            throw ApiError.listReadOnly
         }
+        // The list's own spelling, so a caller who matched case-insensitively is told which list
+        // it actually landed in.
+        let name = ListLookup.canonicalName(candidate(calendar)) ?? command.list
 
         let reminder = EKReminder(eventStore: store)
         reminder.calendar = calendar
@@ -167,7 +196,7 @@ public actor EventKitReminders: RemindersService {
             bridgeId: command.id,
             itemId: reminder.calendarItemIdentifier,
             externalId: reminder.calendarItemExternalIdentifier,
-            alias: command.alias,
+            list: name,
             at: clock.now
         )
 
@@ -176,7 +205,7 @@ public actor EventKitReminders: RemindersService {
         // instant, not for a wall-clock rendering of one.
         return ReminderSnapshot(
             id: command.id,
-            alias: command.alias,
+            list: name,
             title: command.title,
             notes: command.notes,
             dueAt: command.dueAt,
@@ -187,20 +216,21 @@ public actor EventKitReminders: RemindersService {
     }
 
     public func complete(id: BridgeID) async throws -> CompleteOutcome {
-        let allowlist = await allowlistProvider()
         try prepare()
 
-        // Every failure below is a 404, never a 403 or a 409. The id refers to something the
-        // caller has no business knowing exists, and distinguishing "gone" from "not yours" would
-        // turn the id space into an oracle for the contents of non-allowlisted lists.
+        // Every failure below is a 404, never a 409. A mapping row outlives the reminder it points
+        // at — `calendarItemIdentifier` is not sync-proof — so "the id no longer resolves to a
+        // reminder in a list that exists" is the ordinary outcome, and it must not be dressed up
+        // as a success.
         guard let itemId = try identity.itemId(for: id) else { throw ApiError.notFound }
         guard let reminder = store.calendarItem(withIdentifier: itemId) as? EKReminder else {
             throw ApiError.notFound
         }
         // Re-checked against the reminder's *current* calendar, not the one it was created in: a
-        // reminder moved into a non-allowlisted list is no longer ours to touch.
+        // reminder that has been moved, or whose list was deleted, must not complete silently on
+        // the strength of a stale row.
         guard let calendarId = reminder.calendar?.calendarIdentifier,
-              let alias = allowlist.alias(forCalendarId: calendarId)
+              let name = ListLookup.name(forCalendarId: calendarId, in: candidates())
         else {
             throw ApiError.notFound
         }
@@ -223,7 +253,7 @@ public actor EventKitReminders: RemindersService {
             bridgeId: id,
             itemId: itemId,
             externalId: reminder.calendarItemExternalIdentifier,
-            alias: alias,
+            list: name,
             at: clock.now
         )
         return CompleteOutcome(id: id, alreadyCompleted: false)
@@ -243,15 +273,23 @@ public actor EventKitReminders: RemindersService {
         guard RemindersAccess.status().isUsable else { throw ApiError.remindersUnavailable }
     }
 
-    /// Turns a binding into a live calendar, or fails closed.
-    ///
-    /// `calendarIdentifier` is explicitly not sync-proof (`EKCalendar.h`), so a nil here is the
-    /// expected outcome of an iCloud full sync, not a corruption. The alias is marked `broken`
-    /// so the setup UI can offer a human the chance to re-point it, and the request fails.
-    private func resolveCalendar(_ entry: AllowlistEntry) throws -> EKCalendar {
-        guard let calendar = store.calendar(withIdentifier: entry.calendarId) else {
-            try? identity.markAliasBroken(entry.alias)
-            throw ApiError.aliasBroken
+    /// This Mac's reminder lists, read fresh: one can be created, renamed or deleted in
+    /// Reminders.app between two requests, and a cached snapshot would resolve a name to a list
+    /// that is no longer the one wearing it.
+    private func candidates() -> [ListLookup.Candidate] {
+        store.calendars(for: .reminder).map(candidate)
+    }
+
+    private func candidate(_ calendar: EKCalendar) -> ListLookup.Candidate {
+        ListLookup.Candidate(calendarId: calendar.calendarIdentifier, title: calendar.title)
+    }
+
+    /// Turns a name into a live calendar, or fails closed. Never a default list.
+    private func resolveCalendar(named name: ListName) throws -> EKCalendar {
+        let all = store.calendars(for: .reminder)
+        let match = try ListLookup.resolve(name, in: all.map(candidate))
+        guard let calendar = all.first(where: { $0.calendarIdentifier == match.calendarId }) else {
+            throw ApiError.noSuchList
         }
         return calendar
     }
@@ -262,7 +300,7 @@ public actor EventKitReminders: RemindersService {
     /// mapping yet. Minting one on first sight is what makes them completable; the alternative is
     /// a `list` that only ever shows the bridge's own reminders. The write is local metadata
     /// only: no EventKit state is changed by a GET.
-    private func bridgeId(for reminder: RawReminder, alias: Alias, now: Date) -> BridgeID {
+    private func bridgeId(for reminder: RawReminder, list: ListName, now: Date) -> BridgeID {
         if let existing = try? identity.bridgeId(forItemId: reminder.itemId) {
             // Keeps the pruning clock alive for a mapping EventKit still resolves.
             try? identity.touch(existing, at: now)
@@ -273,7 +311,7 @@ public actor EventKitReminders: RemindersService {
             bridgeId: minted,
             itemId: reminder.itemId,
             externalId: reminder.externalId,
-            alias: alias,
+            list: list,
             at: now
         )
         return minted

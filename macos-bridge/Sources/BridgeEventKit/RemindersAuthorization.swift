@@ -73,9 +73,10 @@ public enum RemindersAccess {
 
     /// The Reminders lists visible right now, flattened to `Sendable` values.
     ///
-    /// This is a **local** readout: it is what the setup UI binds an alias against, and it has no
-    /// route from the HTTP API — a remote caller can never enumerate the lists on this Mac.
-    /// Returns an empty array when access is not usable rather than guessing.
+    /// This is a **local** readout, for the setup UI: it carries the `calendarIdentifier` and the
+    /// source account, neither of which ever reaches the wire. (A remote caller does learn the
+    /// *names* of the lists, from `GET /v1/status` — it has to, since a name is how it addresses
+    /// one.) Returns an empty array when access is not usable rather than guessing.
     public static func lists() -> [ReminderListInfo] {
         guard status().isUsable else { return [] }
         return EKEventStore().calendars(for: .reminder).map(ReminderListInfo.init)
@@ -88,8 +89,8 @@ public enum RemindersAccess {
     }
 }
 
-/// One Reminders list as the local UI sees it. Carries the `calendarIdentifier` because binding
-/// an alias is exactly the act of writing that identifier down; it never reaches the wire.
+/// One Reminders list as the local UI sees it. Carries the `calendarIdentifier` so the UI can key
+/// rows on something stable; it never reaches the wire.
 public struct ReminderListInfo: Sendable, Equatable, Hashable {
     public let calendarId: String
     public let title: String

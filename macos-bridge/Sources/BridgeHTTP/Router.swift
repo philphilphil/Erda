@@ -3,8 +3,8 @@ import Foundation
 import NIOHTTP1
 
 /// The four things this API can do. Nothing else exists — in particular there is no route that
-/// touches the allowlist, the token, permissions or config, because those must not be reachable
-/// from the network at all.
+/// touches the token, permissions or config, because those must not be reachable from the network
+/// at all.
 public enum Route: Sendable, Equatable {
     case status
     case listReminders(ListRemindersQuery)
@@ -78,16 +78,18 @@ public enum Router {
         return (String(uri[uri.startIndex..<separator]), uri[uri.index(after: separator)...])
     }
 
-    /// `?alias=inbox&alias=work&limit=50`, parsed strictly: an unknown parameter is a 400, the
-    /// same posture the JSON decoder takes with an unknown key.
+    /// `?list=Groceries&list=Einkaufsliste&limit=50`, parsed strictly: an unknown parameter is a
+    /// 400, the same posture the JSON decoder takes with an unknown key. Repeating `list` narrows
+    /// to those lists; omitting it means every reminder list on the Mac.
     ///
-    /// Values are not percent-decoded either. An alias is `[a-z0-9_-]` and a limit is digits, so
-    /// nothing legal needs decoding, and anything containing a `%` fails validation — which is
-    /// the correct answer rather than an accident.
+    /// A `list` value **is** percent-decoded — real list names hold spaces, umlauts and emoji, so
+    /// there is no way around it — and only after decoding does `ListName` get to reject it. A
+    /// malformed escape is a 400, not a best guess. `limit` is left raw: it is digits, and
+    /// anything with a `%` in it fails to parse as an integer, which is the right answer anyway.
     static func listQuery(from query: Substring) throws -> ListRemindersQuery {
         guard !query.isEmpty else { return try ListRemindersQuery() }
 
-        var aliases: [Alias] = []
+        var lists: [ListName] = []
         var limit = Limits.listLimitDefault
 
         for pair in query.split(separator: "&", omittingEmptySubsequences: false) {
@@ -97,10 +99,12 @@ public enum Router {
             let value = pair[pair.index(after: separator)...]
 
             switch name {
-            case "alias":
-                guard let alias = Alias(rawValue: String(value)) else { throw ApiError.invalidRequest }
-                guard !aliases.contains(alias) else { throw ApiError.invalidRequest }
-                aliases.append(alias)
+            case "list":
+                guard let decoded = PercentDecoding.decode(value),
+                      let list = ListName(rawValue: decoded)
+                else { throw ApiError.invalidRequest }
+                guard !lists.contains(list) else { throw ApiError.invalidRequest }
+                lists.append(list)
             case "limit":
                 guard let parsed = Int(value), String(value) == String(parsed) else {
                     throw ApiError.invalidRequest
@@ -111,6 +115,6 @@ public enum Router {
             }
         }
 
-        return try ListRemindersQuery(aliases: aliases, limit: limit)
+        return try ListRemindersQuery(lists: lists, limit: limit)
     }
 }

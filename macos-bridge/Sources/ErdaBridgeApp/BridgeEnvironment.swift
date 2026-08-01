@@ -45,25 +45,15 @@ struct BridgeEnvironment: Sendable {
         let tokenStore = TokenStoreFactory.make(backend: .keychain, directories: directories)
         let tokenService = TokenService(store: tokenStore)
 
-        // Re-read per request, not captured: the setup UI can re-bind an alias, and an alias the
-        // service marks `broken` has to stop resolving without a restart. A failed read yields an
-        // empty allowlist, which fails closed.
-        let allowlistRepository = store.allowlist
-        let allowlist: @Sendable () async -> Allowlist = {
-            (try? allowlistRepository.load()) ?? Allowlist(entries: [])
-        }
-
+        // Every reminder list on this Mac is in scope; the actor resolves names against EventKit
+        // per request, so a list created or renamed in Reminders.app takes effect without a
+        // restart and nothing here needs to be re-read.
         let reminders = EventKitReminders(
-            allowlist: allowlist,
-            identity: StoreReminderIdentity(
-                reminderMap: store.reminderMap,
-                allowlist: allowlistRepository
-            )
+            identity: StoreReminderIdentity(reminderMap: store.reminderMap)
         )
 
         let services = BridgeServices(
             reminders: reminders,
-            allowlist: allowlist,
             // Re-read per request, so rotating the token in the setup UI takes effect at once
             // rather than at the next restart.
             tokenVerifier: { try? tokenService.currentVerifier() },

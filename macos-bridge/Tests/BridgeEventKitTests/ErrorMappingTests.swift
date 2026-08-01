@@ -17,17 +17,25 @@ struct ErrorMappingTests {
         #expect(mapped.httpStatus == 503)
     }
 
-    @Test("a list that cannot take the reminder is a 409 on the alias", arguments: [
+    @Test("a list that exists but cannot take the reminder is a 409", arguments: [
         EKErrorFixture.calendarReadOnly,
         EKErrorFixture.calendarIsImmutable,
         EKErrorFixture.calendarDoesNotAllowReminders,
         EKErrorFixture.sourceDoesNotAllowReminders,
-        EKErrorFixture.noCalendar,
     ])
-    func unusableCalendarIsAliasBroken(code: Int) {
+    func unusableCalendarIsReadOnly(code: Int) {
         let mapped = EventKitErrorMapping.apiError(for: EKErrorFixture.error(code))
-        #expect(mapped == .aliasBroken)
+        #expect(mapped == .listReadOnly)
         #expect(mapped.httpStatus == 409)
+    }
+
+    /// The list resolution the handler did has come apart underneath it — the same thing, from the
+    /// caller's side, as a name that matched nothing.
+    @Test("an item with no calendar at all is no_such_list")
+    func noCalendarIsNoSuchList() {
+        let mapped = EventKitErrorMapping.apiError(for: EKErrorFixture.error(EKErrorFixture.noCalendar))
+        #expect(mapped == .noSuchList)
+        #expect(mapped.httpStatus == 404)
     }
 
     @Test("EventKit rejecting the request's own content is a 400", arguments: [
@@ -84,6 +92,6 @@ struct ErrorMappingTests {
         let fields = try #require(
             try JSONSerialization.jsonObject(with: encoded) as? [String: String]
         )
-        #expect(fields == ["error": "alias_broken", "requestId": "r"])
+        #expect(fields == ["error": "list_read_only", "requestId": "r"])
     }
 }

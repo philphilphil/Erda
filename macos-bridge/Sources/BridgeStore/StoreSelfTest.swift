@@ -146,19 +146,22 @@ public enum StoreSelfTest {
             guard mode == FilePermissions.file else { throw SelfTestError.wrongMode(mode) }
             return String(format: "0%o", Int(mode))
         }
-        report.check("allowlist round trip") {
-            guard let alias = Alias(rawValue: "selftest") else { throw SelfTestError.unexpected }
-            try handle.allowlist.upsert(
-                AllowlistEntry(
-                    alias: alias,
-                    calendarId: "cal-selftest",
-                    titleAtBind: "Self Test",
-                    sourceAtBind: "iCloud",
-                    boundAt: Date(),
-                    state: .ok
+        report.check("reminder map round trip") {
+            guard let list = ListName(rawValue: "Self Test") else { throw SelfTestError.unexpected }
+            let bridgeId = BridgeID.generate()
+            try handle.reminderMap.insert(
+                ReminderMapEntry(
+                    bridgeId: bridgeId,
+                    eventKitItemId: "ek-selftest",
+                    eventKitExternalId: nil,
+                    listName: list,
+                    createdAt: Date(),
+                    lastSeenAt: Date()
                 )
             )
-            guard try handle.allowlist.entry(for: alias)?.calendarId == "cal-selftest" else {
+            guard try handle.reminderMap.entry(for: bridgeId)?.eventKitItemId == "ek-selftest",
+                  try handle.reminderMap.entry(forEventKitItemId: "ek-selftest")?.bridgeId == bridgeId
+            else {
                 throw SelfTestError.unexpected
             }
             return "1 entry"
@@ -185,7 +188,7 @@ public enum StoreSelfTest {
                     requestId: UUID(),
                     tokenId: nil,
                     operation: .unrouted,
-                    alias: nil,
+                    list: nil,
                     result: .ok,
                     status: 200,
                     durationMs: 0

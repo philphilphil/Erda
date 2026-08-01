@@ -7,13 +7,13 @@ import Testing
 /// has to be edited deliberately.
 let apiErrorStatusTable: [(ApiError, Int)] = [
     (.invalidRequest, 400),
-    (.aliasUnknown, 400),
     (.unauthorized, 401),
     (.notFound, 404),
+    (.noSuchList, 404),
     (.methodNotAllowed, 405),
     (.idempotencyKeyReuse, 409),
     (.requestInProgress, 409),
-    (.aliasBroken, 409),
+    (.listReadOnly, 409),
     (.payloadTooLarge, 413),
     (.unsupportedMediaType, 415),
     (.rateLimited, 429),
@@ -74,6 +74,8 @@ struct ApiErrorTests {
     func availabilityMapsToOneError() {
         #expect(ReminderAvailability.ok.apiError == nil)
         #expect(ReminderAvailability.unauthorized.apiError == .remindersUnavailable)
-        #expect(ReminderAvailability.noAllowlist.apiError == .remindersUnavailable)
+        // Authorization is the only thing left that can make the back end unusable — the
+        // allowlist that used to supply a second reason is gone.
+        #expect(ReminderAvailability.allCases.count == 2)
     }
 }

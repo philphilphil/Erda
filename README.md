@@ -20,8 +20,9 @@ an Obsidian vault.
   the agent (so they can use tools). These are *notifications*: at time T, message me.
 - **Apple Reminders** (optional) — create, list and complete real tasks in Apple Reminders, via a
   small signed macOS app ([`macos-bridge/`](macos-bridge/)) running on my Mac. Deliberately separate
-  from the scheduler above: those are notifications, these are tasks. Apple can't grant EventKit
-  access per list, so the bridge enforces its own allowlist and fails closed.
+  from the scheduler above: those are notifications, these are tasks. Lists are addressed by their
+  real name; the bridge can reach all of them, and a name that matches nothing (or two lists) is
+  refused rather than guessed at.
 - **Error watch** — polls a Seq log server, deduplicates errors by signature, has the model
   analyze them, and pings me on WhatsApp.
 - **Agentic browsing** (optional) — a Playwright-driven browser with 1Password-backed logins the

@@ -18,9 +18,12 @@ struct SchemaTests {
             table: "sqlite_master"
         ) { try $0.text(0, "name") }
         #expect(tables.contains("meta"))
-        #expect(tables.contains("allowlist"))
         #expect(tables.contains("reminder_map"))
         #expect(tables.contains("idempotency"))
+        // v2 dropped it. A fresh database creates it in v1 and drops it again a moment later,
+        // which looks silly but keeps the "never edit a shipped migration" rule intact for the
+        // database that already exists on Phil's Mac.
+        #expect(!tables.contains("allowlist"))
 
         let indexes = try store.db.query(
             "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'",
@@ -48,13 +51,88 @@ struct SchemaTests {
     func reopenIsIdempotent() throws {
         do {
             let store = try root.open()
-            try store.allowlist.upsert(try allowlistEntry("inbox"))
+            try store.reminderMap.insert(try mapEntry())
             store.close()
         }
 
         let reopened = try root.open()
         #expect(reopened.schemaVersion == Schema.currentVersion)
-        #expect(try reopened.allowlist.all().count == 1)
+        #expect(try reopened.reminderMap.count() == 1)
+    }
+
+    /// The migration a database written by the allowlist-era build has to survive: the table goes,
+    /// the id map stays, and the ids it holds keep resolving. Losing those rows would 404 every
+    /// reminder the bridge had already created.
+    @Test("a v1 database migrates by dropping the allowlist and keeping the id map")
+    func migratesFromVersionOne() throws {
+        let bridgeId = BridgeID.generate()
+        do {
+            // v1 exactly as it shipped, written by hand: no build in the migration list produces
+            // this shape any more.
+            try root.directories.create()
+            let db = try SQLiteDB(path: root.directories.databaseURL.path)
+            try db.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
+            try db.execute("""
+                CREATE TABLE allowlist (
+                    alias          TEXT PRIMARY KEY,
+                    calendar_id    TEXT NOT NULL,
+                    title_at_bind  TEXT NOT NULL,
+                    source_at_bind TEXT NOT NULL,
+                    bound_at       INTEGER NOT NULL,
+                    state          TEXT NOT NULL
+                )
+                """)
+            try db.execute("""
+                CREATE TABLE reminder_map (
+                    bridge_id      TEXT PRIMARY KEY,
+                    ek_item_id     TEXT NOT NULL UNIQUE,
+                    ek_external_id TEXT,
+                    alias          TEXT NOT NULL,
+                    created_at     INTEGER NOT NULL,
+                    last_seen_at   INTEGER NOT NULL
+                )
+                """)
+            try db.execute("""
+                CREATE TABLE idempotency (
+                    key           TEXT PRIMARY KEY,
+                    request_hash  BLOB NOT NULL,
+                    status        INTEGER,
+                    response_body BLOB,
+                    created_at    INTEGER NOT NULL
+                )
+                """)
+            try db.run(
+                "INSERT INTO allowlist VALUES ('inbox', 'cal-1', 'Inbox', 'iCloud', 0, 'ok')"
+            )
+            try db.run(
+                """
+                INSERT INTO reminder_map(bridge_id, ek_item_id, ek_external_id, alias, created_at, last_seen_at)
+                VALUES (?, 'ek-legacy', NULL, 'inbox', 0, 0)
+                """,
+                [.text(bridgeId.rawValue)]
+            )
+            try db.run(
+                "INSERT INTO meta(k, v) VALUES (?, '1')",
+                [.text(Schema.schemaVersionKey)]
+            )
+            db.close()
+        }
+
+        let store = try root.open()
+        #expect(store.schemaVersion == Schema.currentVersion)
+
+        let tables = try store.db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+            table: "sqlite_master"
+        ) { try $0.text(0, "name") }
+        #expect(!tables.contains("allowlist"))
+        #expect(tables.contains("reminder_map"))
+
+        // The row survives the column rename, and the old alias sitting in `list_name` is
+        // harmless: nothing resolves through it.
+        let entry = try #require(try store.reminderMap.entry(for: bridgeId))
+        #expect(entry.eventKitItemId == "ek-legacy")
+        #expect(entry.listName.rawValue == "inbox")
     }
 
     @Test("a database written by a newer build is refused, not opened read-write")
@@ -74,7 +152,7 @@ struct SchemaTests {
     func refusalDoesNotMutate() throws {
         do {
             let store = try root.open()
-            try store.allowlist.upsert(try allowlistEntry("inbox"))
+            try store.reminderMap.insert(try mapEntry())
             try store.meta.set("99", for: Schema.schemaVersionKey)
             store.close()
         }
@@ -83,8 +161,11 @@ struct SchemaTests {
 
         // Reading it back with the version restored must show the row untouched.
         let db = try root.openRawConnection()
-        try db.run("UPDATE meta SET v = ? WHERE k = ?", [.text("1"), .text(Schema.schemaVersionKey)])
-        #expect(try AllowlistRepository(db: db).all().count == 1)
+        try db.run(
+            "UPDATE meta SET v = ? WHERE k = ?",
+            [.text(String(Schema.currentVersion)), .text(Schema.schemaVersionKey)]
+        )
+        #expect(try ReminderMapRepository(db: db).count() == 1)
     }
 
     @Test("an unreadable version string is a corrupt row, not a silent version 0")
@@ -129,15 +210,15 @@ struct SchemaTests {
 
         #expect(throws: Boom.self) {
             try store.db.transaction {
-                try store.allowlist.upsert(try allowlistEntry("inbox"))
+                try store.reminderMap.insert(try mapEntry())
                 throw Boom()
             }
         }
-        #expect(try store.allowlist.all().isEmpty)
+        #expect(try store.reminderMap.count() == 0)
 
         // The handle is still usable afterwards.
-        try store.allowlist.upsert(try allowlistEntry("work"))
-        #expect(try store.allowlist.all().count == 1)
+        try store.reminderMap.insert(try mapEntry("Work"))
+        #expect(try store.reminderMap.count() == 1)
     }
 
     @Test("a closed handle reports itself rather than crashing")
@@ -145,7 +226,7 @@ struct SchemaTests {
         let store = try root.open()
         store.close()
         #expect(throws: StoreError.databaseClosed) {
-            try store.allowlist.all()
+            _ = try store.reminderMap.count()
         }
     }
 }
