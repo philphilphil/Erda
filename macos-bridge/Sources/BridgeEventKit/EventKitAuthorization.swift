@@ -116,15 +116,29 @@ public enum CalendarAccess {
     /// Mac, and that is the price of addressing a calendar by name.
     ///
     /// - Important: call this from a user gesture only.
+    ///
+    /// The store is parked in `pendingStore` for the duration of the call. A plain local `let` is
+    /// not enough: its last use is the call itself, so ARC is free to release it the moment the
+    /// request is in flight — while the TCC prompt is still on screen — and the abandoned request
+    /// can take the prompt with it.
+    @MainActor
     public static func requestFullAccess() async -> Result<EventKitAuthorization, any Error> {
         let store = EKEventStore()
+        pendingStore = store
+        defer { pendingStore = nil }
+
+        AuthorizationLog.write("calendar: requesting full access (status before: \(status()))")
         do {
-            _ = try await store.requestFullAccessToEvents()
+            let granted = try await store.requestFullAccessToEvents()
+            AuthorizationLog.write("calendar: request returned granted=\(granted), status now \(status())")
             return .success(status())
         } catch {
+            AuthorizationLog.write("calendar: request threw \(error)")
             return .failure(error)
         }
     }
+
+    @MainActor private static var pendingStore: EKEventStore?
 
     /// The calendars visible right now, flattened to `Sendable` values. A **local** readout for
     /// the setup UI: it carries the `calendarIdentifier`, which never reaches the wire.
@@ -190,5 +204,33 @@ public struct CalendarInfo: Sendable, Equatable, Hashable {
         self.source = calendar.source?.title ?? "unknown"
         self.isWritable = calendar.allowsContentModifications
             && calendar.allowedEntityTypes.contains(.event)
+    }
+}
+
+/// A deliberately dumb append-only log for authorization attempts.
+///
+/// Diagnostic, not audit: the audit log is content-free by construction and must stay that way, so
+/// permission-flow noise does not belong in it. This records only statuses and errors — never
+/// reminder or event content — and lives beside the other local logs.
+public enum AuthorizationLog {
+    private static let lock = NSLock()
+
+    public static func write(_ message: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/ErdaBridge", isDirectory: true)
+        let url = directory.appendingPathComponent("authorization.log")
+
+        lock.lock()
+        defer { lock.unlock() }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+        }
     }
 }

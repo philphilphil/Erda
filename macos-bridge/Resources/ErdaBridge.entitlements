@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The one entitlement this app carries.
+	     Under Hardened Runtime, tccd refuses to run the calendar prompt unless the binary declares
+	     this: requestFullAccessToEvents returns granted=false immediately, leaves the status at
+	     notDetermined, and shows nothing. There is no reminders counterpart, which is why Reminders
+	     worked with no entitlements file at all and Calendar did not.
+
+	     Nothing else belongs in here. Explicitly NOT present: app-sandbox, network.client,
+	     any file-access entitlement, automation/apple-events, and get-task-allow (a debug
+	     entitlement that would defeat the hardened runtime). -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+</dict>
+</plist>

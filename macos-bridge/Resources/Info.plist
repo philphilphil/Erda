@@ -36,6 +36,14 @@
 	     which write-only forbids. The string says "reads" first because that is the honest order. -->
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>ErdaBridge reads your calendar events and creates new ones, so your Erda assistant can use them.</string>
+	<!-- Required even though the bridge never asks for write-only access. `tccd` looks for all
+	     three of NSCalendarsFullAccessUsageDescription, NSCalendarsWriteOnlyAccessUsageDescription
+	     and NSRemindersFullAccessUsageDescription; with this key absent it declines to run the
+	     calendar prompt at all — requestFullAccessToEvents returns granted=false immediately and
+	     leaves the status at notDetermined, with no prompt and no crash. Reminders has no
+	     write-only tier, which is why it worked with a single key and calendars did not. -->
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>ErdaBridge adds events to your calendar, so your Erda assistant can schedule things for you.</string>
 	<!-- Legacy pre-macOS-14 key; harmless, cheap insurance. -->
 	<key>NSCalendarsUsageDescription</key>
 	<string>ErdaBridge reads your calendar events and creates new ones, so your Erda assistant can use them.</string>

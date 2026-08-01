@@ -41,6 +41,7 @@ if [ "${ERDA_BRIDGE_DR:-team}" = "team" ]; then
     --options runtime \
     --timestamp \
     --generate-entitlement-der \
+    --entitlements Resources/ErdaBridge.entitlements \
     --requirements "$TEAM_DR" \
     "$APP"
 else
@@ -50,6 +51,7 @@ else
     --options runtime \
     --timestamp \
     --generate-entitlement-der \
+    --entitlements Resources/ErdaBridge.entitlements \
     "$APP"
 fi
 
