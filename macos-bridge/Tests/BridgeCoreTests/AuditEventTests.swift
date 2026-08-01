@@ -212,7 +212,6 @@ struct AuditEventTests {
 
         for secret in secrets {
             let request = CreateCalendarEventRequest(
-                calendar: try calendarName("Privat"),
                 title: secret,
                 notes: secret,
                 startAt: start,
@@ -220,13 +219,25 @@ struct AuditEventTests {
                 timeZone: TimeZone(identifier: "Europe/Berlin")
             )
             let command = request.command(defaultTimeZone: TimeZone(secondsFromGMT: 0)!)
+            // The command names no calendar — the write target is pinned locally — so the name on
+            // the line comes from the event that was actually created, exactly as the responder
+            // takes it. Everything else the command carries still has to vanish.
+            let created = CalendarEventSnapshot(
+                calendar: try calendarName("Privat"),
+                title: command.title,
+                notes: command.notes,
+                startAt: command.startAt,
+                endAt: command.endAt,
+                isAllDay: false,
+                timeZone: command.timeZone.identifier
+            )
             let line = try AuditEvent(
                 timestamp: timestamp,
                 requestId: requestId,
                 tokenId: TokenId(rawValue: "a1b2c3d4"),
                 operation: .calendarCreate,
                 list: nil,
-                calendar: command.calendar,
+                calendar: created.calendar,
                 result: .ok,
                 status: 201,
                 durationMs: 12

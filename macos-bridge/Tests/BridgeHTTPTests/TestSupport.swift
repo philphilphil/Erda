@@ -36,6 +36,9 @@ struct TestHarness {
         lists: [String] = ["Groceries", "Work"],
         readOnly: [String] = [],
         calendars: [String] = ["Privat", "Arbeit"],
+        /// The pinned write target. `nil` is a bridge nobody has configured yet, where every create
+        /// is a 503.
+        writeCalendar: String? = "Privat",
         readOnlyCalendars: [String] = [],
         ambiguousCalendars: [String] = [],
         rateLimiterCapacities: (global: Int, mutation: Int) = (30, 10),
@@ -48,6 +51,7 @@ struct TestHarness {
         let clock = self.clock
         calendar = FakeCalendar(
             calendars: Set(try calendars.map { try calendarName($0) }),
+            writeCalendar: try writeCalendar.map { try calendarName($0) },
             readOnly: Set(try readOnlyCalendars.map { try calendarName($0) }),
             ambiguous: Set(try ambiguousCalendars.map { try calendarName($0) }),
             clock: clock
@@ -140,6 +144,9 @@ let createBody = #"{"list":"Groceries","title":"Buy milk"}"#
 /// A calendar create whose window lands just after `ManualClock`'s default now
 /// (`2026-05-28T20:26:40Z`), so the event is genuinely "upcoming" for a harness that has not
 /// advanced its clock.
+///
+/// It names **no calendar**, because the route takes none: the event lands in whatever the harness
+/// pinned as its write target.
 let createEventBody = #"""
-{"calendar":"Privat","title":"Dentist","startAt":"2026-05-29T09:00:00+02:00","endAt":"2026-05-29T10:00:00+02:00"}
+{"title":"Dentist","startAt":"2026-05-29T09:00:00+02:00","endAt":"2026-05-29T10:00:00+02:00"}
 """#

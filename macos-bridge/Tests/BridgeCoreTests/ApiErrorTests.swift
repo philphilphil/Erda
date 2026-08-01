@@ -23,6 +23,7 @@ let apiErrorStatusTable: [(ApiError, Int)] = [
     (.internal, 500),
     (.remindersUnavailable, 503),
     (.calendarUnavailable, 503),
+    (.calendarNotConfigured, 503),
     (.unsupportedHttpVersion, 505),
 ]
 
@@ -104,5 +105,16 @@ struct ApiErrorTests {
         #expect(ApiError.ambiguousCalendar.httpStatus == 409)
         // The list side has no ambiguity code at all: both outcomes are `no_such_list`.
         #expect(!ApiError.allCases.contains { $0.code == "ambiguous_list" })
+    }
+
+    /// "Grant Calendar access in System Settings" and "pick a calendar in the ErdaBridge window"
+    /// are different errands. They share a status — both are "the Mac cannot serve this right now"
+    /// — but they must never share a code, because the code is all Erda has to tell Phil which
+    /// errand to run.
+    @Test("an unconfigured write calendar is its own 503, distinct from a missing grant")
+    func notConfiguredIsDistinctFromUnavailable() {
+        #expect(ApiError.calendarNotConfigured != ApiError.calendarUnavailable)
+        #expect(ApiError.calendarNotConfigured.httpStatus == 503)
+        #expect(ApiError.calendarNotConfigured.code == "calendar_not_configured")
     }
 }

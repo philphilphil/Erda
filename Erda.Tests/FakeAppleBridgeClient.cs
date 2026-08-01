@@ -26,7 +26,10 @@ internal sealed class FakeAppleBridgeClient : IAppleBridgeClient
     public (string List, string Title, string? Notes, DateTimeOffset? DueAt, int? Priority)? CreateCall { get; private set; }
     public (IReadOnlyList<string>? Lists, int? Limit)? ListCall { get; private set; }
     public string? CompleteCall { get; private set; }
-    public (string Calendar, string Title, DateTimeOffset StartAt, DateTimeOffset EndAt, string? Notes, string? TimeZone)? CreateEventCall { get; private set; }
+    // No calendar in here, and that is the point: the create route takes none — the write target is
+    // pinned on the Mac. A test asserting "the right calendar was passed" is a test that cannot
+    // exist any more.
+    public (string Title, DateTimeOffset StartAt, DateTimeOffset EndAt, string? Notes, string? TimeZone)? CreateEventCall { get; private set; }
     public (IReadOnlyList<string>? Calendars, int? Days, int? Limit)? ListEventsCall { get; private set; }
     public int StatusCallCount { get; private set; }
 
@@ -59,10 +62,10 @@ internal sealed class FakeAppleBridgeClient : IAppleBridgeClient
     }
 
     public Task<AppleBridgeResult<AppleCalendarEvent>> CreateCalendarEventAsync(
-        string calendar, string title, DateTimeOffset startAt, DateTimeOffset endAt,
+        string title, DateTimeOffset startAt, DateTimeOffset endAt,
         string? notes = null, string? timeZone = null, CancellationToken cancellationToken = default)
     {
-        CreateEventCall = (calendar, title, startAt, endAt, notes, timeZone);
+        CreateEventCall = (title, startAt, endAt, notes, timeZone);
         return Task.FromResult(CreateEventResult);
     }
 

@@ -13,13 +13,12 @@ struct CalendarEventRequestTests {
     }
 
     private let minimal = #"""
-    {"calendar":"Privat","title":"Dentist","startAt":"2026-08-03T09:00:00+02:00","endAt":"2026-08-03T10:00:00+02:00"}
+    {"title":"Dentist","startAt":"2026-08-03T09:00:00+02:00","endAt":"2026-08-03T10:00:00+02:00"}
     """#
 
     @Test("a well-formed request decodes with its instants intact")
     func decodesMinimal() throws {
         let request = try decode(minimal)
-        #expect(request.calendar.rawValue == "Privat")
         #expect(request.title == "Dentist")
         #expect(request.notes == nil)
         #expect(request.timeZone == nil)
@@ -31,7 +30,7 @@ struct CalendarEventRequestTests {
     @Test("every optional the request can express round-trips")
     func decodesFull() throws {
         let request = try decode(#"""
-        {"calendar":"Privat","title":"  Dentist  ","notes":"bring the referral","startAt":"2026-08-03T09:00:00+02:00","endAt":"2026-08-03T10:00:00+02:00","timeZone":"Europe/Berlin"}
+        {"title":"  Dentist  ","notes":"bring the referral","startAt":"2026-08-03T09:00:00+02:00","endAt":"2026-08-03T10:00:00+02:00","timeZone":"Europe/Berlin"}
         """#)
         // The title is trimmed; the notes are not, because a note's leading whitespace is the
         // user's own formatting.
@@ -46,9 +45,9 @@ struct CalendarEventRequestTests {
     /// and EventKit renders one as a point with no extent.
     @Test("an end at or before the start is refused", arguments: [
         // Inverted.
-        (#"{"calendar":"Privat","title":"x","startAt":"2026-08-03T10:00:00Z","endAt":"2026-08-03T09:00:00Z"}"#),
+        (#"{"title":"x","startAt":"2026-08-03T10:00:00Z","endAt":"2026-08-03T09:00:00Z"}"#),
         // Equal — "strictly after" is the rule, not "not before".
-        (#"{"calendar":"Privat","title":"x","startAt":"2026-08-03T10:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#),
+        (#"{"title":"x","startAt":"2026-08-03T10:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#),
     ])
     func refusesInvertedInterval(body: String) {
         #expect(throws: ApiError.invalidRequest) { try decode(body) }
@@ -57,7 +56,7 @@ struct CalendarEventRequestTests {
     @Test("an event exactly at the duration cap is accepted")
     func acceptsMaximumDuration() throws {
         let request = try decode(#"""
-        {"calendar":"Privat","title":"Sabbatical","startAt":"2026-08-03T00:00:00Z","endAt":"2026-08-10T00:00:00Z"}
+        {"title":"Sabbatical","startAt":"2026-08-03T00:00:00Z","endAt":"2026-08-10T00:00:00Z"}
         """#)
         #expect(request.endAt.timeIntervalSince(request.startAt) == Limits.eventMaxDuration)
     }
@@ -68,12 +67,12 @@ struct CalendarEventRequestTests {
     func refusesOverlongEvent() {
         #expect(throws: ApiError.invalidRequest) {
             try decode(#"""
-            {"calendar":"Privat","title":"x","startAt":"2026-08-03T00:00:00Z","endAt":"2026-08-10T00:00:01Z"}
+            {"title":"x","startAt":"2026-08-03T00:00:00Z","endAt":"2026-08-10T00:00:01Z"}
             """#)
         }
         #expect(throws: ApiError.invalidRequest) {
             try decode(#"""
-            {"calendar":"Privat","title":"x","startAt":"2026-08-03T00:00:00Z","endAt":"2026-11-03T00:00:00Z"}
+            {"title":"x","startAt":"2026-08-03T00:00:00Z","endAt":"2026-11-03T00:00:00Z"}
             """#)
         }
     }
@@ -83,10 +82,10 @@ struct CalendarEventRequestTests {
     /// The same rule `dueAt` has, for the same reason: a naive timestamp would be read in whatever
     /// zone the Mac happens to be in, silently moving an appointment by hours.
     @Test("a timestamp without an explicit offset is refused", arguments: [
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00","endAt":"2026-08-03T10:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03","endAt":"2026-08-04"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"not a date","endAt":"2026-08-03T10:00:00Z"}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00","endAt":"2026-08-03T10:00:00Z"}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00"}"#,
+        #"{"title":"x","startAt":"2026-08-03","endAt":"2026-08-04"}"#,
+        #"{"title":"x","startAt":"not a date","endAt":"2026-08-03T10:00:00Z"}"#,
     ])
     func refusesNaiveTimestamps(body: String) {
         #expect(throws: ApiError.invalidRequest) { try decode(body) }
@@ -100,7 +99,7 @@ struct CalendarEventRequestTests {
     ])
     func acceptsOffsetSpellings(label: String, start: String) throws {
         let request = try decode(#"""
-        {"calendar":"Privat","title":"x","startAt":"\#(start)","endAt":"2026-08-03T09:00:00Z"}
+        {"title":"x","startAt":"\#(start)","endAt":"2026-08-03T09:00:00Z"}
         """#)
         #expect(request.startAt == Date(timeIntervalSince1970: 1_785_740_400), "\(label)")
     }
@@ -113,7 +112,7 @@ struct CalendarEventRequestTests {
     ])
     func acceptsIanaZones(identifier: String) throws {
         let request = try decode(#"""
-        {"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"\#(identifier)"}
+        {"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"\#(identifier)"}
         """#)
         #expect(request.timeZone?.identifier == identifier)
     }
@@ -123,7 +122,7 @@ struct CalendarEventRequestTests {
     @Test("an alias is canonicalised rather than refused")
     func canonicalisesAliases() throws {
         let request = try decode(#"""
-        {"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"UTC"}
+        {"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"UTC"}
         """#)
         #expect(request.timeZone?.identifier == "GMT")
         #expect(request.timeZone == TimeZone(secondsFromGMT: 0))
@@ -142,7 +141,7 @@ struct CalendarEventRequestTests {
     func refusesNonIanaZones(identifier: String) {
         #expect(throws: ApiError.invalidRequest) {
             try decode(#"""
-            {"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"\#(identifier)"}
+            {"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"\#(identifier)"}
             """#)
         }
     }
@@ -157,7 +156,7 @@ struct CalendarEventRequestTests {
         #expect(command.timeZone.identifier == "Europe/Berlin")
 
         let explicit = try decode(#"""
-        {"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"Asia/Tokyo"}
+        {"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","timeZone":"Asia/Tokyo"}
         """#).command(defaultTimeZone: try #require(TimeZone(identifier: "Europe/Berlin")))
         #expect(explicit.timeZone.identifier == "Asia/Tokyo")
     }
@@ -168,13 +167,13 @@ struct CalendarEventRequestTests {
     func capsTitleAndNotes() throws {
         let atCap = String(repeating: "a", count: Limits.titleMaxLength)
         #expect(try decode(#"""
-        {"calendar":"Privat","title":"\#(atCap)","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}
+        {"title":"\#(atCap)","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}
         """#).title.count == Limits.titleMaxLength)
 
         for body in [
-            #"{"calendar":"Privat","title":"\#(atCap)a","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
-            #"{"calendar":"Privat","title":"   ","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
-            #"{"calendar":"Privat","title":"x","notes":"\#(String(repeating: "n", count: Limits.notesMaxLength + 1))","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
+            #"{"title":"\#(atCap)a","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
+            #"{"title":"   ","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
+            #"{"title":"x","notes":"\#(String(repeating: "n", count: Limits.notesMaxLength + 1))","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
         ] {
             #expect(throws: ApiError.invalidRequest) { try decode(body) }
         }
@@ -184,22 +183,23 @@ struct CalendarEventRequestTests {
     /// unsupported feature — a recurrence rule, an attendee list, an alarm — a loud 400 rather
     /// than a silently dropped field.
     @Test("an unknown key is refused, including one naming a deliberately unsupported feature", arguments: [
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","titel":"typo"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","recurrence":"FREQ=DAILY"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","attendees":[]}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","alarms":[]}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","allDay":true}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","location":"here"}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","titel":"typo"}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","recurrence":"FREQ=DAILY"}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","attendees":[]}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","alarms":[]}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","allDay":true}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z","location":"here"}"#,
     ])
     func refusesUnknownKeys(body: String) {
         #expect(throws: ApiError.invalidRequest) { try decode(body) }
     }
 
+    /// Note which field is **not** in here: there is no "missing calendar" case any more, because
+    /// naming no calendar is now the only correct way to ask for an event.
     @Test("a missing required field is refused", arguments: [
-        #"{"title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
-        #"{"calendar":"Privat","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"x","endAt":"2026-08-03T10:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z"}"#,
+        #"{"startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
+        #"{"title":"x","endAt":"2026-08-03T10:00:00Z"}"#,
+        #"{"title":"x","startAt":"2026-08-03T09:00:00Z"}"#,
         #"{}"#,
         #"not json"#,
     ])
@@ -207,13 +207,28 @@ struct CalendarEventRequestTests {
         #expect(throws: ApiError.invalidRequest) { try decode(body) }
     }
 
-    /// The command carries no id, and there is no route that would take one. This is the assertion
-    /// that fails if somebody later adds a `BridgeID` "for symmetry" with the reminder path.
-    @Test("the command has no event id, because no operation takes one")
-    func commandHasNoId() throws {
+    /// The command carries no id and no calendar, and there is no route that would take either.
+    /// This is the assertion that fails if somebody later adds a `BridgeID` "for symmetry" with the
+    /// reminder path, or puts a calendar back so a caller can steer the write.
+    @Test("the command has no event id and no calendar, because no caller may supply one")
+    func commandHasNoIdAndNoCalendar() throws {
         let command = try decode(minimal).command(defaultTimeZone: try #require(TimeZone(identifier: "GMT")))
         let labels = Mirror(reflecting: command).children.compactMap(\.label)
-        #expect(labels == ["calendar", "title", "notes", "startAt", "endAt", "timeZone"])
+        #expect(labels == ["title", "notes", "startAt", "endAt", "timeZone"])
+    }
+
+    /// The wire-format half of the same rule. `calendar` used to be a required key, so a client
+    /// built against the old shape will keep sending it — and it has to be **told**, not quietly
+    /// obeyed and not quietly ignored. Strict decoding already does this; the test is here so it
+    /// cannot be relaxed by accident.
+    @Test("a request that still names a calendar is refused, not silently ignored", arguments: [
+        #"{"calendar":"Privat","title":"x","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
+        // Including one naming a calendar that would be perfectly valid — it is the *key* that is
+        // gone, not the value that is wrong.
+        #"{"title":"x","calendar":"Arbeit","startAt":"2026-08-03T09:00:00Z","endAt":"2026-08-03T10:00:00Z"}"#,
+    ])
+    func refusesACalendarKey(body: String) {
+        #expect(throws: ApiError.invalidRequest) { try decode(body) }
     }
 }
 

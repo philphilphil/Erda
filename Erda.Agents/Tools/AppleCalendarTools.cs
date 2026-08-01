@@ -24,6 +24,15 @@ namespace Erda.Agents.Tools;
 /// Registered on the agent only when <c>AppleBridge:Enabled</c> is true, alongside the reminder
 /// tools.
 /// </para>
+/// <para>
+/// <b>Reads span every calendar; writes go to exactly one.</b> <c>list_calendar_events</c> keeps its
+/// optional calendar filter, but <c>create_calendar_event</c> has no calendar parameter at all — the
+/// target is configured once by Phil in the ErdaBridge app on the Mac. That is deliberate: which
+/// calendar an appointment belongs in was a decision the model had no good basis for, one more thing
+/// it could be argued into getting wrong, and a reason it had to learn calendar names before it
+/// could add anything. A parameter that does not exist is the only version of "never guess" that
+/// cannot be talked around.
+/// </para>
 /// </summary>
 public sealed class AppleCalendarTools(IAppleBridgeClient client)
 {
@@ -37,15 +46,14 @@ public sealed class AppleCalendarTools(IAppleBridgeClient client)
         "Create an event in Apple Calendar — the real Calendar app on Phil's Mac/iPhone, synced via " +
         "iCloud. This is NOT Erda's own scheduler: use schedule_message to be reminded about " +
         "something over WhatsApp, and use THIS for an actual appointment that belongs in his " +
-        "calendar (a dentist appointment, a meeting, a train). Name the calendar by its real title " +
-        "exactly as it appears in Calendar.app (e.g. 'Privat', 'Arbeit') — capitalisation does not " +
-        "have to match exactly. There is no default calendar, so ask Phil which one if unsure. A " +
-        "name that matches nothing fails, and so does a name two calendars share; never guess or " +
-        "fall back to a different calendar. Start and end must be full timestamps with a UTC offset, " +
-        "the end must be after the start, and an event cannot be longer than 7 days. Events cannot " +
-        "be edited or deleted afterwards through Erda — say so if Phil asks.")]
+        "calendar (a dentist appointment, a meeting, a train). The event goes into the one calendar " +
+        "Phil configured on his Mac — you do not choose a calendar, do not need to know what his " +
+        "calendars are called, and must not ask him which one to use. If he asks for a specific " +
+        "calendar, tell him it is set once in the ErdaBridge app on the Mac. Start and end must be " +
+        "full timestamps with a UTC offset, the end must be after the start, and an event cannot be " +
+        "longer than 7 days. Events cannot be edited or deleted afterwards through Erda — say so if " +
+        "Phil asks.")]
     private async Task<string> CreateCalendarEvent(
-        [Description("The calendar to add the event to, named as it reads in Calendar.app, e.g. 'Privat'.")] string calendar,
         [Description("The event's title, e.g. 'Dentist'.")] string title,
         [Description("Start as ISO-8601 with an explicit UTC offset or 'Z' (e.g. '2026-08-03T09:00:00+02:00'). " +
                      "A timestamp with no offset is rejected.")] DateTimeOffset startAt,
@@ -54,31 +62,29 @@ public sealed class AppleCalendarTools(IAppleBridgeClient client)
         [Description("Optional IANA time zone the event displays in, e.g. 'Europe/Berlin'. Omit to use the Mac's zone. " +
                      "Abbreviations like 'CEST' or 'PST' are rejected.")] string? timeZone = null)
     {
-        if (string.IsNullOrWhiteSpace(calendar))
-            return "Tell me which calendar to add this to.";
         if (string.IsNullOrWhiteSpace(title))
             return "Cannot create an event with no title.";
         if (endAt <= startAt)
             return "The end has to be after the start.";
 
         var result = await client.CreateCalendarEventAsync(
-            calendar.Trim(), title.Trim(), startAt, endAt, notes,
+            title.Trim(), startAt, endAt, notes,
             string.IsNullOrWhiteSpace(timeZone) ? null : timeZone.Trim());
 
         if (!result.Success)
             return $"Couldn't create the event: {result.Error}";
 
-        // The bridge echoes the calendar's own spelling back, so a case-insensitive match reports
-        // where the event actually landed rather than what was asked for.
+        // The bridge reports which calendar the event landed in — the caller never named one, so
+        // this is the only way to tell Phil where it went.
         var e = result.Value!;
         return $"Created '{e.Title}' in '{e.Calendar}', {FormatRange(e)}.";
     }
 
     [Description(
         "List upcoming events from Apple Calendar (the real Calendar app on Phil's Mac). This is NOT " +
-        "Erda's own scheduled reminders/prompts — use list_scheduled for those. The window starts " +
-        "now; omit the calendar to span every calendar on the Mac. Only upcoming events are " +
-        "returned — there is no way to look at the past.")]
+        "Erda's own scheduled reminders/prompts — use list_scheduled for those. Reading spans every " +
+        "calendar, unlike creating: the window starts now, and omitting the calendar covers all of " +
+        "them. Only upcoming events are returned — there is no way to look at the past.")]
     private async Task<string> ListCalendarEvents(
         [Description("Optional: a specific calendar to filter to, named as it reads in Calendar.app. Omit to span every calendar.")] string? calendar = null,
         [Description("Optional window length in days, starting now (1–31; the bridge's default of 7 applies if omitted).")] int? days = null,
@@ -105,9 +111,10 @@ public sealed class AppleCalendarTools(IAppleBridgeClient client)
     /// <summary>
     /// Names the calendars that exist, appended only when a listing came back empty. That is exactly
     /// when the model needs them: an empty calendar never shows up in a listing, so without this
-    /// there is no way to discover what a calendar is called short of asking Phil. Deliberately not
-    /// a third tool, and deliberately not on the happy path — it costs an extra request.
-    /// A failure here is swallowed: the caller already has its real answer.
+    /// there is no way to discover what a calendar is called in order to <i>filter</i> by it. It
+    /// says nothing about where events are written — that is not a choice this class can make.
+    /// Deliberately not a third tool, and deliberately not on the happy path — it costs an extra
+    /// request. A failure here is swallowed: the caller already has its real answer.
     /// </summary>
     private async Task<string> AvailableCalendarsHintAsync()
     {

@@ -23,6 +23,7 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
     case ambiguousCalendar = "ambiguous_calendar"
     case calendarReadOnly = "calendar_read_only"
     case calendarUnavailable = "calendar_unavailable"
+    case calendarNotConfigured = "calendar_not_configured"
     case `internal` = "internal"
 
     /// The stable snake_case code that goes on the wire.
@@ -55,7 +56,13 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
         case .unsupportedMediaType: 415
         case .rateLimited: 429
         case .internal: 500
-        case .remindersUnavailable, .calendarUnavailable: 503
+        // Three ways for the calendar back end to be unable to serve a write, all of them
+        // "the Mac cannot do this right now" rather than "your request was wrong":
+        // the grant is missing (`calendarUnavailable`), or no write calendar has been pinned in
+        // the setup UI — never, or not any more (`calendarNotConfigured`). The second is a
+        // separate code because the fix is a different one: not System Settings, but the
+        // ErdaBridge window itself.
+        case .remindersUnavailable, .calendarUnavailable, .calendarNotConfigured: 503
         case .unsupportedHttpVersion: 505
         }
     }

@@ -266,6 +266,9 @@ struct EventKitIntegrationTests {
 struct EventKitCalendarIntegrationTests {
     private let scratch: CalendarName
     private let berlin = TimeZone(identifier: "Europe/Berlin")!
+    /// Pinned to the throwaway calendar's own identifier. Everything this suite creates lands there
+    /// because that is the only place a create *can* land — there is no per-request calendar left
+    /// to pass.
     private let service: EventKitStore
 
     init() throws {
@@ -287,8 +290,15 @@ struct EventKitCalendarIntegrationTests {
         let calendar = try #require(candidates.first)
         try #require(calendar.isWritable, "\(title) cannot hold events")
 
-        self.scratch = try #require(CalendarName(rawValue: title), "\(title) is not a usable calendar name")
-        self.service = EventKitStore(identity: MemoryReminderIdentityStore(), timeZone: berlin)
+        let scratch = try #require(CalendarName(rawValue: title), "\(title) is not a usable calendar name")
+        self.scratch = scratch
+        self.service = EventKitStore(
+            identity: MemoryReminderIdentityStore(),
+            writeCalendar: MemoryWriteCalendarStore(
+                binding: CalendarBinding(calendarId: calendar.calendarId, titleAtBind: scratch)
+            ),
+            timeZone: berlin
+        )
     }
 
     /// Well into the future, so nothing here collides with a real appointment in a window someone
@@ -296,12 +306,10 @@ struct EventKitCalendarIntegrationTests {
     private func command(
         _ title: String,
         startingAt start: Date? = nil,
-        lasting seconds: TimeInterval = 3600,
-        calendar: CalendarName? = nil
+        lasting seconds: TimeInterval = 3600
     ) -> CreateCalendarEventCommand {
         let startAt = start ?? Date().addingTimeInterval(24 * 3600)
         return CreateCalendarEventCommand(
-            calendar: calendar ?? scratch,
             title: "[erdabridge-test] \(title) \(UUID().uuidString.prefix(8))",
             notes: "written by EventKitCalendarIntegrationTests",
             startAt: startAt,
@@ -398,18 +406,55 @@ struct EventKitCalendarIntegrationTests {
         #expect(capped.count <= 1)
     }
 
-    /// A name nobody's calendar wears fails, on a Mac full of real calendars — no default, no
-    /// nearest match, no "the first writable one".
+    /// A name nobody's calendar wears fails a **read filter**, on a Mac full of real calendars — no
+    /// default, no nearest match, no "the first writable one".
     @Test("a name that matches no calendar fails closed against the real database")
     func unknownNameFailsClosed() async throws {
         let missing = try #require(CalendarName(rawValue: "erdabridge-no-such-calendar-\(UUID().uuidString)"))
 
         await #expect(throws: ApiError.noSuchCalendar) {
-            try await service.create(self.command("must not be created", calendar: missing))
-        }
-        await #expect(throws: ApiError.noSuchCalendar) {
             try await service.upcoming(try ListCalendarEventsQuery(calendars: [missing]))
         }
+    }
+
+    /// The write side, against real calendars: with nothing pinned there is a whole Mac full of
+    /// writable calendars to fall into, and the bridge must fall into none of them.
+    @Test("with nothing pinned, a create refuses on a Mac full of real calendars")
+    func unpinnedCreateRefusesAgainstRealCalendars() async throws {
+        let unpinned = EventKitStore(identity: MemoryReminderIdentityStore(), timeZone: berlin)
+
+        await #expect(throws: ApiError.calendarNotConfigured) {
+            try await unpinned.create(self.command("must not be created"))
+        }
+        #expect(await unpinned.writeCalendar() == .notConfigured)
+    }
+
+    /// A binding that points at nothing, paired with the throwaway calendar's real **title**. If
+    /// resolution ever consulted the title, this would find the scratch calendar and write into it
+    /// — so the assertion is both "it refused" and "it did not quietly re-bind".
+    @Test("a dangling binding refuses rather than re-binding by title")
+    func danglingBindingRefusesAgainstRealCalendars() async throws {
+        let dangling = EventKitStore(
+            identity: MemoryReminderIdentityStore(),
+            writeCalendar: MemoryWriteCalendarStore(
+                binding: CalendarBinding(
+                    calendarId: "00000000-0000-0000-0000-000000000000",
+                    titleAtBind: scratch
+                )
+            ),
+            timeZone: berlin
+        )
+
+        await #expect(throws: ApiError.calendarNotConfigured) {
+            try await dangling.create(self.command("must not be created"))
+        }
+        #expect(await dangling.writeCalendar() == .unresolvable(scratch))
+    }
+
+    /// The status readout, against the real calendar this suite writes to.
+    @Test("the write-calendar readout names the pinned calendar")
+    func writeCalendarReportsTheScratchCalendar() async {
+        #expect(await service.writeCalendar() == .configured(scratch))
     }
 
     /// A filtered listing stays inside the calendar it named. (The unfiltered case spans every

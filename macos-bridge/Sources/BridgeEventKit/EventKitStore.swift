@@ -46,11 +46,17 @@ import Foundation
 ///
 /// ## Scope
 ///
-/// Every reminder list and every calendar on this Mac is reachable. There is no allowlist — a
+/// Every reminder list and every calendar on this Mac is **readable**. There is no allowlist — a
 /// deliberate decision, not an oversight: Apple grants access all-or-nothing per entity type, and
-/// the alias table that used to sit here bounded nothing Phil wanted bounded. Both are addressed by
-/// name, and a name that matches nothing (or matches two) fails rather than falling back to a
-/// default. Events can be created and read; there is no edit and no delete.
+/// the alias table that used to sit here bounded nothing Phil wanted bounded. A reminder list is
+/// addressed by name, and a name that matches nothing (or matches two) fails rather than falling
+/// back to a default.
+///
+/// **Calendar writes are narrower than calendar reads**, and that asymmetry is deliberate: an event
+/// is created in the one calendar pinned in the setup window (`CalendarBinding`) and nowhere else,
+/// resolved by `calendarIdentifier` at every write. Nothing on the wire chooses a calendar to write
+/// to, and an unpinned or unresolvable binding is a refusal, never a fallback. Events can be created
+/// and read; there is no edit and no delete.
 public actor EventKitStore: RemindersService, CalendarService {
     // MARK: - Custom serial executor
 
@@ -66,6 +72,9 @@ public actor EventKitStore: RemindersService, CalendarService {
     /// one store cannot be used with another.
     private let store: EKEventStore
     private let identity: any ReminderIdentityStore
+    /// Read on every calendar write, never cached: re-pinning the target in the setup window has to
+    /// take effect at once, and a cached binding would keep writing into the old calendar.
+    private let writeCalendarStore: any WriteCalendarStore
     private let clock: any BridgeClock
     /// The zone a due date is *expressed in* once it reaches Reminders.app, and the fallback for
     /// an event whose request named no zone. The wire format requires offset-bearing timestamps,
@@ -75,8 +84,13 @@ public actor EventKitStore: RemindersService, CalendarService {
     private let fetchTimeout: Duration
     private let changes: EventStoreChangeFlag
 
+    /// `writeCalendar` defaults to an empty in-memory store, which means "nothing pinned" and so
+    /// makes every create answer `calendarNotConfigured`. That is the fail-closed default on
+    /// purpose: a reminder-only test that omits it cannot accidentally write into a real calendar,
+    /// and the composition root passes the real store explicitly.
     public init(
         identity: any ReminderIdentityStore,
+        writeCalendar: any WriteCalendarStore = MemoryWriteCalendarStore(),
         clock: any BridgeClock = SystemClock(),
         timeZone: TimeZone = .current,
         fetchTimeout: Duration = .seconds(10),
@@ -88,6 +102,7 @@ public actor EventKitStore: RemindersService, CalendarService {
         )
         self.store = EKEventStore()
         self.identity = identity
+        self.writeCalendarStore = writeCalendar
         self.clock = clock
         self.timeZone = timeZone
         self.fetchTimeout = fetchTimeout
@@ -305,6 +320,23 @@ public actor EventKitStore: RemindersService, CalendarService {
         return Set(calendarCandidates().compactMap(CalendarLookup.canonicalName)).sorted()
     }
 
+    /// The pinned write target, for `GET /v1/status`. Never throws, for the same reason
+    /// `availableCalendars()` does not: status has to answer even when the answer is bad news.
+    ///
+    /// Revoked access reports `.unresolvable` rather than `.ok`, and that is not a fudge — without
+    /// the grant this process genuinely cannot confirm the calendar is still there. The
+    /// `calendarAvailability` field beside it in the same body is what separates "access revoked"
+    /// from "calendar deleted".
+    public func writeCalendar() async -> WriteCalendarReport {
+        guard let binding = storedBinding() else { return .notConfigured }
+        guard CalendarAccess.status().isUsable else { return .unresolvable(binding.titleAtBind) }
+        if changes.consume() { store.reset() }
+        guard let calendar = liveCalendar(for: binding) else { return .unresolvable(binding.titleAtBind) }
+        // The calendar's *current* title, so a rename shows up here rather than silently making the
+        // status report stale. The identifier is what resolved it — the title resolves nothing.
+        return .configured(CalendarLookup.canonicalName(candidate(calendar)) ?? binding.titleAtBind)
+    }
+
     public func upcoming(_ query: ListCalendarEventsQuery) async throws -> [CalendarEventSnapshot] {
         try prepareCalendar()
 
@@ -377,17 +409,19 @@ public actor EventKitStore: RemindersService, CalendarService {
     public func create(_ command: CreateCalendarEventCommand) async throws -> CalendarEventSnapshot {
         try prepareCalendar()
 
-        let calendar = try resolveCalendar(named: command.calendar)
+        // The command names no calendar. There is exactly one place a write can land, and it is the
+        // one a human pinned in the setup window.
+        let (calendar, binding) = try resolveWriteCalendar()
         // A calendar that resolves but cannot hold an event — a subscribed or holiday calendar, or
         // an account that does not do events — is a 409 rather than an `EKErrorCalendarReadOnly`
-        // round trip. It is the caller's choice of calendar that is wrong, and no retry against
-        // this one will ever work.
+        // round trip. The picker only offers writable calendars, so reaching this means the
+        // calendar became read-only after it was pinned; no retry will help until it is re-pinned.
         guard calendar.allowsContentModifications, calendar.allowedEntityTypes.contains(.event) else {
             throw ApiError.calendarReadOnly
         }
-        // The calendar's own spelling, so a caller who matched case-insensitively is told which
-        // calendar it actually landed in.
-        let name = CalendarLookup.canonicalName(candidate(calendar)) ?? command.calendar
+        // The calendar's *current* spelling, so the caller can tell Phil where the appointment
+        // actually landed even if it has been renamed since it was pinned.
+        let name = CalendarLookup.canonicalName(candidate(calendar)) ?? binding.titleAtBind
 
         let event = EKEvent(eventStore: store)
         event.calendar = calendar
@@ -478,16 +512,36 @@ public actor EventKitStore: RemindersService, CalendarService {
         return calendar
     }
 
-    /// Turns a name into a live calendar, or fails closed. Never a default calendar, and never a
-    /// guess between two that share a name.
-    private func resolveCalendar(named name: CalendarName) throws -> EKCalendar {
-        let all = store.calendars(for: .event)
-        let match = try CalendarLookup.resolve(name, in: all.map(candidate) as [CalendarLookup.Candidate])
-        guard let calendar = all.first(where: { $0.calendarIdentifier == match.calendarId }) else {
-            throw ApiError.noSuchCalendar
-        }
-        return calendar
+    /// The pinned binding, or `nil` — including when the database cannot be read.
+    ///
+    /// A failed read is deliberately indistinguishable from "nothing pinned": both mean this
+    /// process cannot name the calendar it is supposed to write to, and the only safe response to
+    /// that is to refuse. The alternative — treating a read error as permission to pick something —
+    /// is how an appointment ends up in a shared calendar.
+    private func storedBinding() -> CalendarBinding? {
+        (try? writeCalendarStore.writeCalendar()).flatMap { $0 }
     }
+
+    /// This Mac's live calendar for a binding, matched on `calendarIdentifier` and nothing else. A
+    /// title match would be a re-bind, and re-binding is a human's decision — see `CalendarBinding`.
+    private func liveCalendar(for binding: CalendarBinding) -> EKCalendar? {
+        store.calendars(for: .event).first { $0.calendarIdentifier == binding.calendarId }
+    }
+
+    /// The write target, or a closed-set failure. **Never** falls back to
+    /// `defaultCalendarForNewEvents`, never re-binds by title, and answers the same
+    /// `calendarNotConfigured` whether nothing was ever pinned or the pinned calendar has gone —
+    /// both are fixed the same way, by choosing one in the ErdaBridge window.
+    private func resolveWriteCalendar() throws -> (calendar: EKCalendar, binding: CalendarBinding) {
+        guard let binding = storedBinding() else { throw ApiError.calendarNotConfigured }
+        guard let calendar = liveCalendar(for: binding) else { throw ApiError.calendarNotConfigured }
+        return (calendar, binding)
+    }
+
+    // There is deliberately no `resolveCalendar(named:)` counterpart to `resolveList(named:)`. A
+    // name-to-calendar resolution is only ever a *read* filter now, and `upcoming` does it inline
+    // where it also builds the id→name table it needs; a spare by-name resolver sitting next to the
+    // write path would be an invitation to route a create through it.
 
     /// The id a fetched reminder should be reported under.
     ///

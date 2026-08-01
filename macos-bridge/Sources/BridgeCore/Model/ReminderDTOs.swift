@@ -156,20 +156,27 @@ public struct StatusResponse: Sendable, Equatable, Codable {
     /// is not usable, which is exactly what `availability` is there to explain.
     public let lists: [ListName]
     public let calendarAvailability: CalendarAvailability
-    /// Every calendar on this Mac, sorted. Same job as `lists`: with no allowlist and no aliases,
-    /// the name in Calendar.app is the only handle there is, so a caller has to be able to learn
-    /// them.
+    /// Every calendar on this Mac, sorted — the names a **read** may filter by. It is not a menu to
+    /// write into: `POST /v1/calendar-events` takes no calendar at all and always lands in
+    /// `writeCalendar`.
     public let calendars: [CalendarName]
+    /// The one calendar creates land in, and whether it still resolves. Reported here because it is
+    /// the only way a caller can tell Phil *why* a create is failing with
+    /// `503 calendar_not_configured` — and the only place the write target is visible at all, since
+    /// no route can set it.
+    public let writeCalendar: WriteCalendarReport
 
     public init(
         availability: ReminderAvailability,
         lists: [ListName],
         calendarAvailability: CalendarAvailability,
-        calendars: [CalendarName]
+        calendars: [CalendarName],
+        writeCalendar: WriteCalendarReport
     ) {
         self.availability = availability
         self.lists = lists
         self.calendarAvailability = calendarAvailability
         self.calendars = calendars
+        self.writeCalendar = writeCalendar
     }
 }

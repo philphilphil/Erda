@@ -202,6 +202,55 @@ public class AppleBridgeClientTests
         Assert.Empty(result.Value!.Calendars);
     }
 
+    // The calendars a listing may filter by are not where events go. Status reports both, and the
+    // write target is the only way Erda can explain a `calendar_not_configured` to Phil.
+    [Fact]
+    public async Task Status_reports_the_write_calendar_separately_from_the_readable_ones()
+    {
+        var handler = new CapturingHandler
+        {
+            ResponseBody = new
+            {
+                availability = "ok",
+                lists = new[] { "Groceries" },
+                calendarAvailability = "ok",
+                calendars = new[] { "Arbeit", "Privat" },
+                writeCalendar = new { state = "ok", name = "Privat" },
+            },
+        };
+
+        var result = await Make(handler).GetStatusAsync();
+
+        Assert.True(result.Success);
+        Assert.Equal(["Arbeit", "Privat"], result.Value!.Calendars);
+        Assert.Equal("ok", result.Value!.WriteCalendar!.State);
+        Assert.Equal("Privat", result.Value!.WriteCalendar!.Name);
+    }
+
+    // Never chosen carries no name at all, so the field is absent rather than empty — a client that
+    // read "" as a calendar title would report a nonsense one.
+    [Fact]
+    public async Task Status_reports_an_unchosen_write_calendar_without_inventing_a_name()
+    {
+        var handler = new CapturingHandler
+        {
+            ResponseBody = new
+            {
+                availability = "ok",
+                lists = Array.Empty<string>(),
+                calendarAvailability = "ok",
+                calendars = new[] { "Privat" },
+                writeCalendar = new { state = "not_configured" },
+            },
+        };
+
+        var result = await Make(handler).GetStatusAsync();
+
+        Assert.True(result.Success);
+        Assert.Equal("not_configured", result.Value!.WriteCalendar!.State);
+        Assert.Null(result.Value!.WriteCalendar!.Name);
+    }
+
     [Fact]
     public async Task Create_reminder_round_trips_a_non_utc_offset_due_date()
     {
@@ -398,7 +447,6 @@ public class AppleBridgeClientTests
         var handler = new YieldingHandler { ResponseBody = EventBody() };
 
         var result = await MakeYielding(handler).CreateCalendarEventAsync(
-            "Privat",
             "Dentist",
             new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2)),
             new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.FromHours(2)));
@@ -406,7 +454,7 @@ public class AppleBridgeClientTests
         Assert.True(result.Success);
         Assert.NotNull(handler.Body);
         Assert.Contains("Dentist", handler.Body);
-        Assert.Contains("Privat", handler.Body);
+        Assert.Contains("2026-08-03T09:00:00+02:00", handler.Body);
     }
 
     // MARK: - Calendar events
@@ -417,7 +465,6 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ResponseBody = EventBody() };
 
         var result = await Make(handler).CreateCalendarEventAsync(
-            "Privat",
             "Dentist",
             new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2)),
             new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.FromHours(2)),
@@ -430,7 +477,10 @@ public class AppleBridgeClientTests
         Assert.True(Guid.TryParse(handler.Request.Headers.GetValues("Idempotency-Key").Single(), out _));
 
         using var sentBody = JsonDocument.Parse(handler.Body!);
-        Assert.Equal("Privat", sentBody.RootElement.GetProperty("calendar").GetString());
+        // No calendar goes out at all: the write target lives on the Mac, and the bridge decodes
+        // this body strictly — sending one would be a 400, not a preference it quietly ignores.
+        Assert.False(sentBody.RootElement.TryGetProperty("calendar", out _));
+        Assert.Equal("Dentist", sentBody.RootElement.GetProperty("title").GetString());
         Assert.Equal("bring the referral", sentBody.RootElement.GetProperty("notes").GetString());
         Assert.Equal("Europe/Berlin", sentBody.RootElement.GetProperty("timeZone").GetString());
     }
@@ -445,7 +495,7 @@ public class AppleBridgeClientTests
         var start = new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2));
         var end = new DateTimeOffset(2026, 8, 3, 10, 30, 0, TimeSpan.FromHours(2));
 
-        await Make(handler).CreateCalendarEventAsync("Privat", "Dentist", start, end);
+        await Make(handler).CreateCalendarEventAsync("Dentist", start, end);
 
         using var sentBody = JsonDocument.Parse(handler.Body!);
         Assert.Contains("+02:00", sentBody.RootElement.GetProperty("startAt").GetString());
@@ -461,7 +511,7 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ResponseBody = EventBody() };
 
         var result = await Make(handler).CreateCalendarEventAsync(
-            "Privat", "Dentist", start, start.AddHours(1));
+            "Dentist", start, start.AddHours(1));
 
         Assert.True(result.Success);
         Assert.Equal(start, result.Value!.StartAt);
@@ -510,29 +560,68 @@ public class AppleBridgeClientTests
         Assert.False(handler.Request.Headers.Contains("Idempotency-Key"));
     }
 
-    // The four calendar failures each imply a different fix, and Erda relays them verbatim — so no
+    // The five calendar failures each imply a different fix, and Erda relays them verbatim — so no
     // two of them may read the same, and none may read like its reminders counterpart.
     [Fact]
-    public async Task The_four_calendar_failures_read_differently_from_each_other()
+    public async Task The_five_calendar_failures_read_differently_from_each_other()
     {
         var messages = new Dictionary<string, string>();
-        foreach (var code in new[] { "no_such_calendar", "ambiguous_calendar", "calendar_read_only", "calendar_unavailable" })
+        foreach (var code in new[]
+                 {
+                     "no_such_calendar", "ambiguous_calendar", "calendar_read_only",
+                     "calendar_unavailable", "calendar_not_configured",
+                 })
         {
             var result = await Make(new CapturingHandler
             {
                 Status = HttpStatusCode.BadRequest,
                 ResponseBody = new { error = code, requestId = "r1" },
-            }).CreateCalendarEventAsync("Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+            }).CreateCalendarEventAsync("x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
 
             Assert.False(result.Success);
             messages[code] = result.Error!;
         }
 
-        Assert.Equal(4, messages.Values.Distinct().Count());
+        Assert.Equal(5, messages.Values.Distinct().Count());
         Assert.Contains("no calendar with that name", messages["no_such_calendar"], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("rename one", messages["ambiguous_calendar"], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("read-only", messages["calendar_read_only"], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Calendars permission", messages["calendar_unavailable"]);
+        Assert.Contains("ErdaBridge app", messages["calendar_not_configured"]);
+    }
+
+    // Both are 503s and both stop a create, but one is a macOS permission and the other is a choice
+    // nobody has made in the ErdaBridge app — and neither is "the Mac is unreachable", which is what
+    // a transport failure says. Three failures, three errands.
+    [Fact]
+    public async Task An_unconfigured_write_calendar_reads_as_neither_a_permission_nor_an_unreachable_mac()
+    {
+        var notConfigured = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.ServiceUnavailable,
+            ResponseBody = new { error = "calendar_not_configured", requestId = "r1" },
+        }).CreateCalendarEventAsync("x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+        var unavailable = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.ServiceUnavailable,
+            ResponseBody = new { error = "calendar_unavailable", requestId = "r1" },
+        }).CreateCalendarEventAsync("x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+        var unreachable = await Make(new CapturingHandler
+        {
+            ThrowOnSend = new HttpRequestException("connection refused"),
+        }).CreateCalendarEventAsync("x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+        Assert.False(notConfigured.Success);
+        // It names the thing to open and the thing to do there.
+        Assert.Contains("ErdaBridge app", notConfigured.Error);
+        Assert.Contains("choose which calendar", notConfigured.Error);
+        // And says neither of the two things it is not.
+        Assert.DoesNotContain("System Settings", notConfigured.Error);
+        Assert.DoesNotContain("Couldn't reach", notConfigured.Error);
+
+        Assert.Equal(3, new[] { notConfigured.Error, unavailable.Error, unreachable.Error }.Distinct().Count());
     }
 
     // "Grant Reminders access" and "Grant Calendar access" are two different rows in System Settings,
@@ -544,7 +633,7 @@ public class AppleBridgeClientTests
         {
             Status = HttpStatusCode.ServiceUnavailable,
             ResponseBody = new { error = "calendar_unavailable", requestId = "r1" },
-        }).CreateCalendarEventAsync("Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+        }).CreateCalendarEventAsync("x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
 
         var reminders = await Make(new CapturingHandler
         {
@@ -567,7 +656,7 @@ public class AppleBridgeClientTests
         {
             Status = HttpStatusCode.NotFound,
             ResponseBody = new { error = "no_such_calendar", requestId = "r1" },
-        }).CreateCalendarEventAsync("Nope", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+        }).CreateCalendarEventAsync("x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
 
         var list = await Make(new CapturingHandler
         {
@@ -586,7 +675,7 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ThrowOnSend = new HttpRequestException("connection refused") };
 
         var result = await Make(handler).CreateCalendarEventAsync(
-            "Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+            "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
 
         Assert.False(result.Success);
         Assert.Contains("Couldn't reach", result.Error);
@@ -602,7 +691,7 @@ public class AppleBridgeClientTests
             NullLogger<AppleBridgeClient>.Instance);
 
         var created = await client.CreateCalendarEventAsync(
-            "Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+            "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
         var listed = await client.ListCalendarEventsAsync();
 
         Assert.False(created.Success);

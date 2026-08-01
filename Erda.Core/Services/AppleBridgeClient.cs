@@ -38,15 +38,25 @@ public sealed record AppleCalendarEvent(
     bool IsAllDay,
     string? TimeZone);
 
+/// <summary>The one calendar the bridge writes events to, picked by Phil in the ErdaBridge app on
+/// the Mac and settable nowhere else. <see cref="State"/> is <c>ok</c>, <c>not_configured</c> (he has
+/// never chosen one) or <c>unresolvable</c> (the one he chose is no longer on the Mac); the last two
+/// both make <c>create_calendar_event</c> fail with <c>calendar_not_configured</c>.
+/// <see cref="Name"/> is null only when nothing was ever chosen.</summary>
+public sealed record AppleWriteCalendar(string State, string? Name);
+
 /// <summary>The bridge's <c>GET /v1/status</c> response. Reminders and Calendar are reported
 /// separately because macOS authorizes them separately — one can be usable while the other is not,
-/// so a single verdict would have to lie about one of them. <see cref="Lists"/> and
-/// <see cref="Calendars"/> are the names a caller may address.</summary>
+/// so a single verdict would have to lie about one of them. <see cref="Lists"/> are the names a
+/// caller may address; <see cref="Calendars"/> are the names a <i>listing</i> may filter by, which
+/// is not the same as where events go — that is <see cref="WriteCalendar"/>, and it is chosen on the
+/// Mac.</summary>
 public sealed record AppleBridgeStatus(
     string Availability,
     IReadOnlyList<string> Lists,
     string CalendarAvailability,
-    IReadOnlyList<string> Calendars);
+    IReadOnlyList<string> Calendars,
+    AppleWriteCalendar? WriteCalendar = null);
 
 /// <summary>
 /// The outcome of one <see cref="IAppleBridgeClient"/> call. Never an exception — like
@@ -72,10 +82,11 @@ public sealed class AppleBridgeResult<T>
 }
 
 /// <summary>Client for the macOS ErdaBridge HTTP API: create/list/complete Apple Reminders, plus
-/// create/list Apple Calendar events. The bridge reaches every reminder list and every calendar on
-/// the Mac, both addressed by their real name — see <see cref="AppleBridgeOptions"/> for
-/// configuration and macos-bridge/README.md for why (including why calendar access is full read,
-/// not write-only).</summary>
+/// create/list Apple Calendar events. Reminder lists are addressed by their real name and the bridge
+/// reaches all of them; calendars are <i>readable</i> the same way, but events are always created in
+/// the single calendar Phil pinned in the ErdaBridge app — no request names one. See
+/// <see cref="AppleBridgeOptions"/> for configuration and macos-bridge/README.md for why (including
+/// why calendar access is full read, not write-only).</summary>
 public interface IAppleBridgeClient
 {
     /// <summary>Checks whether the bridge can currently serve requests — Reminders and Calendar
@@ -106,16 +117,19 @@ public interface IAppleBridgeClient
     Task<AppleBridgeResult<AppleReminderCompletion>> CompleteReminderAsync(
         string reminderId, CancellationToken cancellationToken = default);
 
-    /// <summary>Creates an event in the named calendar. <paramref name="calendar"/> is the calendar's
-    /// name as it reads in Calendar.app — there is no default calendar; a name that matches nothing
-    /// and a name that matches two calendars fail <i>differently</i>, because the fixes differ.
+    /// <summary>Creates an event in the <b>one</b> calendar Phil pinned in the ErdaBridge app on the
+    /// Mac. There is deliberately no calendar parameter: the wire format carries none, the choice
+    /// lives on the Mac, and no request can change or override it. If he has pinned none — or the
+    /// one he pinned is gone — this fails with <c>calendar_not_configured</c> rather than landing
+    /// somewhere plausible. The returned <see cref="AppleCalendarEvent.Calendar"/> reports which
+    /// calendar it went into.
+    /// <para>
     /// <paramref name="startAt"/>/<paramref name="endAt"/> must carry a real offset (the bridge
     /// refuses a naive timestamp), <paramref name="endAt"/> must be after <paramref name="startAt"/>,
     /// and the event may not exceed seven days. <paramref name="timeZone"/> is an optional IANA
-    /// identifier (e.g. <c>Europe/Berlin</c>) deciding which wall-clock time the event displays
-    /// at.</summary>
+    /// identifier (e.g. <c>Europe/Berlin</c>) deciding which wall-clock time the event displays at.
+    /// </para></summary>
     Task<AppleBridgeResult<AppleCalendarEvent>> CreateCalendarEventAsync(
-        string calendar,
         string title,
         DateTimeOffset startAt,
         DateTimeOffset endAt,
@@ -123,9 +137,10 @@ public interface IAppleBridgeClient
         string? timeZone = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Lists upcoming events, starting now. Omitting <paramref name="calendars"/> spans every
-    /// calendar on the Mac. <paramref name="days"/> is the window length (the bridge's default
-    /// applies if omitted; it caps both the window and the count).</summary>
+    /// <summary>Lists upcoming events, starting now. Reads are <i>not</i> pinned the way writes are:
+    /// omitting <paramref name="calendars"/> spans every calendar on the Mac, and naming one narrows
+    /// to it. <paramref name="days"/> is the window length (the bridge's default applies if omitted;
+    /// it caps both the window and the count).</summary>
     Task<AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>> ListCalendarEventsAsync(
         IReadOnlyList<string>? calendars = null,
         int? days = null,
@@ -235,7 +250,6 @@ public sealed class AppleBridgeClient(
     }
 
     public async Task<AppleBridgeResult<AppleCalendarEvent>> CreateCalendarEventAsync(
-        string calendar,
         string title,
         DateTimeOffset startAt,
         DateTimeOffset endAt,
@@ -246,13 +260,16 @@ public sealed class AppleBridgeClient(
         if (!TryBuildUrl("/v1/calendar-events", out var url, out var configError))
             return AppleBridgeResult<AppleCalendarEvent>.Fail(configError!);
 
+        // No `calendar` field, and adding one back would not be a no-op: the bridge decodes this
+        // body strictly, so an unknown key is a 400. The write target lives on the Mac.
+        //
         // Note the `await` inside the `using` — see the comment on GetStatusAsync. A DateTimeOffset
         // serializes with its offset intact ("+02:00"), which is exactly what the bridge requires:
         // it refuses a timestamp with no offset outright.
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = JsonContent.Create(
-                new { calendar, title, notes, startAt, endAt, timeZone }, options: Json),
+                new { title, notes, startAt, endAt, timeZone }, options: Json),
         };
         ApplyAuth(request);
         ApplyIdempotencyKey(request);
@@ -269,8 +286,9 @@ public sealed class AppleBridgeClient(
             return AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Fail(configError!);
 
         // GET /v1/calendar-events takes a repeated ?calendar=x&calendar=y (omitted means every
-        // calendar) plus ?days=n and ?limit=n. EscapeDataString for the same reason as the reminder
-        // route: calendar names hold spaces and non-ASCII, and a space must arrive as %20, never +.
+        // calendar) plus ?days=n and ?limit=n — reads span every calendar, unlike creates, which go
+        // to the one pinned on the Mac. EscapeDataString for the same reason as the reminder route:
+        // calendar names hold spaces and non-ASCII, and a space must arrive as %20, never +.
         var query = new List<string>();
         foreach (var calendar in calendars ?? [])
             if (!string.IsNullOrWhiteSpace(calendar))
@@ -359,13 +377,16 @@ public sealed class AppleBridgeClient(
     /// to a short message safe to relay to Phil. Categories that call for different fixes must read
     /// differently: <c>no_such_list</c>/<c>list_read_only</c> mean the list Erda named is wrong (retry
     /// with a different name), <c>reminders_unavailable</c> points at macOS Reminders permission, and
-    /// on the calendar side <c>no_such_calendar</c> (check the name), <c>ambiguous_calendar</c> (two
-    /// calendars wear that name — rename one), <c>calendar_read_only</c> (a subscribed/holiday
-    /// calendar) and <c>calendar_unavailable</c> (macOS <i>Calendars</i> permission, a different
-    /// System Settings row from Reminders) are four separate fixes and never share wording.
-    /// Everything else here is either an Erda-side bug or a transient bridge condition worth
-    /// retrying. A caught exception (network failure, not an HTTP error response) never reaches this
-    /// method — see <see cref="TransportFailureMessage"/>.
+    /// on the calendar side <c>no_such_calendar</c> (check the name in a listing filter),
+    /// <c>ambiguous_calendar</c> (two calendars wear that name — rename one), <c>calendar_read_only</c>
+    /// (the pinned calendar is subscribed/holiday), <c>calendar_unavailable</c> (macOS
+    /// <i>Calendars</i> permission, a different System Settings row from Reminders) and
+    /// <c>calendar_not_configured</c> (no write calendar is pinned in the ErdaBridge app, or the
+    /// pinned one is gone) are five separate fixes and never share wording. The last two are both
+    /// 503s and are the pair most easily confused: one is a permission on the Mac, one is a choice
+    /// in the app, and neither is "the Mac is unreachable" — that is
+    /// <see cref="TransportFailureMessage"/>, which a caught network exception produces without ever
+    /// reaching this method.
     /// </summary>
     private static string MapError(string? code) => code switch
     {
@@ -384,8 +405,9 @@ public sealed class AppleBridgeClient(
         "reminders_unavailable" => "The Mac has revoked (or never granted) Reminders access to ErdaBridge — check Reminders permission in System Settings on the Mac.",
         "no_such_calendar" => "There's no calendar with that name on the Mac — check the exact name in Calendar.app.",
         "ambiguous_calendar" => "Two calendars on the Mac have that exact name (e.g. one in iCloud and one local), so the bridge won't guess between them — rename one in Calendar.app, or name the other calendar instead.",
-        "calendar_read_only" => "That calendar is read-only (a subscribed or holiday calendar), so nothing can be added to it — pick a different calendar.",
+        "calendar_read_only" => "The calendar ErdaBridge is set to write to is read-only (a subscribed or holiday calendar), so nothing can be added to it — choose a different one in the ErdaBridge app on the Mac.",
         "calendar_unavailable" => "The Mac has revoked (or never granted) Calendar access to ErdaBridge — check Calendars permission in System Settings on the Mac. (That's a different setting from Reminders.)",
+        "calendar_not_configured" => "No calendar is set up for writing on the Mac — open the ErdaBridge app there and choose which calendar events should go into. (The Mac is reachable and Calendar access is fine; it just hasn't been told where to write. Reading the calendar still works.)",
         "internal" => "The bridge hit an internal error — check its logs on the Mac.",
         _ => "The Apple bridge returned an unexpected error.",
     };

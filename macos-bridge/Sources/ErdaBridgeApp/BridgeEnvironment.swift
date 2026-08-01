@@ -45,16 +45,20 @@ struct BridgeEnvironment: Sendable {
         let tokenStore = TokenStoreFactory.make(backend: .keychain, directories: directories)
         let tokenService = TokenService(store: tokenStore)
 
-        // Every reminder list and every calendar on this Mac is in scope; the actor resolves names
+        // Every reminder list and every calendar on this Mac is *readable*; the actor resolves names
         // against EventKit per request, so one created or renamed in Reminders.app or Calendar.app
-        // takes effect without a restart and nothing here needs to be re-read.
+        // takes effect without a restart and nothing here needs to be re-read. Calendar **writes**
+        // are narrower: they go to the single calendar pinned in the setup window, read back through
+        // `StoreWriteCalendar` on every create — so re-pinning it takes effect at once, and an
+        // unpinned bridge refuses to create events rather than guessing at one.
         //
         // **One instance, wired in twice.** `EKEventStore` is a one-per-process object whose
         // `reset()` invalidates every fetched reminder *and* event at once, so the two seams are
         // deliberately the same actor — see `EventKitStore`'s own documentation for why a second
         // store would be a second uncoordinated writer rather than an isolated one.
         let eventKit = EventKitStore(
-            identity: StoreReminderIdentity(reminderMap: store.reminderMap)
+            identity: StoreReminderIdentity(reminderMap: store.reminderMap),
+            writeCalendar: StoreWriteCalendar(bindings: store.calendarBinding)
         )
 
         let services = BridgeServices(

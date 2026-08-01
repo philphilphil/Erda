@@ -12,9 +12,13 @@ import Testing
 /// lives in `EventKitIntegrationTests` behind `ERDA_BRIDGE_EVENTKIT_TESTS`.
 @Suite("EventKitStore — no grant required")
 struct EventKitStoreTests {
-    private func service(identity: MemoryReminderIdentityStore = .init()) -> EventKitStore {
+    private func service(
+        identity: MemoryReminderIdentityStore = .init(),
+        writeCalendar: MemoryWriteCalendarStore = .init()
+    ) -> EventKitStore {
         EventKitStore(
             identity: identity,
+            writeCalendar: writeCalendar,
             clock: ManualClock(),
             timeZone: TimeZone(identifier: "Europe/Berlin")!,
             // No subscription: a unit test must not react to the user's real Reminders database
@@ -115,28 +119,82 @@ struct EventKitStoreTests {
         #expect(Set(calendars).count == calendars.count)
     }
 
-    /// A name no calendar on this Mac wears must fail, whatever else is here. The string is not
-    /// one anybody would call a calendar, so this holds on a granted Mac too.
-    @Test("a name that matches no calendar is refused, never defaulted")
+    /// A name no calendar on this Mac wears must fail a *read filter*, whatever else is here. The
+    /// string is not one anybody would call a calendar, so this holds on a granted Mac too.
+    @Test("a filter naming no calendar is refused, never widened to all of them")
     func unknownCalendarIsRefused() async throws {
-        let service = service()
-        let missing = try calendarName("erdabridge-no-such-calendar-\(UUID().uuidString)")
-        let start = Date(timeIntervalSince1970: 1_800_000_000)
-
         await #expect(throws: ApiError.self) {
-            try await service.upcoming(try ListCalendarEventsQuery(calendars: [missing]))
-        }
-        await #expect(throws: ApiError.self) {
-            try await service.create(
-                CreateCalendarEventCommand(
-                    calendar: missing,
-                    title: "[erdabridge-test] must not be created",
-                    notes: nil,
-                    startAt: start,
-                    endAt: start.addingTimeInterval(3600),
-                    timeZone: TimeZone(identifier: "Europe/Berlin")!
+            try await self.service().upcoming(
+                try ListCalendarEventsQuery(
+                    calendars: [try calendarName("erdabridge-no-such-calendar-\(UUID().uuidString)")]
                 )
             )
         }
     }
+
+    /// The write side, and the important one: with no binding stored, a create must refuse rather
+    /// than reach for `defaultCalendarForNewEvents`. This runs on a Mac with **real, granted
+    /// calendars** — that is the whole point, since a fallback would happily find one.
+    @Test("with nothing pinned, a create refuses instead of finding a default calendar")
+    func unpinnedCreateRefuses() async throws {
+        let service = service()
+        await #expect(throws: Self.expectedCreateFailure) {
+            try await service.create(Self.command)
+        }
+    }
+
+    /// A binding whose identifier resolves to nothing — what a deleted calendar or a signed-out
+    /// account leaves behind. Same refusal, and specifically **not** a re-bind onto a calendar
+    /// wearing the stored title.
+    @Test("a stored binding that no longer resolves refuses rather than re-binding by title")
+    func danglingBindingRefuses() async throws {
+        // A title every Mac with calendars has, paired with an identifier no Mac has: if the
+        // resolver ever consulted the title, this would find something.
+        let store = MemoryWriteCalendarStore(
+            binding: CalendarBinding(
+                calendarId: "00000000-0000-0000-0000-000000000000",
+                titleAtBind: try calendarName(CalendarAccess.calendars().first?.title ?? "Calendar")
+            )
+        )
+        await #expect(throws: Self.expectedCreateFailure) {
+            try await self.service(writeCalendar: store).create(Self.command)
+        }
+    }
+
+    /// A store that cannot be read is treated as "nothing pinned", never as licence to pick.
+    @Test("an unreadable binding store fails closed")
+    func unreadableBindingStoreRefuses() async throws {
+        let store = MemoryWriteCalendarStore()
+        store.setReadFailure(ApiError.internal)
+        let service = service(writeCalendar: store)
+
+        await #expect(throws: Self.expectedCreateFailure) {
+            try await service.create(Self.command)
+        }
+        #expect(await service.writeCalendar() == .notConfigured)
+    }
+
+    /// On a test host without the calendar grant the refusal comes one step earlier, at the
+    /// authorization gate. Either way it is a refusal, and either way nothing is written — which is
+    /// the property these tests are actually about.
+    private static var expectedCreateFailure: ApiError {
+        CalendarAccess.status().isUsable ? .calendarNotConfigured : .calendarUnavailable
+    }
+
+    /// The readout has to answer even when there is nothing to report — `GET /v1/status` cannot
+    /// throw.
+    @Test("the write-calendar readout never throws, whatever the grant is")
+    func writeCalendarReadoutNeverThrows() async {
+        #expect(await service().writeCalendar() == .notConfigured)
+    }
+
+    /// Well into the future and tagged, so that if a fallback ever *did* fire, the debris it left
+    /// behind would be obvious rather than mixed in with real appointments.
+    private static let command = CreateCalendarEventCommand(
+        title: "[erdabridge-test] must not be created",
+        notes: nil,
+        startAt: Date(timeIntervalSince1970: 1_800_000_000),
+        endAt: Date(timeIntervalSince1970: 1_800_003_600),
+        timeZone: TimeZone(identifier: "Europe/Berlin")!
+    )
 }

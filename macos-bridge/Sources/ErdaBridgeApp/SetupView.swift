@@ -11,9 +11,13 @@ enum SetupWindow {
 /// reachable over HTTP — the remote API has no route that can change any of these, which is why
 /// this window exists at all.
 ///
-/// There is no list or calendar picker. The bridge reaches every reminder list and every calendar
-/// on this Mac, so there is nothing here to choose; the two inventory sections below are read-only,
-/// and they are there because the names they show are exactly what Erda has to send.
+/// There is no reminder-list picker: the bridge reaches every list on this Mac, so there is nothing
+/// to choose, and that section is a read-only inventory whose job is to show the exact spelling Erda
+/// has to send.
+///
+/// There **is** a calendar picker, and it is the one asymmetry in this window. Erda can read every
+/// calendar but writes to exactly one, chosen here — which is the only place it can be chosen, since
+/// no route can set it any more than one can set the token or the bind address.
 struct SetupView: View {
     @Bindable var model: AppModel
 
@@ -57,6 +61,7 @@ private struct StatusSection: View {
             LabeledContent("Calendar access", value: model.calendarAuthorization.displayText)
             LabeledContent("Listener", value: model.listenerText)
             LabeledContent("Scope", value: model.scopeText)
+            LabeledContent("Write calendar", value: model.writeCalendarText)
             LabeledContent("Last request", value: model.lastRequestText)
         }
     }
@@ -102,9 +107,10 @@ private struct CalendarAccessSection: View {
                 Text(
                     """
                     Full access granted — which means ErdaBridge can **read every event in every \
-                    calendar** on this Mac, not just write new ones. That is the cost of naming a \
-                    calendar by its title: listing calendars is a read, and write-only access \
-                    cannot do it. Revoke in System Settings › Privacy & Security › Calendars.
+                    calendar** on this Mac, not just write into the one you pick below. That is the \
+                    cost of reading your calendar at all: write-only access cannot list events or \
+                    even enumerate calendars. Revoke in System Settings › Privacy & Security › \
+                    Calendars.
                     """
                 )
                 .font(.caption)
@@ -112,11 +118,11 @@ private struct CalendarAccessSection: View {
             } else {
                 Text(
                     """
-                    ErdaBridge needs full access to create events in a calendar you name. \
-                    Write-only cannot enumerate calendars, so it could not find the calendar to \
-                    write to. Full access also lets it read your events — that is a real cost, \
-                    accepted deliberately. macOS only shows the prompt once; after a denial it has \
-                    to be changed in System Settings.
+                    ErdaBridge needs full access to read what is coming up and to let you pick the \
+                    calendar it writes to. Write-only cannot enumerate calendars or read a single \
+                    event, so neither would work. Full access means it can read every event on this \
+                    Mac — a real cost, accepted deliberately. macOS only shows the prompt once; \
+                    after a denial it has to be changed in System Settings.
                     """
                 )
                 .font(.caption)
@@ -224,9 +230,15 @@ private struct ListsSection: View {
 
 // MARK: - Calendars
 
-/// Read-only, for the same reason the list section is: Erda addresses a calendar by the name shown
-/// here, so the one job of this section is to show the exact spelling — plus which calendars can
-/// actually take an event, since a subscribed or holiday calendar cannot.
+/// Half inventory, half the one real choice in this window.
+///
+/// Reads span every calendar, so the list below is informational — the titles it shows are what a
+/// `?calendar=` filter has to say. Writes do not: every event Erda creates goes into the single
+/// calendar picked here, because letting an agent choose a calendar per request was more machinery
+/// than the job needs and more room to land an appointment somewhere it does not belong.
+///
+/// Only writable calendars are offered. Pinning a subscribed or holiday calendar would make every
+/// create fail with `409 calendar_read_only` and there would be nothing at this screen to say so.
 private struct CalendarsSection: View {
     @Bindable var model: AppModel
 
@@ -234,9 +246,9 @@ private struct CalendarsSection: View {
         Section("Calendars") {
             Text(
                 """
-                ErdaBridge can read events in **all** of these and create events in the writable \
-                ones. Erda names a calendar by its title, exactly as it reads here — and a title \
-                two calendars share is refused rather than guessed at.
+                ErdaBridge can **read events in all** of these, and **writes only to the one you \
+                pick**. Erda is not told the name of a calendar to write to and cannot choose one — \
+                it names a calendar only to narrow a listing, by the title exactly as it reads here.
                 """
             )
             .font(.caption)
@@ -251,6 +263,36 @@ private struct CalendarsSection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
+                Picker("Write events to", selection: $model.draftWriteCalendarId) {
+                    Text("Choose a calendar…").tag("")
+                    ForEach(model.writableCalendars, id: \.calendarId) { calendar in
+                        Text("\(calendar.title) — \(calendar.source)").tag(calendar.calendarId)
+                    }
+                }
+
+                Text(
+                    """
+                    Nothing is picked for you, and there is no fallback to the Calendar.app default: \
+                    until you choose one, creating an event answers 503 rather than guessing. If the \
+                    calendar you picked is later deleted, the bridge stops writing rather than \
+                    finding another one with the same name — come back here and pick again.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if let error = model.writeCalendarError {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+
+                HStack {
+                    Button("Save write calendar") { model.saveWriteCalendar() }
+                        .disabled(!model.canSaveWriteCalendar)
+                    Button("Reload calendars") { model.reloadCalendars() }
+                }
+
+                LabeledContent("Writing to", value: model.writeCalendarText)
+
                 ForEach(model.calendars, id: \.calendarId) { calendar in
                     HStack(alignment: .firstTextBaseline) {
                         Text(calendar.title).textSelection(.enabled)
@@ -260,7 +302,6 @@ private struct CalendarsSection: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Button("Reload calendars") { model.reloadCalendars() }
             }
         }
     }

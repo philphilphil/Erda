@@ -25,41 +25,70 @@ struct CalendarResponderTests {
         #expect(await harness.calendar.all.count == 1)
     }
 
-    /// The calendar's own spelling comes back, so a caller who matched case-insensitively is told
-    /// where the appointment actually landed rather than what it asked for. (`FakeCalendar` echoes
-    /// the requested name; the real actor resolves it — see `EventKitIntegrationTests`.)
-    @Test("a create names a calendar that must exist", arguments: [
-        ("Nope", "no_such_calendar", 404),
-        ("Ambiguous", "ambiguous_calendar", 409),
-        ("Feiertage", "calendar_read_only", 409),
-    ])
-    func createFailsClosed(calendar: String, code: String, status: Int) async throws {
-        let harness = try TestHarness(
-            calendars: ["Privat", "Ambiguous", "Feiertage"],
-            readOnlyCalendars: ["Feiertage"],
-            ambiguousCalendars: ["Ambiguous"]
+    /// The event lands in the pinned calendar, and the response says which — the caller never named
+    /// one, so this is the only way it can tell Phil where the appointment went.
+    @Test("a create lands in the pinned calendar and reports it back")
+    func createUsesThePinnedCalendar() async throws {
+        let harness = try TestHarness(calendars: ["Privat", "Arbeit"], writeCalendar: "Arbeit")
+        let response = await harness.responder.respond(
+            to: harness.request(.POST, "/v1/calendar-events", body: createEventBody)
         )
-        let body = #"""
-        {"calendar":"\#(calendar)","title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z"}
-        """#
+
+        #expect(response.status == 201)
+        #expect(try harness.json(response)["calendar"] as? String == "Arbeit")
+        #expect(await harness.calendar.all.map(\.calendar.rawValue) == ["Arbeit"])
+    }
+
+    /// Both ways of having no usable write target, and both fail closed with the same 503 rather
+    /// than landing in whatever calendar happens to be around. It is deliberately *not* the
+    /// `calendar_unavailable` 503: that one sends Phil to System Settings, this one to the
+    /// ErdaBridge window.
+    @Test("a create with no usable write calendar is a 503 that writes nothing", arguments: [
+        "never configured", "configured but gone",
+    ])
+    func createFailsClosedWithoutAWriteCalendar(scenario: String) async throws {
+        let harness = try TestHarness(writeCalendar: scenario == "never configured" ? nil : "Privat")
+        if scenario != "never configured" {
+            await harness.calendar.forget(try calendarName("Privat"))
+        }
 
         let response = await harness.responder.respond(
-            to: harness.request(.POST, "/v1/calendar-events", body: body)
+            to: harness.request(.POST, "/v1/calendar-events", body: createEventBody)
         )
-        #expect(response.status == status)
-        #expect(try harness.errorCode(response) == code)
-        // Nothing was written anywhere — not into the named calendar, not into another one.
+        #expect(response.status == 503)
+        #expect(try harness.errorCode(response) == "calendar_not_configured")
+        #expect(await harness.calendar.all.isEmpty)
+
+        // Reads are untouched by either: the narrowing is on writes only.
+        #expect(await harness.responder.respond(to: harness.request(.GET, "/v1/calendar-events")).status == 200)
+    }
+
+    /// The picker only offers writable calendars, so this is the calendar that became read-only
+    /// *after* it was pinned — a 409 rather than a silent hop to a different calendar.
+    @Test("a pinned calendar that cannot take events is a conflict, not a redirect")
+    func createRefusesAReadOnlyPinnedCalendar() async throws {
+        let harness = try TestHarness(
+            calendars: ["Privat", "Feiertage"],
+            writeCalendar: "Feiertage",
+            readOnlyCalendars: ["Feiertage"]
+        )
+
+        let response = await harness.responder.respond(
+            to: harness.request(.POST, "/v1/calendar-events", body: createEventBody)
+        )
+        #expect(response.status == 409)
+        #expect(try harness.errorCode(response) == "calendar_read_only")
         #expect(await harness.calendar.all.isEmpty)
     }
 
     /// Every one of these fails at decode, so no calendar is even resolved.
     @Test("a malformed create is a 400 and touches nothing", arguments: [
-        #"{"calendar":"Privat","title":"x","startAt":"2026-05-29T10:00:00Z","endAt":"2026-05-29T09:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-05-29T09:00:00","endAt":"2026-05-29T10:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-07-29T09:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z","timeZone":"CEST"}"#,
-        #"{"calendar":"Privat","title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z","recurrence":"FREQ=DAILY"}"#,
+        #"{"title":"x","startAt":"2026-05-29T10:00:00Z","endAt":"2026-05-29T09:00:00Z"}"#,
+        #"{"title":"x","startAt":"2026-05-29T09:00:00","endAt":"2026-05-29T10:00:00Z"}"#,
+        #"{"title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-07-29T09:00:00Z"}"#,
+        #"{"title":"","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z"}"#,
+        #"{"title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z","timeZone":"CEST"}"#,
+        #"{"title":"x","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T10:00:00Z","recurrence":"FREQ=DAILY"}"#,
         #"not json"#,
     ])
     func malformedCreateIs400(body: String) async throws {
@@ -113,7 +142,7 @@ struct CalendarResponderTests {
         )
 
         let other = #"""
-        {"calendar":"Arbeit","title":"Standup","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T09:15:00Z"}
+        {"title":"Standup","startAt":"2026-05-29T09:00:00Z","endAt":"2026-05-29T09:15:00Z"}
         """#
         let response = await harness.responder.respond(
             to: harness.request(.POST, "/v1/calendar-events", body: other, idempotencyKey: key)
@@ -171,12 +200,19 @@ struct CalendarResponderTests {
     @Test("naming a calendar narrows the listing; omitting it spans every calendar")
     func listFilters() async throws {
         let harness = try TestHarness()
-        for body in [
-            createEventBody,
-            #"{"calendar":"Arbeit","title":"Standup","startAt":"2026-05-29T07:00:00Z","endAt":"2026-05-29T07:15:00Z"}"#,
-        ] {
-            _ = await harness.responder.respond(to: harness.request(.POST, "/v1/calendar-events", body: body))
-        }
+        _ = await harness.responder.respond(
+            to: harness.request(.POST, "/v1/calendar-events", body: createEventBody)
+        )
+        // Re-pinned locally between the two creates — an event only ever reaches a second calendar
+        // that way now, which is what makes "reads span both, writes do not" testable at all.
+        await harness.calendar.setWriteCalendar(try calendarName("Arbeit"))
+        _ = await harness.responder.respond(
+            to: harness.request(
+                .POST,
+                "/v1/calendar-events",
+                body: #"{"title":"Standup","startAt":"2026-05-29T07:00:00Z","endAt":"2026-05-29T07:15:00Z"}"#
+            )
+        )
 
         #expect(try harness.jsonItems(
             await harness.responder.respond(to: harness.request(.GET, "/v1/calendar-events"))
@@ -308,9 +344,22 @@ struct CalendarResponderTests {
         )
         var event = try #require(harness.audit.events.first)
         #expect(event.operation == .calendarCreate)
+        // Taken from the event that was written, not from the request — which names no calendar.
         #expect(event.calendar == (try calendarName("Privat")))
         #expect(event.list == nil)
         #expect(event.status == 201)
+
+        // And a create that never wrote anything names no calendar at all: there was no choice to
+        // record, on either side.
+        harness.audit.reset()
+        let unpinned = try TestHarness(writeCalendar: nil)
+        _ = await unpinned.responder.respond(
+            to: unpinned.request(.POST, "/v1/calendar-events", body: createEventBody)
+        )
+        let refused = try #require(unpinned.audit.events.first)
+        #expect(refused.operation == .calendarCreate)
+        #expect(refused.calendar == nil)
+        #expect(refused.status == 503)
 
         harness.audit.reset()
         _ = await harness.responder.respond(to: harness.request(.GET, "/v1/calendar-events"))
@@ -340,7 +389,6 @@ struct CalendarResponderTests {
 
             let body = try String(
                 decoding: JSONSerialization.data(withJSONObject: [
-                    "calendar": "Privat",
                     "title": secret,
                     "notes": secret,
                     "startAt": "2026-05-29T09:00:00+02:00",

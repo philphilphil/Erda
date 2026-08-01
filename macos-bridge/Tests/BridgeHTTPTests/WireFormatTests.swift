@@ -39,7 +39,9 @@ struct WireFormatTests {
         #expect(response.status == 200)
         let payload = try harness.json(response)
         #expect(
-            Set(payload.keys) == ["availability", "lists", "calendarAvailability", "calendars"],
+            Set(payload.keys) == [
+                "availability", "lists", "calendarAvailability", "calendars", "writeCalendar",
+            ],
             "got \(payload.keys)"
         )
         #expect(payload["availability"] as? String == "ok")
@@ -48,6 +50,39 @@ struct WireFormatTests {
         #expect(payload["lists"] as? [String] == ["Groceries", "Work"])
         #expect(payload["calendarAvailability"] as? String == "ok")
         #expect(payload["calendars"] as? [String] == ["Arbeit", "Privat"])
+
+        // `calendars` is what a read may filter by; `writeCalendar` is the one a create lands in,
+        // and the two are deliberately not the same thing.
+        let writeCalendar = try #require(payload["writeCalendar"] as? [String: Any])
+        #expect(Set(writeCalendar.keys) == ["state", "name"], "got \(writeCalendar.keys)")
+        #expect(writeCalendar["state"] as? String == "ok")
+        #expect(writeCalendar["name"] as? String == "Privat")
+    }
+
+    /// The two failure states have to be distinguishable on the wire, because they are the same
+    /// 503 on a create and different sentences to Phil.
+    @Test("the write calendar reports never-chosen and gone as different states")
+    func writeCalendarStates() async throws {
+        let unpinned = try TestHarness(writeCalendar: nil)
+        let none = try #require(
+            try unpinned.json(
+                await unpinned.responder.respond(to: unpinned.request(.GET, "/v1/status"))
+            )["writeCalendar"] as? [String: Any]
+        )
+        // No name to report, so the key is omitted rather than written as null or "".
+        #expect(Set(none.keys) == ["state"], "got \(none.keys)")
+        #expect(none["state"] as? String == "not_configured")
+
+        let harness = try TestHarness()
+        await harness.calendar.forget(try calendarName("Privat"))
+        let gone = try #require(
+            try harness.json(
+                await harness.responder.respond(to: harness.request(.GET, "/v1/status"))
+            )["writeCalendar"] as? [String: Any]
+        )
+        #expect(gone["state"] as? String == "unresolvable")
+        // Still named: this is exactly when a human needs to know which calendar went missing.
+        #expect(gone["name"] as? String == "Privat")
     }
 
     /// The two availabilities are independent on the wire, not one verdict written twice: a Mac
@@ -66,6 +101,11 @@ struct WireFormatTests {
         // Empty rather than absent: a client must not have to distinguish "no calendars" from
         // "the key was omitted".
         #expect(try #require(payload["calendars"] as? [Any]).isEmpty)
+        // A calendar *is* pinned, but without the grant nothing can confirm it is still there —
+        // so this says `unresolvable` and `calendarAvailability` above says why.
+        let writeCalendar = try #require(payload["writeCalendar"] as? [String: Any])
+        #expect(writeCalendar["state"] as? String == "unresolvable")
+        #expect(writeCalendar["name"] as? String == "Privat")
     }
 
     // MARK: - POST /v1/reminders
@@ -201,9 +241,11 @@ struct WireFormatTests {
         "calendar", "title", "notes", "startAt", "endAt", "isAllDay", "timeZone",
     ]
 
-    /// A create carrying every optional the request can express.
+    /// A create carrying every optional the request can express — which no longer includes a
+    /// calendar. The response still reports one, because the caller has to be able to tell Phil
+    /// where the appointment landed.
     static let fullEventBody = #"""
-    {"calendar":"Privat","title":"Dentist","notes":"bring the referral","startAt":"2026-05-29T09:00:00+02:00","endAt":"2026-05-29T10:00:00+02:00","timeZone":"Europe/Berlin"}
+    {"title":"Dentist","notes":"bring the referral","startAt":"2026-05-29T09:00:00+02:00","endAt":"2026-05-29T10:00:00+02:00","timeZone":"Europe/Berlin"}
     """#
 
     @Test("POST /v1/calendar-events is a single event object, not wrapped and not an array")
@@ -240,6 +282,26 @@ struct WireFormatTests {
         // `notes` was absent; `timeZone` still appears, because the handler resolves the absent
         // one to the bridge's own zone rather than leaving the event floating.
         #expect(Set(payload.keys) == Self.eventKeys.subtracting(["notes"]), "got \(payload.keys)")
+    }
+
+    /// `calendar` was a **required** request key before writes were pinned, so a client built
+    /// against the old shape will keep sending it. Strict decoding is what turns that into a clean
+    /// 400 instead of a silently ignored field, and this is the test that keeps it that way — the
+    /// failure mode without it is an operator convinced they have chosen a calendar per request.
+    @Test("a create that still sends a calendar is a 400, not a quietly ignored field")
+    func createEventRejectsACalendarKey() async throws {
+        let harness = try TestHarness()
+        let body = #"""
+        {"calendar":"Arbeit","title":"Dentist","startAt":"2026-05-29T09:00:00+02:00","endAt":"2026-05-29T10:00:00+02:00"}
+        """#
+
+        let response = await harness.responder.respond(
+            to: harness.request(.POST, "/v1/calendar-events", body: body)
+        )
+        #expect(response.status == 400)
+        #expect(try harness.errorCode(response) == "invalid_request")
+        // And nothing was written — not into "Arbeit", and not into the pinned calendar either.
+        #expect(await harness.calendar.all.isEmpty)
     }
 
     // MARK: - GET /v1/calendar-events

@@ -24,13 +24,15 @@ an Obsidian vault.
   real name; the bridge can reach all of them, and a name that matches nothing (or two lists) is
   refused rather than guessed at.
 - **Apple Calendar** (optional) — create an event and read what's coming up, through the same
-  bridge. Calendars are named the same way, with a name matching nothing and a name matching two
-  reported as *different* errors. Two operations only: **no edit, no delete**, no recurrence, no
-  attendees. This one costs a real permission — the bridge holds Calendars *full access*, because
-  naming a calendar by its title means enumerating calendars and write-only cannot, so it can read
-  every event on that Mac. That trade is written down in the bridge's
-  [threat model](macos-bridge/README.md#threat-model); the grant is separately deniable and the
-  reminder half keeps working without it.
+  bridge. **Reads span every calendar; writes go to exactly one** — the calendar I pick in the
+  ErdaBridge app on the Mac. Erda has no calendar parameter on create at all: it doesn't choose
+  where an appointment lands, doesn't need to know what my calendars are called, and can't be talked
+  into either. With none picked, a create fails with a message telling me to go pick one, rather
+  than guessing. Two operations only: **no edit, no delete**, no recurrence, no attendees. This one
+  costs a real permission — the bridge holds Calendars *full access*, because write-only can't read
+  an event or even enumerate calendars, so it can read every event on that Mac. That trade is
+  written down in the bridge's [threat model](macos-bridge/README.md#threat-model); the grant is
+  separately deniable and the reminder half keeps working without it.
 - **Error watch** — polls a Seq log server, deduplicates errors by signature, has the model
   analyze them, and pings me on WhatsApp.
 - **Agentic browsing** (optional) — a Playwright-driven browser with 1Password-backed logins the

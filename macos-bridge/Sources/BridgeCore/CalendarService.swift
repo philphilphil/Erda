@@ -21,6 +21,13 @@ import Foundation
 ///
 /// Two operations: create an event, and read upcoming ones. There is deliberately no edit, no
 /// delete, no recurrence, no attendees and no alarms — see `macos-bridge/README.md`'s threat model.
+///
+/// ## Reads span everything; writes go to exactly one calendar
+///
+/// `upcoming` may be filtered by name or left to span every calendar on the Mac. `create` takes no
+/// calendar at all: it lands in the single target a human pinned in the setup window, and fails
+/// closed with `calendarNotConfigured` when there is none or when the pinned one no longer
+/// resolves. Never a default calendar, and never a re-bind by title — see `CalendarBinding`.
 public protocol CalendarService: Sendable {
     /// Cheap enough to call on every request; anything but `.ok` short-circuits to 503.
     ///
@@ -34,8 +41,17 @@ public protocol CalendarService: Sendable {
     /// its promise to always answer.
     func availableCalendars() async -> [CalendarName]
 
-    /// Events starting inside the query's window, soonest first.
+    /// The pinned write target, for `GET /v1/status`. A readout like `availableCalendars()`: it
+    /// answers `.notConfigured`/`.unresolvable` rather than throwing, so the status route can keep
+    /// its promise to always answer.
+    func writeCalendar() async -> WriteCalendarReport
+
+    /// Events starting inside the query's window, soonest first. Spans every calendar unless the
+    /// query names some.
     func upcoming(_ query: ListCalendarEventsQuery) async throws -> [CalendarEventSnapshot]
 
+    /// Creates the event in the pinned write calendar — the command names none, and there is
+    /// nothing here to steer it with. Throws `calendarNotConfigured` when none is pinned or the
+    /// pinned one no longer resolves; the returned snapshot reports which calendar it landed in.
     func create(_ command: CreateCalendarEventCommand) async throws -> CalendarEventSnapshot
 }

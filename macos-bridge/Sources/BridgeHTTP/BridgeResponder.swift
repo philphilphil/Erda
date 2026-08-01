@@ -222,7 +222,11 @@ public struct BridgeResponder: Sendable {
             // Reported separately, because macOS authorizes the two independently — one of these
             // can be `ok` while the other is not, and a single verdict could not say so.
             calendarAvailability: await services.calendar.calendarAvailability(),
-            calendars: await services.calendar.availableCalendars()
+            calendars: await services.calendar.availableCalendars(),
+            // The one calendar a create lands in. It is reported here and settable nowhere on the
+            // wire, which is the point: a caller can *explain* a `calendar_not_configured` to Phil,
+            // and can do nothing whatsoever about it.
+            writeCalendar: await services.calendar.writeCalendar()
         )
         // Status reports unavailability in its body rather than as a 503: a monitoring client
         // needs to be able to ask "are you well?" and get an answer, not an error.
@@ -264,16 +268,18 @@ public struct BridgeResponder: Sendable {
         _ request: BridgeRequest,
         trace: AuditTrace
     ) async throws -> BridgeResponse {
-        // Step 7: strict decode. Unknown keys, over-length fields, a naive timestamp, an end
-        // before the start and an appointment longer than a week all fail here, before anything
-        // reaches EventKit.
+        // Step 7: strict decode. Unknown keys — including a `calendar`, which this route no longer
+        // takes — over-length fields, a naive timestamp, an end before the start and an appointment
+        // longer than a week all fail here, before anything reaches EventKit.
         let decoded = try StrictJSON.decode(CreateCalendarEventRequest.self, from: Data(request.body))
-        // The calendar *name* is the only thing about this request the audit log ever sees — never
-        // the title, the notes or the times.
-        trace.calendar = decoded.calendar
 
         try await requireCalendarAvailable()
         let event = try await services.calendar.create(decoded.command(defaultTimeZone: .current))
+        // Recorded *after* the write, from the event that was actually created: the request names
+        // no calendar, so there is nothing to log before one exists — and a failed create logs none,
+        // because the caller chose none. The calendar *name* remains the only thing about this
+        // request the audit log ever sees; never the title, the notes or the times.
+        trace.calendar = event.calendar
         return BridgeResponse(status: 201, body: try encode(event))
     }
 

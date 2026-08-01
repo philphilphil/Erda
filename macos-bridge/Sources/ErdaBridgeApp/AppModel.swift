@@ -37,6 +37,9 @@ final class AppModel {
     private(set) var calendars: [CalendarInfo] = []
     /// The same distinction for calendars.
     private(set) var calendarsLoaded = false
+    /// The one calendar the bridge writes to. `nil` means nobody has chosen one, and every
+    /// `POST /v1/calendar-events` answers `503 calendar_not_configured` until somebody does.
+    private(set) var writeCalendar: CalendarBinding?
     private(set) var tokenSummary: TokenSummary?
     private(set) var lastRequest: AuditEvent?
     private(set) var requestCount = 0
@@ -47,7 +50,11 @@ final class AppModel {
 
     var draftAddress = ""
     var draftPort = ""
+    /// The `calendarIdentifier` the picker is on. Empty means nothing selected — never a default,
+    /// for the same reason the bind address has none.
+    var draftWriteCalendarId = ""
     private(set) var bindError: String?
+    private(set) var writeCalendarError: String?
     private(set) var actionError: String?
 
     /// The plaintext token, held only between rotating it and the user dismissing the panel. It
@@ -118,6 +125,7 @@ final class AppModel {
         reloadToken()
         reloadLastRequest()
         reloadStoredSelection()
+        reloadWriteCalendar()
         rescanAddresses()
     }
 
@@ -151,9 +159,15 @@ final class AppModel {
         storedSelection = (try? environment.store.bindSettings.load()) ?? nil
     }
 
+    private func reloadWriteCalendar() {
+        guard let environment else { return }
+        writeCalendar = (try? environment.store.calendarBinding.load()) ?? nil
+    }
+
     private func loadDraftFromStore() {
         draftAddress = storedSelection?.ipAddress ?? ""
         draftPort = String(storedSelection?.port ?? BridgeEnvironment.suggestedPort)
+        draftWriteCalendarId = writeCalendar?.calendarId ?? ""
     }
 
     // MARK: - EventKit access
@@ -299,6 +313,85 @@ final class AppModel {
         Task { await environment.supervisor.restart() }
     }
 
+    // MARK: - Write calendar
+
+    /// The calendars that may be offered as the write target: writable, and wearing a title the
+    /// wire format can carry.
+    ///
+    /// A read-only calendar is excluded because pinning one would produce a bridge that answers
+    /// `409 calendar_read_only` to every create — a trap with no error message at the moment it is
+    /// set. A calendar whose title is not a usable `CalendarName` is excluded because the create
+    /// response has to be able to *name* the calendar it landed in, and there is no such calendar on
+    /// a Mac anyone has actually used.
+    var writableCalendars: [CalendarInfo] {
+        calendars.filter { $0.isWritable && CalendarName(rawValue: $0.title) != nil }
+    }
+
+    /// Whether the pinned identifier still matches a calendar on this Mac. False when nothing is
+    /// pinned, so callers must check `writeCalendar` first.
+    var writeCalendarResolves: Bool {
+        guard let writeCalendar else { return false }
+        return calendars.contains { $0.calendarId == writeCalendar.calendarId }
+    }
+
+    /// What the status row says. It distinguishes the two failures, because they read the same to
+    /// Erda (one 503) and must not read the same to Phil: nothing chosen yet, versus the calendar
+    /// he chose having gone.
+    var writeCalendarText: String {
+        guard let writeCalendar else { return "none chosen — events cannot be created" }
+        guard calendarAuthorization.isUsable else {
+            return "\(writeCalendar.titleAtBind.rawValue) — cannot be confirmed without Calendar access"
+        }
+        guard let live = calendars.first(where: { $0.calendarId == writeCalendar.calendarId }) else {
+            return "\(writeCalendar.titleAtBind.rawValue) — no longer on this Mac, choose it again"
+        }
+        // A rename is not a problem — the identifier is what resolves — but it is worth showing,
+        // since the name is what Erda will report back to Phil after a create.
+        return live.title == writeCalendar.titleAtBind.rawValue
+            ? live.title
+            : "\(live.title) (pinned as \(writeCalendar.titleAtBind.rawValue))"
+    }
+
+    var canSaveWriteCalendar: Bool {
+        !draftWriteCalendarId.isEmpty && draftWriteCalendarId != writeCalendar?.calendarId
+    }
+
+    /// Pins the write target. The **only** way it can be set: no route touches it, exactly as no
+    /// route touches the token or the bind address.
+    ///
+    /// It re-validates the draft against the calendars EventKit reports right now rather than
+    /// trusting what the picker was populated with — the list can be minutes old, and a calendar
+    /// deleted in between must not be pinnable.
+    func saveWriteCalendar() {
+        guard let environment else { return }
+        guard let choice = calendars.first(where: { $0.calendarId == draftWriteCalendarId }) else {
+            writeCalendarError = "That calendar is no longer on this Mac — reload and pick again."
+            return
+        }
+        guard choice.isWritable else {
+            writeCalendarError = "\(choice.title) is read-only and cannot hold new events."
+            return
+        }
+        guard let title = CalendarName(rawValue: choice.title) else {
+            writeCalendarError = "\(choice.title) is not a name the bridge can report."
+            return
+        }
+
+        do {
+            try environment.store.calendarBinding.save(
+                CalendarBinding(calendarId: choice.calendarId, titleAtBind: title)
+            )
+            writeCalendarError = nil
+        } catch {
+            writeCalendarError = "Could not store the calendar: \(error)"
+            return
+        }
+
+        // No restart: `EventKitStore` re-reads the binding on every create, so the next request
+        // already uses the new one.
+        reloadWriteCalendar()
+    }
+
     func startListener() {
         guard let environment else { return }
         Task { await environment.supervisor.start() }
@@ -340,12 +433,13 @@ final class AppModel {
         }
     }
 
-    /// What the bridge can reach. There is no allowlist to report any more, so this says so
-    /// plainly rather than implying a selection nobody made — and it reports the two capabilities
-    /// separately, because one can be granted while the other is not.
+    /// What the bridge can **reach**, which for calendars is not the same as what it can write to —
+    /// hence the separate "Write calendar" row. There is no allowlist to report any more, so this
+    /// says so plainly rather than implying a selection nobody made, and it reports the two
+    /// capabilities separately, because one can be granted while the other is not.
     var scopeText: String {
         "\(Self.scope(noun: "reminder list", granted: authorization.isUsable, count: lists.count)), "
-            + Self.scope(noun: "calendar", granted: calendarAuthorization.isUsable, count: calendars.count)
+            + "reads \(Self.scope(noun: "calendar", granted: calendarAuthorization.isUsable, count: calendars.count))"
     }
 
     private static func scope(noun: String, granted: Bool, count: Int) -> String {
@@ -409,6 +503,20 @@ final class AppModel {
         }
         if calendarsLoaded, calendars.isEmpty {
             return .degraded("This Mac has no calendars — make one in Calendar.app.")
+        }
+        // Amber, not red, and for the same reason denied calendar access is: the reminder half and
+        // the calendar *read* half both work. What does not is `POST /v1/calendar-events`, and the
+        // fix is a click in this window rather than a trip to System Settings.
+        guard let writeCalendar else {
+            return .degraded(
+                "No calendar is chosen for writing — creating events will answer 503 until you pick one."
+            )
+        }
+        if !writeCalendarResolves {
+            return .degraded(
+                "The chosen calendar '\(writeCalendar.titleAtBind.rawValue)' is no longer on this Mac — "
+                    + "pick one again. Nothing will be written until you do."
+            )
         }
         return .ready
     }

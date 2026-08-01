@@ -38,21 +38,36 @@ public class AppleCalendarToolsTests
     // The tool descriptions carry the whole of what stops the model confusing three different
     // "calendars": Apple Calendar, Erda's own scheduler, and Google Calendar over MCP.
     [Fact]
-    public void Descriptions_name_the_real_apple_calendar_and_how_to_address_it()
+    public void Descriptions_name_the_real_apple_calendar_and_who_chooses_it()
     {
         var tools = Make(new FakeAppleBridgeClient());
         var create = Tool(tools, "create_calendar_event").Description;
 
         Assert.Contains("Apple Calendar", create);
-        Assert.Contains("Calendar.app", create);
+        Assert.Contains("Calendar app on Phil's Mac", create);
         Assert.Contains("NOT Erda's own scheduler", create);
-        // The name-by-title contract, and that guessing is not allowed.
-        Assert.Contains("real title", create);
-        Assert.Contains("never guess", create, StringComparison.OrdinalIgnoreCase);
+        // The model is told plainly that the choice is not its to make — and that asking about it
+        // is not the workaround either.
+        Assert.Contains("you do not choose a calendar", create, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("must not ask him which one", create, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The parameter is gone, not merely ignored: a model cannot pass what the schema does not
+    // declare, which is a stronger guarantee than any wording in a description.
+    [Fact]
+    public void Create_has_no_calendar_parameter_at_all()
+    {
+        var schema = Tool(Make(new FakeAppleBridgeClient()), "create_calendar_event")
+            .JsonSchema.ToString();
+
+        Assert.DoesNotContain("\"calendar\"", schema);
+        // The listing filter is untouched — reads still span, or narrow to, any calendar.
+        Assert.Contains("\"calendar\"", Tool(Make(new FakeAppleBridgeClient()), "list_calendar_events")
+            .JsonSchema.ToString());
     }
 
     [Fact]
-    public async Task Create_passes_the_trimmed_calendar_title_and_times_through()
+    public async Task Create_passes_the_trimmed_title_and_times_through()
     {
         var fake = new FakeAppleBridgeClient
         {
@@ -62,7 +77,6 @@ public class AppleCalendarToolsTests
 
         var result = await Invoke(tool, new Dictionary<string, object?>
         {
-            ["calendar"] = "  Privat  ",
             ["title"] = "  Dentist  ",
             ["startAt"] = Start,
             ["endAt"] = End,
@@ -71,7 +85,6 @@ public class AppleCalendarToolsTests
         });
 
         var call = Assert.NotNull(fake.CreateEventCall);
-        Assert.Equal("Privat", call.Calendar);
         Assert.Equal("Dentist", call.Title);
         Assert.Equal(Start, call.StartAt);
         Assert.Equal(End, call.EndAt);
@@ -80,26 +93,24 @@ public class AppleCalendarToolsTests
         Assert.Contains("Created 'Dentist' in 'Privat'", result?.ToString());
     }
 
-    // The bridge echoes the calendar's own spelling back, so a case-insensitive match reports where
-    // the event actually landed rather than what was asked for.
+    // The caller named no calendar, so the response is the only way Phil learns where the
+    // appointment went — which makes echoing it back load-bearing rather than decorative.
     [Fact]
-    public async Task Create_reports_the_calendar_the_bridge_actually_used()
+    public async Task Create_reports_the_calendar_the_bridge_actually_wrote_to()
     {
         var fake = new FakeAppleBridgeClient
         {
-            CreateEventResult = AppleBridgeResult<AppleCalendarEvent>.Ok(Event(calendar: "Privat")),
+            CreateEventResult = AppleBridgeResult<AppleCalendarEvent>.Ok(Event(calendar: "Familie")),
         };
 
         var result = await Invoke(Tool(Make(fake), "create_calendar_event"), new Dictionary<string, object?>
         {
-            ["calendar"] = "privat",
             ["title"] = "Dentist",
             ["startAt"] = Start,
             ["endAt"] = End,
         });
 
-        Assert.Equal("privat", Assert.NotNull(fake.CreateEventCall).Calendar);
-        Assert.Contains("in 'Privat'", result?.ToString());
+        Assert.Contains("in 'Familie'", result?.ToString());
     }
 
     // The event is rendered in its own zone, so what comes back reads the way it does in
@@ -114,7 +125,6 @@ public class AppleCalendarToolsTests
 
         var result = (await Invoke(Tool(Make(fake), "create_calendar_event"), new Dictionary<string, object?>
         {
-            ["calendar"] = "Privat",
             ["title"] = "Dentist",
             ["startAt"] = Start,
             ["endAt"] = End,
@@ -124,24 +134,44 @@ public class AppleCalendarToolsTests
         Assert.Contains("2026-08-03 09:00–10:00 Europe/Berlin", result);
     }
 
-    [Theory]
-    [InlineData("", "Dentist", "which calendar")]
-    [InlineData("Privat", "", "no title")]
-    public async Task Create_refuses_an_empty_calendar_or_title_without_calling_the_bridge(
-        string calendar, string title, string expected)
+    [Fact]
+    public async Task Create_refuses_an_empty_title_without_calling_the_bridge()
     {
         var fake = new FakeAppleBridgeClient();
 
         var result = await Invoke(Tool(Make(fake), "create_calendar_event"), new Dictionary<string, object?>
         {
-            ["calendar"] = calendar,
-            ["title"] = title,
+            ["title"] = "",
             ["startAt"] = Start,
             ["endAt"] = End,
         });
 
-        Assert.Contains(expected, result?.ToString());
+        Assert.Contains("no title", result?.ToString());
         Assert.Null(fake.CreateEventCall);
+    }
+
+    // "No calendar chosen on the Mac" has to read as something Phil can act on, and specifically not
+    // as "your Mac is unreachable" — the two are both failures of a create and mean entirely
+    // different things.
+    [Fact]
+    public async Task Create_relays_an_unconfigured_write_calendar_as_a_thing_to_fix_on_the_mac()
+    {
+        var fake = new FakeAppleBridgeClient
+        {
+            CreateEventResult = AppleBridgeResult<AppleCalendarEvent>.Fail(
+                "No calendar is set up for writing on the Mac — open the ErdaBridge app there and "
+                + "choose which calendar events should go into."),
+        };
+
+        var result = (await Invoke(Tool(Make(fake), "create_calendar_event"), new Dictionary<string, object?>
+        {
+            ["title"] = "Dentist",
+            ["startAt"] = Start,
+            ["endAt"] = End,
+        }))?.ToString();
+
+        Assert.Contains("open the ErdaBridge app", result);
+        Assert.DoesNotContain("unreachable", result);
     }
 
     // Caught here rather than at the bridge: an obviously inverted interval is a wasted round trip,
@@ -155,7 +185,6 @@ public class AppleCalendarToolsTests
         {
             var result = await Invoke(Tool(Make(fake), "create_calendar_event"), new Dictionary<string, object?>
             {
-                ["calendar"] = "Privat",
                 ["title"] = "Dentist",
                 ["startAt"] = Start,
                 ["endAt"] = end,
@@ -174,18 +203,17 @@ public class AppleCalendarToolsTests
         var fake = new FakeAppleBridgeClient
         {
             CreateEventResult = AppleBridgeResult<AppleCalendarEvent>.Fail(
-                "Two calendars on the Mac have that exact name"),
+                "The calendar ErdaBridge is set to write to is read-only"),
         };
 
         var result = await Invoke(Tool(Make(fake), "create_calendar_event"), new Dictionary<string, object?>
         {
-            ["calendar"] = "Privat",
             ["title"] = "Dentist",
             ["startAt"] = Start,
             ["endAt"] = End,
         });
 
-        Assert.Contains("Two calendars on the Mac have that exact name", result?.ToString());
+        Assert.Contains("The calendar ErdaBridge is set to write to is read-only", result?.ToString());
     }
 
     [Fact]
