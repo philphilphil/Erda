@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The TCC primary key. Chosen once, never changed. -->
+	<key>CFBundleIdentifier</key>
+	<string>de.philippbaum.erdabridge</string>
+	<key>CFBundleExecutable</key>
+	<string>ErdaBridge</string>
+	<key>CFBundleName</key>
+	<string>ErdaBridge</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<!-- Required for AppKit to become a GUI app; without it MenuBarExtra never appears. -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- Menu bar only, no Dock icon. NEVER LSBackgroundOnly (that hides the menu bar item too). -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>ErdaBridge reads and creates reminders in the lists you allow, so your Erda assistant can use them.</string>
+	<!-- Legacy pre-macOS-14 key; harmless, cheap insurance. -->
+	<key>NSRemindersUsageDescription</key>
+	<string>ErdaBridge reads and creates reminders in the lists you allow, so your Erda assistant can use them.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ErdaBridge accepts requests from your Erda server on the local network.</string>
+	<!-- A server must flush its state before dying. -->
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+</dict>
+</plist>

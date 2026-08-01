@@ -1,0 +1,132 @@
+import Foundation
+
+/// The operations the audit log knows about. An enum, not a string, so the log can never gain a
+/// field that a caller might fill with something else.
+public enum AuditOperation: String, Sendable, Hashable, CaseIterable, Codable {
+    case statusRead = "status.read"
+    case remindersCreate = "reminders.create"
+    case remindersList = "reminders.list"
+    case remindersComplete = "reminders.complete"
+    case tokenRotate = "token.rotate"
+    /// A request rejected before it reached a route (bad version, unknown path, no credential).
+    case unrouted = "unrouted"
+}
+
+/// Success, or the closed-set error code the request ended with.
+public enum AuditResult: Sendable, Hashable {
+    case ok
+    case error(ApiError)
+
+    public var code: String {
+        switch self {
+        case .ok: "ok"
+        case .error(let apiError): apiError.code
+        }
+    }
+}
+
+/// One line of the audit log.
+///
+/// Every field is either an enum, an integer, a bool, a UUID, or one of the two validated
+/// identifier types (`TokenId` — 8 hex characters; `Alias` — at most 32 characters of
+/// `[a-z0-9_-]`). **There is no free-form `String` property**, so a title, a note, a file path,
+/// a token or a raw idempotency key has nowhere to go: redaction is a property of the type, not
+/// of the discipline of whoever writes the call site.
+public struct AuditEvent: Sendable, Equatable {
+    public let timestamp: Date
+    public let requestId: UUID
+    /// `nil` when the request never authenticated.
+    public let tokenId: TokenId?
+    public let operation: AuditOperation
+    /// `nil` when the request named no list.
+    public let alias: Alias?
+    public let result: AuditResult
+    public let status: Int
+    public let durationMs: Int
+    public let replay: Bool
+
+    public init(
+        timestamp: Date,
+        requestId: UUID,
+        tokenId: TokenId?,
+        operation: AuditOperation,
+        alias: Alias?,
+        result: AuditResult,
+        status: Int,
+        durationMs: Int,
+        replay: Bool = false
+    ) {
+        self.timestamp = timestamp
+        self.requestId = requestId
+        self.tokenId = tokenId
+        self.operation = operation
+        self.alias = alias
+        self.result = result
+        self.status = status
+        self.durationMs = durationMs
+        self.replay = replay
+    }
+
+    /// One JSONL record, without the trailing newline — the sink appends that.
+    public func jsonLine() throws -> String {
+        // `JSONEncoder` is a non-`Sendable` class, so it is built per call rather than shared;
+        // at one line per request that is free.
+        let encoder = JSONEncoder()
+        // Deterministic key order, and no `\/` escaping, so the file diffs and greps cleanly.
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(Wire(self))
+        guard let line = String(data: data, encoding: .utf8) else { throw AuditEncodingError.notUTF8 }
+        return line
+    }
+
+    /// The on-disk shape (design dossier §4.2). Kept private so the only way to produce a line is
+    /// through `AuditEvent`.
+    private struct Wire: Encodable {
+        let ts: String
+        let requestId: String
+        let tokenId: String?
+        let op: String
+        let alias: String?
+        let result: String
+        let status: Int
+        let durationMs: Int
+        let replay: Bool
+
+        init(_ event: AuditEvent) {
+            self.ts = ISO8601.millisecondString(from: event.timestamp)
+            self.requestId = event.requestId.uuidString.lowercased()
+            self.tokenId = event.tokenId?.rawValue
+            self.op = event.operation.rawValue
+            self.alias = event.alias?.rawValue
+            self.result = event.result.code
+            self.status = event.status
+            self.durationMs = event.durationMs
+            self.replay = event.replay
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case ts, requestId, tokenId, op, alias, result, status, durationMs, replay
+        }
+
+        /// Written by hand so the optional fields emit an explicit `null` instead of vanishing.
+        /// `encodeIfPresent` — what the synthesised conformance uses — would give lines with
+        /// different key sets depending on whether a request authenticated, which is exactly the
+        /// kind of shape drift that makes an audit log awkward to read under pressure.
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(ts, forKey: .ts)
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(tokenId, forKey: .tokenId)
+            try container.encode(op, forKey: .op)
+            try container.encode(alias, forKey: .alias)
+            try container.encode(result, forKey: .result)
+            try container.encode(status, forKey: .status)
+            try container.encode(durationMs, forKey: .durationMs)
+            try container.encode(replay, forKey: .replay)
+        }
+    }
+}
+
+public enum AuditEncodingError: Error, Equatable, Sendable {
+    case notUTF8
+}

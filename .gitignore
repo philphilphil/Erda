@@ -38,3 +38,7 @@ panel-*.png
 # Docker stack persistent state now lives in named volumes (not host dirs), so nothing to ignore there.
 # Kept: the dev browser OutputDir writes to project-root media/.
 /media/
+
+# macOS Reminders bridge (Swift): build products and the assembled app bundle
+macos-bridge/.build/
+macos-bridge/*.app
