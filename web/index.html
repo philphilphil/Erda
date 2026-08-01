@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Erda Control</title>
+    <!-- SVG only: the panel is a modern-browser LAN tool, and one vector file covers every size
+         from the tab strip to a pinned shortcut without a set of rasterised variants to keep in
+         sync. See web/public/favicon.svg for why the chip colours are baked in. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Matches --bg, so mobile browser chrome does not frame the app in white. -->
+    <meta name="theme-color" content="#08090b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />

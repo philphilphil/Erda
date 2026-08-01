@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Erda">
+  <!--
+    The sidebar brand chip, standalone: BrandMark.vue's glyph on the accent square it sits in there.
+    The chip is baked in rather than inherited, because a favicon has no `currentColor` to follow —
+    and the near-white chip keeps its contrast on a dark and a light browser tab bar alike, which a
+    bare dark glyph would not. Colours are the app's accent and accent-fg tokens, hard-coded: this
+    file is served from public/ and never sees the stylesheet. (Written without the CSS custom
+    property syntax on purpose: a double hyphen is illegal inside an XML comment and makes the whole
+    file fail to parse.) The transform centres the glyph's ink, not its 24-grid box, and scales it
+    up to leave the chip a favicon-appropriate margin. Keep in sync with BrandMark.vue.
+  -->
+  <rect width="32" height="32" rx="7" fill="#ededf0" />
+  <g
+    transform="translate(2.6 2.4) scale(1.12)"
+    fill="none"
+    stroke="#0a0b0d"
+    stroke-width="2.4"
+    stroke-linecap="round"
+  >
+    <path d="M5.5 3v17.5" />
+    <path d="M5.5 8h13" />
+    <path d="M5.5 14.25h10" />
+    <path d="M5.5 20.5h7" />
+  </g>
+</svg>
