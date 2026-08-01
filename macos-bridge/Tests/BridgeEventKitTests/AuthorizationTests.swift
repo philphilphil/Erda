@@ -75,4 +75,35 @@ struct AuthorizationTests {
         #expect(EventKitAuthorization.allCases.contains(RemindersAccess.status()))
         #expect(EventKitAuthorization.allCases.contains(CalendarAccess.status()))
     }
+
+    /// Reading the status repeatedly must give the same answer — it is read on every request, on a
+    /// 5-second UI poll, and from `GET /v1/status`, and those must not disagree with each other.
+    ///
+    /// It is also the guard on `GrantNote`: the note is consulted inside `status()`, so a bug that
+    /// let it flap (recording on a read, say, or expiring mid-call) would show up as two reads
+    /// disagreeing on a machine where nothing changed.
+    @Test("the status is stable across reads when nothing has changed")
+    func statusIsStableAcrossReads() {
+        let reminders = RemindersAccess.status()
+        let calendar = CalendarAccess.status()
+
+        for _ in 0..<10 {
+            #expect(RemindersAccess.status() == reminders)
+            #expect(CalendarAccess.status() == calendar)
+        }
+    }
+
+    /// One source of truth, checked from both ends. The setup window reads `RemindersAccess.status()`
+    /// / `CalendarAccess.status()`; `GET /v1/status` reads the actor's `availability()` /
+    /// `calendarAvailability()`, which must be derived from exactly those. A window that says
+    /// "granted" while the API says `unauthorized` is the bug this pins shut.
+    @Test("the actor's availability is the same answer the setup window shows")
+    func availabilityMatchesTheAccessSurface() async {
+        let service = EventKitStore(identity: MemoryReminderIdentityStore(), observingChanges: false)
+
+        let remindersUsable = await service.availability() == .ok
+        let calendarUsable = await service.calendarAvailability() == .ok
+        #expect(remindersUsable == RemindersAccess.status().isUsable)
+        #expect(calendarUsable == CalendarAccess.status().isUsable)
+    }
 }

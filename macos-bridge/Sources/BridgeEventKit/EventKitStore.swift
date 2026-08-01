@@ -83,6 +83,16 @@ public actor EventKitStore: RemindersService, CalendarService {
     private let timeZone: TimeZone
     private let fetchTimeout: Duration
     private let changes: EventStoreChangeFlag
+    /// The grants this actor last saw, so `adoptGrant` can spot a transition to usable.
+    ///
+    /// Seeded `false` rather than from a live read: `EKEventStore.authorizationStatus(for:)` is a
+    /// **synchronous XPC round trip to CalendarDaemon**, not the cheap local read it looks like
+    /// (confirmed by sampling a wedged test run — every thread was parked in
+    /// `-[CADXPCProxyHelper forwardInvocation:]`), so initialising these would spend two of them
+    /// before the first request. The cost of starting pessimistic is one `store.reset()` on the
+    /// first request, against a store that has fetched nothing yet.
+    private var lastReminderGrant = false
+    private var lastCalendarGrant = false
 
     /// `writeCalendar` defaults to an empty in-memory store, which means "nothing pinned" and so
     /// makes every create answer `calendarNotConfigured`. That is the fail-closed default on
@@ -111,9 +121,13 @@ public actor EventKitStore: RemindersService, CalendarService {
 
     // MARK: - RemindersService
 
-    /// Deliberately does not touch the store: it is called on every request, and
-    /// `authorizationStatus(for:)` is a class method that is always current — including after a
-    /// revocation that has not yet produced a change notification.
+    /// Deliberately does not touch the store: `authorizationStatus(for:)` reflects a revocation
+    /// immediately, including one that has not yet produced a change notification.
+    ///
+    /// It is the **same** call the setup window makes, via `RemindersAccess.status()`, so
+    /// `GET /v1/status` and the window cannot disagree about whether access is usable — and it
+    /// inherits `GrantPropagation`'s cover for the other direction, where a fresh grant has been
+    /// given but tccd has not said so yet.
     public func availability() async -> ReminderAvailability {
         RemindersAccess.status().isUsable ? .ok : .unauthorized
     }
@@ -121,8 +135,9 @@ public actor EventKitStore: RemindersService, CalendarService {
     /// The list names a caller may address. Never throws: `GET /v1/status` has to answer even when
     /// the answer is "nothing, because access was revoked".
     public func availableLists() async -> [ListName] {
-        guard RemindersAccess.status().isUsable else { return [] }
-        if changes.consume() { store.reset() }
+        let usable = RemindersAccess.status().isUsable
+        adoptGrant(reminders: usable)
+        guard usable else { return [] }
         // Deduplicated: two accounts can hold a same-named list, and reporting the name twice
         // would suggest they are separately addressable when in fact the name is ambiguous and
         // resolves to neither.
@@ -300,9 +315,8 @@ public actor EventKitStore: RemindersService, CalendarService {
 
     // MARK: - CalendarService
 
-    /// Deliberately does not touch the store, for the same reason `availability()` does not: it is
-    /// called on every request, and `authorizationStatus(for:)` is a class method that is always
-    /// current — including after a revocation that has not yet produced a change notification.
+    /// Deliberately does not touch the store, for the same reasons `availability()` does not, and
+    /// reading the same `CalendarAccess.status()` the setup window reads.
     ///
     /// It reads the **event** grant, which says nothing about the reminder one.
     public func calendarAvailability() async -> CalendarAvailability {
@@ -312,8 +326,9 @@ public actor EventKitStore: RemindersService, CalendarService {
     /// The calendar names a caller may address. Never throws: `GET /v1/status` has to answer even
     /// when the answer is "nothing, because calendar access was never granted".
     public func availableCalendars() async -> [CalendarName] {
-        guard CalendarAccess.status().isUsable else { return [] }
-        if changes.consume() { store.reset() }
+        let usable = CalendarAccess.status().isUsable
+        adoptGrant(calendar: usable)
+        guard usable else { return [] }
         // Deduplicated, like `availableLists()`: two accounts can hold a same-named calendar, and
         // reporting the name twice would suggest they are separately addressable when in fact the
         // name is ambiguous and resolves to neither.
@@ -329,8 +344,9 @@ public actor EventKitStore: RemindersService, CalendarService {
     /// from "calendar deleted".
     public func writeCalendar() async -> WriteCalendarReport {
         guard let binding = storedBinding() else { return .notConfigured }
-        guard CalendarAccess.status().isUsable else { return .unresolvable(binding.titleAtBind) }
-        if changes.consume() { store.reset() }
+        let usable = CalendarAccess.status().isUsable
+        adoptGrant(calendar: usable)
+        guard usable else { return .unresolvable(binding.titleAtBind) }
         guard let calendar = liveCalendar(for: binding) else { return .unresolvable(binding.titleAtBind) }
         // The calendar's *current* title, so a rename shows up here rather than silently making the
         // status report stale. The identifier is what resolved it — the title resolves nothing.
@@ -458,26 +474,57 @@ public actor EventKitStore: RemindersService, CalendarService {
 
     /// Run at the top of every reminder operation, on the queue.
     private func prepare() throws {
-        consumeChanges()
-        // Re-read every time. A grant revoked in System Settings takes effect immediately, and
-        // this is the route that does not depend on the notification having been delivered.
-        guard RemindersAccess.status().isUsable else { throw ApiError.remindersUnavailable }
+        // Read once, then used twice: for the gate below and to spot a grant that has just become
+        // usable. Re-read on every request, because a grant revoked in System Settings takes effect
+        // immediately and this is the route that does not depend on a notification arriving.
+        let usable = RemindersAccess.status().isUsable
+        adoptGrant(reminders: usable)
+        guard usable else { throw ApiError.remindersUnavailable }
     }
 
     /// The calendar counterpart. The store reset is shared — one store, one notification — but the
     /// grant is not: a denied calendar must not take the reminder routes down with it, and vice
     /// versa.
     private func prepareCalendar() throws {
-        consumeChanges()
-        guard CalendarAccess.status().isUsable else { throw ApiError.calendarUnavailable }
+        let usable = CalendarAccess.status().isUsable
+        adoptGrant(calendar: usable)
+        guard usable else { throw ApiError.calendarUnavailable }
     }
 
-    private func consumeChanges() {
-        if changes.consume() {
-            // Everything fetched from this store before the change is invalid; the reset happens
-            // here rather than in the notification so it cannot land mid-fetch.
-            store.reset()
+    /// Consumes the change notification **and** adopts a grant that has just become usable.
+    ///
+    /// The reset happens here rather than in the notification handler so that it cannot land
+    /// mid-fetch: everything fetched from this store before a change is invalid.
+    ///
+    /// This store is long-lived by design, and an `EKEventStore` built while access was denied keeps
+    /// answering as though it still is: `calendars(for:)` returns `[]` from its own cache even after
+    /// the grant lands. Together with the stale `authorizationStatus` described in
+    /// `GrantPropagation`, that is what made a first-ever grant require an app relaunch before
+    /// `GET /v1/status` would report anything but `unauthorized` with zero calendars.
+    ///
+    /// `EKEventStoreChanged` usually fires for a grant too, which is why this is an `||` with the
+    /// flag rather than a replacement for it: neither signal is reliable alone, and a redundant
+    /// `reset()` costs one re-fetch.
+    ///
+    /// **The caller passes the status it has already read**, and passes `nil` for the entity it did
+    /// not. That is not a style preference: `authorizationStatus(for:)` is a synchronous XPC call to
+    /// CalendarDaemon, so reading both here would put three round trips on a request path that needs
+    /// one — and would block this actor's serial queue on a daemon that can and does stall.
+    ///
+    /// **Only an upgrade forces a reset.** A revocation needs none — the authorization gate refuses
+    /// the request outright — and resetting on the way down would discard fetched objects to no
+    /// purpose.
+    private func adoptGrant(reminders: Bool? = nil, calendar: Bool? = nil) {
+        var upgraded = false
+        if let reminders {
+            upgraded = upgraded || (reminders && !lastReminderGrant)
+            lastReminderGrant = reminders
         }
+        if let calendar {
+            upgraded = upgraded || (calendar && !lastCalendarGrant)
+            lastCalendarGrant = calendar
+        }
+        if changes.consume() || upgraded { store.reset() }
     }
 
     /// This Mac's reminder lists, read fresh: one can be created, renamed or deleted in

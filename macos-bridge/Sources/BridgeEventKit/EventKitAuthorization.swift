@@ -56,9 +56,22 @@ public enum EventKitAuthorization: String, Sendable, Hashable, CaseIterable {
 /// gesture in the local UI, never lazily from an HTTP handler. A request from a handler would
 /// raise a TCC prompt on an unattended Mac in response to a network packet.
 public enum RemindersAccess {
+    /// Covers TCC's propagation delay — see `GrantPropagation` for the log that motivated it.
+    ///
+    /// It is **static**, which is the point: the setup window and the HTTP surface both read
+    /// `status()`, so they cannot disagree. A window claiming "granted" while `GET /v1/status` says
+    /// `unauthorized` would be the same bug wearing a different hat.
+    private static let grant = GrantNote()
+
     /// Cheap, always current, and safe to call before any access has been granted.
+    ///
+    /// The **one** source of truth for this grant, for the UI and the request path alike.
     public static func status() -> EventKitAuthorization {
-        EventKitAuthorization(EKEventStore.authorizationStatus(for: .reminder))
+        let reported = EventKitAuthorization(EKEventStore.authorizationStatus(for: .reminder))
+        // Once tccd has answered, the note has no further job. Dropping it here keeps the override
+        // window as short as it can be rather than as long as it is allowed to be.
+        if reported != .notDetermined { grant.clear() }
+        return GrantPropagation.resolve(reported: reported, grantedRecently: grant.isActive())
     }
 
     /// The macOS 14+ API. The deprecated `requestAccess(to:completion:)` is never used: on a
@@ -66,18 +79,37 @@ public enum RemindersAccess {
     /// the call that produces "Authorized" instead of the `.fullAccess`/`.writeOnly` split.
     ///
     /// - Important: call this from a user gesture only.
+    ///
+    /// The store is parked in `pendingStore` for the duration of the call — the same reason
+    /// `CalendarAccess` does it, and no less true here: a plain local `let` has its last use at the
+    /// call itself, so ARC may release it while the TCC prompt is still on screen and take the
+    /// prompt down with the abandoned request.
+    @MainActor
     public static func requestFullAccess() async -> Result<EventKitAuthorization, any Error> {
         let store = EKEventStore()
+        pendingStore = store
+        defer { pendingStore = nil }
+
+        AuthorizationLog.write("reminders: requesting full access (status before: \(status()))")
         do {
-            _ = try await store.requestFullAccessToReminders()
-            // The returned `granted` flag is ignored in favour of re-reading the status: they can
+            let granted = try await store.requestFullAccessToReminders()
+            if granted { grant.record() }
+            // The returned `granted` flag does not replace re-reading the status: the two can
             // disagree when the user answers the prompt and then changes their mind in System
-            // Settings before this continuation resumes.
+            // Settings before this continuation resumes. But a *single* read on the next line races
+            // tccd — see `GrantPropagation` — so the read is repeated until it settles.
+            _ = await GrantSettling.settle {
+                EventKitAuthorization(EKEventStore.authorizationStatus(for: .reminder))
+            }
+            AuthorizationLog.write("reminders: request returned granted=\(granted), status now \(status())")
             return .success(status())
         } catch {
+            AuthorizationLog.write("reminders: request threw \(error)")
             return .failure(error)
         }
     }
+
+    @MainActor private static var pendingStore: EKEventStore?
 
     /// The Reminders lists visible right now, flattened to `Sendable` values.
     ///
@@ -103,9 +135,19 @@ public enum RemindersAccess {
 /// **The two are independent.** macOS keeps a separate TCC record per entity type, so denying one
 /// says nothing about the other, and neither of these statuses may be derived from the other.
 public enum CalendarAccess {
+    /// The calendar half of the same note. Separate from the reminder one because the two TCC
+    /// records are separate: granting calendars must not make the bridge claim reminders too.
+    private static let grant = GrantNote()
+
     /// Cheap, always current, and safe to call before any access has been granted.
+    ///
+    /// The **one** source of truth for this grant. `EventKitStore.calendarAvailability()` — and so
+    /// `GET /v1/status` — reads exactly this, as does the setup window, so the two can never
+    /// disagree about whether access is usable.
     public static func status() -> EventKitAuthorization {
-        EventKitAuthorization(EKEventStore.authorizationStatus(for: .event))
+        let reported = EventKitAuthorization(EKEventStore.authorizationStatus(for: .event))
+        if reported != .notDetermined { grant.clear() }
+        return GrantPropagation.resolve(reported: reported, grantedRecently: grant.isActive())
     }
 
     /// The macOS 14+ API, never the deprecated `requestAccess(to:completion:)`.
@@ -130,6 +172,13 @@ public enum CalendarAccess {
         AuthorizationLog.write("calendar: requesting full access (status before: \(status()))")
         do {
             let granted = try await store.requestFullAccessToEvents()
+            if granted { grant.record() }
+            // A single read here is what produced "granted=true, status now notDetermined" and left
+            // the bridge reporting `unauthorized` until it was relaunched. Re-read until it settles;
+            // `GrantNote` covers a tccd slower than the budget. See `GrantPropagation`.
+            _ = await GrantSettling.settle {
+                EventKitAuthorization(EKEventStore.authorizationStatus(for: .event))
+            }
             AuthorizationLog.write("calendar: request returned granted=\(granted), status now \(status())")
             return .success(status())
         } catch {

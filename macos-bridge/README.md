@@ -18,7 +18,7 @@ calendar.** Both are deliberate decisions, not oversights — see the [threat mo
 
 **Status: M0–M7 complete, plus calendar support** — `BridgeCore`, `BridgeStore`, `BridgeHTTP`,
 `BridgeEventKit`, the setup UI, and hardening (forbidden-API lint, binary-level symbol checks, an
-audit-redaction property test). 496 tests / 51 suites pass, `make test` and `./scripts/bundle.sh`
+audit-redaction property test). 509 tests / 52 suites pass, `make test` and `./scripts/bundle.sh`
 are clean. **The app has never been run against real Reminders or Calendar data, or installed to
 `/Applications`** — that verification is this document's main job: see
 [Needs a human at the screen](#-needs-a-human-at-the-screen) and the
@@ -39,7 +39,9 @@ are clean. **The app has never been run against real Reminders or Calendar data,
 - [Uninstall](#uninstall)
 - [Threat model](#threat-model)
 - [Manual verification checklist](#manual-verification-checklist)
-- [Reference](#reference) — architecture, Setup UI internals, M0 findings, HTTP behaviour table
+- [Reference](#reference) — architecture, [why a grant needs no
+  restart](#grants-take-effect-without-a-restart), Setup UI internals, M0 findings, HTTP behaviour
+  table
 
 ---
 
@@ -90,7 +92,7 @@ running with real permissions on Phil's Mac.
 
 ```bash
 make bundle    # swift build -c release + assemble + codesign + verify + print the DR
-make test      # scripts/lint-forbidden.sh, then swift test (496 tests / 51 suites)
+make test      # scripts/lint-forbidden.sh, then swift test (509 tests / 52 suites)
 make run       # bundle, then `open` the signed .app
 make install   # copy to /Applications/ErdaBridge.app
 make clean
@@ -119,6 +121,9 @@ Do these in order — later steps depend on earlier ones:
    leaves the reminder half working exactly as before; the calendar routes then answer
    `503 calendar_unavailable` and the readiness light goes amber rather than green. Read the
    [threat model](#threat-model) first: this grant is full read access to every event on this Mac.
+   **No restart is needed** after granting — see
+   [Grants take effect without a restart](#grants-take-effect-without-a-restart) for why that
+   sentence had to be earned.
 4. **Note the reminder list names.** There is nothing to configure there — every list is reachable
    — but the Setup window shows the exact titles, and the title is how Erda addresses one.
 5. **Choose the calendar to write to.** This one *is* a configuration step, and the bridge does not
@@ -510,6 +515,21 @@ again after any change to `BridgeEventKit`, the router, or the store.
 - [ ] Revoke **Reminders** access only, leaving Calendar granted → the mirror image: reminder routes
       503, calendar routes keep working.
 - [ ] With Calendar denied, the readiness light is **amber, not green**, and says why.
+- [ ] **A fresh grant needs no restart.** This is the regression that cost an evening, and only a
+      real TCC prompt can prove it fixed — reset one grant (`tccutil reset Calendar
+      de.philippbaum.erdabridge`), relaunch, then grant it from the Setup window **without quitting**:
+      - the status flips to `full access` within a second or two, with a non-zero calendar count;
+      - `GET /v1/status` reports `calendarAvailability: ok` and the calendars **immediately** — this
+        is the half that used to keep saying `unauthorized` with zero calendars, and the half a
+        UI-only fix would miss;
+      - `~/Library/Logs/ErdaBridge/authorization.log` shows `granted=true, status now fullAccess`
+        rather than `status now notDetermined`.
+- [ ] The same for **Reminders** (`tccutil reset Reminders de.philippbaum.erdabridge`) — it has the
+      identical shape and was only ever fine by accident of having been granted long ago.
+- [ ] **Revocation is still immediate.** With access granted, revoke it in System Settings and make
+      a request **within 30 seconds of the grant** — it must 503 at once. This is the one that
+      catches `GrantNote` being widened from "only overrides not-determined" into something that
+      masks a denial.
 
 **List addressing**
 
@@ -731,6 +751,65 @@ with **no message field** — structurally impossible to leak a path or `NSError
 Request order per connection: admission → protocol gate → route table → auth → rate limit →
 content negotiation → strict decode → idempotency → domain → audit (audit always runs, including
 on rejection).
+
+### Grants take effect without a restart
+
+The first Calendar grant used to require killing and relaunching the app before it worked. It is
+worth writing down why, because the surface behaviour pointed at the wrong culprit: everything said
+the grant had failed.
+
+```
+17:34:08 calendar: requesting full access (status before: notDetermined)
+17:34:10 calendar: request returned granted=true, status now notDetermined
+```
+
+`requestFullAccessToEvents` returned `granted == true` — the user had said yes — and
+`EKEventStore.authorizationStatus(for: .event)` read on the very next line still answered
+`notDetermined`. It kept answering that: the Setup window showed access as not granted and
+`GET /v1/status` reported `calendarAvailability: unauthorized` with zero calendars, for as long as
+the process lived. After a relaunch, `full access` and all eight calendars.
+
+**Two independent causes, both needing a fix.**
+
+1. **TCC propagation is asynchronous.** tccd's answer reaches this process on its own schedule, and
+   a single status read on the next line races it. Fixed by re-reading rather than reading once —
+   `GrantSettling.settle` polls briefly (100 ms apart, up to 2 s; it runs on a user gesture, so it
+   cannot be allowed to read as a hang) — with `GrantNote` as a backstop for a tccd slower than
+   that: for 30 seconds after a `granted == true`, a reported `notDetermined` is reported as
+   `fullAccess`.
+
+   The note is scoped as narrowly as the job allows, because this is the one place the bridge says
+   something TCC has not confirmed. It can **only** override `.notDetermined`, the single value
+   meaning "no answer yet"; `.denied`, `.restricted` and `.writeOnly` are answers and pass through
+   untouched, so **a revocation is never masked** and the authorization gate keeps its guarantee. It
+   expires, and it is dropped the instant the class method agrees. `GrantPropagation.resolve` is a
+   pure function precisely so every branch of that is unit-tested — a test may not raise a TCC
+   prompt, so the decision had to be testable without one.
+
+2. **The serving actor's `EKEventStore` cached the old answer.** That store is long-lived by design
+   (one per process), and one built while access was denied keeps reporting `calendars(for:)` as
+   `[]` from its own cache after the grant lands. `EventKitStore.adoptGrant` watches for a grant
+   becoming usable and calls `store.reset()` on that transition — so the **HTTP path** sees the new
+   state, not just the UI. Only an upgrade resets; a revocation needs none, since the gate refuses
+   the request anyway.
+
+Both fixes apply to **Reminders and Calendar alike**. Reminders had the identical shape and simply
+happened to have been granted long before anyone looked. `RemindersAccess.requestFullAccess` also
+picked up the `pendingStore` parking and the diagnostic logging that `CalendarAccess` already had.
+
+**One source of truth.** The Setup window and `GET /v1/status` both read
+`RemindersAccess.status()` / `CalendarAccess.status()` — the window via `AppModel`, the API via
+`EventKitStore.availability()` / `calendarAvailability()`, which are those calls and nothing else. A
+window claiming "granted" while the API says `unauthorized` would be the same bug wearing a
+different hat, so there is a test asserting the two agree.
+
+> **`authorizationStatus(for:)` is not a cheap local read.** Sampling a wedged test run showed every
+> thread parked in `+[EKEventStore authorizationStatusForEntityType:]` -> `-[EKDaemonConnection
+> remindersAuthorization]` -> `-[CADXPCProxyHelper forwardInvocation:]` -> `mach_msg2_trap`: it is a
+> **synchronous XPC round trip to CalendarDaemon**, and that daemon can stall. Each request path
+> therefore reads it exactly **once** and passes the result down (`adoptGrant(reminders:)` /
+> `adoptGrant(calendar:)` take the status rather than reading their own), so the actor's serial
+> queue is never blocked on more daemon round trips than the request needs.
 
 ### Hardening (M7)
 
