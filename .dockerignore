@@ -17,6 +17,7 @@ appsettings.Development.json
 Erda.Tests/
 whatsapp-bridge/
 obsidian-sync/
+macos-bridge/
 docs/
 *.md
 .DS_Store
