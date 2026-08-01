@@ -9,6 +9,10 @@ import Foundation
 public struct BridgeServices: Sendable {
     /// The seam from dossier §6.2.
     public var reminders: any RemindersService
+    /// The calendar half of the same seam. Held separately even though one actor implements both,
+    /// because the request layer has no business knowing that — and because the two are
+    /// independently authorized, so a bridge can serve one and 503 the other.
+    public var calendar: any CalendarService
     /// `nil` when no token has been generated — every request then 401s, which is the correct
     /// fail-closed answer for a bridge with no credential.
     public var tokenVerifier: @Sendable () async -> TokenVerifier?
@@ -21,6 +25,7 @@ public struct BridgeServices: Sendable {
 
     public init(
         reminders: any RemindersService,
+        calendar: any CalendarService,
         tokenVerifier: @escaping @Sendable () async -> TokenVerifier?,
         rateLimiter: RateLimiter,
         idempotency: any IdempotencyStore,
@@ -29,6 +34,7 @@ public struct BridgeServices: Sendable {
         clock: any BridgeClock = SystemClock()
     ) {
         self.reminders = reminders
+        self.calendar = calendar
         self.tokenVerifier = tokenVerifier
         self.rateLimiter = rateLimiter
         self.idempotency = idempotency

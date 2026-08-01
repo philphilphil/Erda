@@ -10,15 +10,19 @@ let apiErrorStatusTable: [(ApiError, Int)] = [
     (.unauthorized, 401),
     (.notFound, 404),
     (.noSuchList, 404),
+    (.noSuchCalendar, 404),
     (.methodNotAllowed, 405),
     (.idempotencyKeyReuse, 409),
     (.requestInProgress, 409),
     (.listReadOnly, 409),
+    (.ambiguousCalendar, 409),
+    (.calendarReadOnly, 409),
     (.payloadTooLarge, 413),
     (.unsupportedMediaType, 415),
     (.rateLimited, 429),
     (.internal, 500),
     (.remindersUnavailable, 503),
+    (.calendarUnavailable, 503),
     (.unsupportedHttpVersion, 505),
 ]
 
@@ -77,5 +81,28 @@ struct ApiErrorTests {
         // Authorization is the only thing left that can make the back end unusable — the
         // allowlist that used to supply a second reason is gone.
         #expect(ReminderAvailability.allCases.count == 2)
+    }
+
+    /// The calendar counterpart, and a **different** 503. macOS authorizes events and reminders
+    /// separately, so telling Phil to check the wrong one is a wasted trip to System Settings.
+    @Test("calendar availability maps to its own 503, not the reminders one")
+    func calendarAvailabilityMapsToItsOwnError() {
+        #expect(CalendarAvailability.ok.apiError == nil)
+        #expect(CalendarAvailability.unauthorized.apiError == .calendarUnavailable)
+        #expect(CalendarAvailability.unauthorized.apiError != ReminderAvailability.unauthorized.apiError)
+        #expect(CalendarAvailability.allCases.count == 2)
+    }
+
+    /// A name matching nothing and a name matching two are the *same* answer for a list and
+    /// **different** answers for a calendar. That divergence is deliberate — Erda relays the
+    /// reason verbatim and the two fixes differ — so it is pinned here rather than left to be
+    /// "tidied up" later.
+    @Test("calendars distinguish missing from ambiguous; lists deliberately do not")
+    func calendarSplitsWhatListFolds() {
+        #expect(ApiError.noSuchCalendar != ApiError.ambiguousCalendar)
+        #expect(ApiError.noSuchCalendar.httpStatus == 404)
+        #expect(ApiError.ambiguousCalendar.httpStatus == 409)
+        // The list side has no ambiguity code at all: both outcomes are `no_such_list`.
+        #expect(!ApiError.allCases.contains { $0.code == "ambiguous_list" })
     }
 }

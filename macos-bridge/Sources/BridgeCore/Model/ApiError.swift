@@ -19,6 +19,10 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
     case noSuchList = "no_such_list"
     case listReadOnly = "list_read_only"
     case remindersUnavailable = "reminders_unavailable"
+    case noSuchCalendar = "no_such_calendar"
+    case ambiguousCalendar = "ambiguous_calendar"
+    case calendarReadOnly = "calendar_read_only"
+    case calendarUnavailable = "calendar_unavailable"
     case `internal` = "internal"
 
     /// The stable snake_case code that goes on the wire.
@@ -32,16 +36,26 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
         // matches the name, *and* more than one does (two accounts can both hold a list called
         // "Reminders"). Picking one of an ambiguous pair would be a guess, and a guess here writes
         // into the wrong list — so both answer the same way.
-        case .notFound, .noSuchList: 404
+        //
+        // `noSuchCalendar` deliberately does *not* fold ambiguity in the same way; see
+        // `ambiguousCalendar` below.
+        case .notFound, .noSuchList, .noSuchCalendar: 404
         case .methodNotAllowed: 405
         // The list exists but cannot take the reminder — read-only, or an account that does not
         // do reminders at all. A conflict with the state of the resource, not a bad request.
-        case .idempotencyKeyReuse, .requestInProgress, .listReadOnly: 409
+        //
+        // A name matching *two* calendars is the same kind of conflict: the resource is
+        // over-determined rather than absent, and the fix is to rename one of them. Calendars
+        // split what lists fold because the two failures need different advice on the Erda side —
+        // "check the name" versus "you have two calendars called that" — and a single code cannot
+        // carry both.
+        case .idempotencyKeyReuse, .requestInProgress, .listReadOnly,
+             .ambiguousCalendar, .calendarReadOnly: 409
         case .payloadTooLarge: 413
         case .unsupportedMediaType: 415
         case .rateLimited: 429
         case .internal: 500
-        case .remindersUnavailable: 503
+        case .remindersUnavailable, .calendarUnavailable: 503
         case .unsupportedHttpVersion: 505
         }
     }

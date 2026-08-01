@@ -10,6 +10,7 @@ struct MenuContent: View {
     var body: some View {
         Text(model.readiness.text)
         Text("Reminders: \(model.authorization.displayText)")
+        Text("Calendar: \(model.calendarAuthorization.displayText)")
         Text("Listener: \(model.listenerText)")
 
         Divider()
@@ -18,6 +19,10 @@ struct MenuContent: View {
 
         if !model.authorization.isUsable {
             Button("Request Reminders access") { model.requestAccess() }
+        }
+
+        if !model.calendarAuthorization.isUsable {
+            Button("Request Calendar access") { model.requestCalendarAccess() }
         }
 
         if model.serverState.isSupervising {

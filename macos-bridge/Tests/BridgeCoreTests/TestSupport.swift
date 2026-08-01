@@ -49,6 +49,10 @@ func listName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) 
     try #require(ListName(rawValue: raw), sourceLocation: sourceLocation)
 }
 
+func calendarName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> CalendarName {
+    try #require(CalendarName(rawValue: raw), sourceLocation: sourceLocation)
+}
+
 func tokenMaterial(for token: String, salt: [UInt8]? = nil) throws -> TokenMaterial {
     let hasher = CryptoKitHasher()
     let saltBytes = salt ?? Array(repeating: 0xA5, count: TokenMaterial.saltLength)

@@ -10,10 +10,10 @@ import Testing
 /// has not — deliberately, because these run in a plain `swift test` under the test host, whose
 /// authorization state is not something the suite may change. Anything that needs a real grant
 /// lives in `EventKitIntegrationTests` behind `ERDA_BRIDGE_EVENTKIT_TESTS`.
-@Suite("EventKitReminders — no grant required")
-struct EventKitRemindersTests {
-    private func service(identity: MemoryReminderIdentityStore = .init()) -> EventKitReminders {
-        EventKitReminders(
+@Suite("EventKitStore — no grant required")
+struct EventKitStoreTests {
+    private func service(identity: MemoryReminderIdentityStore = .init()) -> EventKitStore {
+        EventKitStore(
             identity: identity,
             clock: ManualClock(),
             timeZone: TimeZone(identifier: "Europe/Berlin")!,
@@ -74,11 +74,69 @@ struct EventKitRemindersTests {
         }
     }
 
-    /// The seam's whole point: `EventKitReminders` is substitutable for `FakeReminders` in
+    /// The seam's whole point: `EventKitStore` is substitutable for `FakeReminders` in
     /// `BridgeServices` without the request layer knowing which it got.
     @Test("it satisfies the RemindersService seam")
     func conformsToTheSeam() throws {
         let service: any RemindersService = service()
-        #expect(service is EventKitReminders)
+        #expect(service is EventKitStore)
+    }
+
+    // MARK: - Calendars
+
+    /// One actor, both seams — which is the whole reason it is one actor. `BridgeServices` holds
+    /// two references to the same instance, and neither side can tell.
+    @Test("the same instance satisfies both seams")
+    func conformsToBothSeams() throws {
+        let store = service()
+        let reminders: any RemindersService = store
+        let calendar: any CalendarService = store
+        #expect(reminders is EventKitStore)
+        #expect(calendar is EventKitStore)
+        #expect(ObjectIdentifier(reminders as AnyObject) == ObjectIdentifier(calendar as AnyObject))
+    }
+
+    /// Calendar availability follows the **event** grant, which is a separate TCC record. This
+    /// would fail if it were ever wired to the reminder status as a convenience.
+    @Test("calendar availability reports the event authorization, not the reminder one")
+    func calendarAvailabilityFollowsItsOwnGrant() async {
+        let expected: CalendarAvailability = CalendarAccess.status().isUsable ? .ok : .unauthorized
+        #expect(await service().calendarAvailability() == expected)
+    }
+
+    @Test("the calendar readout never throws, whatever the grant is")
+    func availableCalendarsNeverThrows() async {
+        let calendars = await service().availableCalendars()
+        if !CalendarAccess.status().isUsable {
+            #expect(calendars.isEmpty)
+        }
+        // Sorted and deduplicated, so a caller can present it directly.
+        #expect(calendars == calendars.sorted())
+        #expect(Set(calendars).count == calendars.count)
+    }
+
+    /// A name no calendar on this Mac wears must fail, whatever else is here. The string is not
+    /// one anybody would call a calendar, so this holds on a granted Mac too.
+    @Test("a name that matches no calendar is refused, never defaulted")
+    func unknownCalendarIsRefused() async throws {
+        let service = service()
+        let missing = try calendarName("erdabridge-no-such-calendar-\(UUID().uuidString)")
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+        await #expect(throws: ApiError.self) {
+            try await service.upcoming(try ListCalendarEventsQuery(calendars: [missing]))
+        }
+        await #expect(throws: ApiError.self) {
+            try await service.create(
+                CreateCalendarEventCommand(
+                    calendar: missing,
+                    title: "[erdabridge-test] must not be created",
+                    notes: nil,
+                    startAt: start,
+                    endAt: start.addingTimeInterval(3600),
+                    timeZone: TimeZone(identifier: "Europe/Berlin")!
+                )
+            )
+        }
     }
 }

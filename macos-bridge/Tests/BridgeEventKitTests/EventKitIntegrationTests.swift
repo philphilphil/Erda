@@ -10,17 +10,19 @@ import Testing
 ///
 /// ```
 /// ERDA_BRIDGE_EVENTKIT_TESTS=1 ERDA_BRIDGE_TEST_LIST="ErdaBridge Scratch" \
-///   swift test --filter EventKitIntegrationTests
+///   ERDA_BRIDGE_TEST_CALENDAR="ErdaBridge Scratch" \
+///   swift test --filter EventKit
 /// ```
 ///
 /// Without `ERDA_BRIDGE_EVENTKIT_TESTS=1` every test here is skipped, so a plain `swift test`
-/// never opens the user's Reminders database. With it set but `ERDA_BRIDGE_TEST_LIST` missing,
-/// the tests **fail loudly** rather than falling back to a default list — picking a list on the
-/// user's behalf is the one mistake that would write into real data.
+/// never opens the user's Reminders or Calendar database. With it set but `ERDA_BRIDGE_TEST_LIST`
+/// (or, for the calendar suite, `ERDA_BRIDGE_TEST_CALENDAR`) missing, the tests **fail loudly**
+/// rather than falling back to a default — picking a list or calendar on the user's behalf is the
+/// one mistake that would write into real data.
 ///
-/// That matters more than it used to. The bridge can now reach every list on the Mac, so the only
-/// thing keeping these tests off real data is the name in that variable: every write below names
-/// it explicitly, and nothing here ever calls a list-wide write.
+/// That matters more than it used to. The bridge can now reach every list and every calendar on
+/// the Mac, so the only thing keeping these tests off real data is the name in those variables:
+/// every write below names one explicitly, and nothing here ever writes without one.
 ///
 /// ## What these are and are not
 ///
@@ -42,6 +44,16 @@ struct EventKitEnvironment {
         ProcessInfo.processInfo.environment["ERDA_BRIDGE_TEST_LIST"]
             .flatMap { $0.isEmpty ? nil : $0 }
     }
+
+    /// The calendar title the calendar suite is allowed to touch. Deliberately a **separate**
+    /// variable from `ERDA_BRIDGE_TEST_LIST`: reusing the reminder one would mean a run configured
+    /// for reminders silently started writing events into whatever calendar happened to share that
+    /// name — and events, unlike the reminders here, cannot be deleted by this bridge at all.
+    /// Absent ⇒ the calendar suite fails.
+    static var calendarTitle: String? {
+        ProcessInfo.processInfo.environment["ERDA_BRIDGE_TEST_CALENDAR"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+    }
 }
 
 @Suite(
@@ -52,7 +64,7 @@ struct EventKitEnvironment {
 struct EventKitIntegrationTests {
     private let identity = MemoryReminderIdentityStore()
     private let scratch: ListName
-    private let service: EventKitReminders
+    private let service: EventKitStore
 
     init() throws {
         // Fail loudly, and before touching anything: no default, no "first writable list".
@@ -74,7 +86,7 @@ struct EventKitIntegrationTests {
         try #require(list.isWritable, "\(title) cannot hold reminders")
 
         self.scratch = try #require(ListName(rawValue: title), "\(title) is not a usable list name")
-        self.service = EventKitReminders(
+        self.service = EventKitStore(
             identity: identity,
             timeZone: TimeZone(identifier: "Europe/Berlin")!
         )
@@ -227,7 +239,7 @@ struct EventKitIntegrationTests {
     func mintsMappingsOnFirstSight() async throws {
         let created = try await service.create(command("mint-on-sight"))
         let forgetful = MemoryReminderIdentityStore()
-        let fresh = EventKitReminders(identity: forgetful)
+        let fresh = EventKitStore(identity: forgetful)
 
         let listed = try await fresh.list(try ListRemindersQuery(lists: [scratch], limit: 200))
         let match = try #require(listed.first { $0.title == created.title })
@@ -236,5 +248,211 @@ struct EventKitIntegrationTests {
 
         let outcome = try await fresh.complete(id: match.id)
         #expect(outcome.alreadyCompleted == false)
+    }
+}
+
+/// Real EventKit **calendars**, against a dedicated throwaway calendar named by
+/// `ERDA_BRIDGE_TEST_CALENDAR`.
+///
+/// The same caveats as the reminder suite apply, and one more that is sharper: **this bridge has
+/// no delete for events**, by design. Everything created here stays in that calendar until a human
+/// removes it in Calendar.app, which is exactly why the variable is mandatory, separate from the
+/// reminder one, and must name a calendar nobody looks at.
+@Suite(
+    "EventKit calendar integration (throwaway calendar)",
+    .enabled(if: EventKitEnvironment.isEnabled, "set ERDA_BRIDGE_EVENTKIT_TESTS=1 to run"),
+    .serialized
+)
+struct EventKitCalendarIntegrationTests {
+    private let scratch: CalendarName
+    private let berlin = TimeZone(identifier: "Europe/Berlin")!
+    private let service: EventKitStore
+
+    init() throws {
+        // Fail loudly, and before touching anything: no default, no "first writable calendar".
+        let title = try #require(
+            EventKitEnvironment.calendarTitle,
+            "ERDA_BRIDGE_TEST_CALENDAR must name a dedicated throwaway calendar — nothing here can be deleted afterwards"
+        )
+        try #require(
+            CalendarAccess.status().isUsable,
+            "Calendar access is not granted to the test host — grant it in System Settings or run the manual checklist instead"
+        )
+
+        let candidates = CalendarAccess.calendars().filter { $0.title == title }
+        try #require(!candidates.isEmpty, "no calendar titled \(title)")
+        // Two calendars with the same title would make "the throwaway one" ambiguous — and the
+        // bridge refuses an ambiguous name for the same reason, so it could not resolve it either.
+        try #require(candidates.count == 1, "\(candidates.count) calendars are titled \(title)")
+        let calendar = try #require(candidates.first)
+        try #require(calendar.isWritable, "\(title) cannot hold events")
+
+        self.scratch = try #require(CalendarName(rawValue: title), "\(title) is not a usable calendar name")
+        self.service = EventKitStore(identity: MemoryReminderIdentityStore(), timeZone: berlin)
+    }
+
+    /// Well into the future, so nothing here collides with a real appointment in a window someone
+    /// might actually look at, and tagged so anything left behind is obviously test debris.
+    private func command(
+        _ title: String,
+        startingAt start: Date? = nil,
+        lasting seconds: TimeInterval = 3600,
+        calendar: CalendarName? = nil
+    ) -> CreateCalendarEventCommand {
+        let startAt = start ?? Date().addingTimeInterval(24 * 3600)
+        return CreateCalendarEventCommand(
+            calendar: calendar ?? scratch,
+            title: "[erdabridge-test] \(title) \(UUID().uuidString.prefix(8))",
+            notes: "written by EventKitCalendarIntegrationTests",
+            startAt: startAt,
+            endAt: startAt.addingTimeInterval(seconds),
+            timeZone: berlin
+        )
+    }
+
+    @Test("the bridge reports itself available against a real granted calendar")
+    func availabilityIsOk() async {
+        #expect(await service.calendarAvailability() == .ok)
+    }
+
+    @Test("the throwaway calendar is among the names status reports")
+    func availableCalendarsIncludesTheScratchCalendar() async {
+        #expect(await service.availableCalendars().contains(scratch))
+    }
+
+    @Test("a created event comes back from a listing, with its times intact")
+    func createThenList() async throws {
+        let start = Date().addingTimeInterval(3600)
+        let created = try await service.create(command("create-then-list", startingAt: start))
+
+        #expect(created.calendar == scratch)
+        #expect(created.isAllDay == false)
+        #expect(created.timeZone == "Europe/Berlin")
+
+        let listed = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 2, limit: 200)
+        )
+        let match = try #require(listed.first { $0.title == created.title })
+        // Whole seconds survive the EventKit round trip; sub-second precision does not.
+        #expect(abs(match.startAt.timeIntervalSince(start)) < 1)
+        #expect(abs(match.endAt.timeIntervalSince(start.addingTimeInterval(3600))) < 1)
+        #expect(match.isAllDay == false)
+    }
+
+    /// The event-side counterpart of the reminder suite's all-day trap: an event created with
+    /// explicit times must not come back as an all-day band.
+    @Test("a timed event does not become an all-day one")
+    func timedEventStaysTimed() async throws {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = berlin
+        let start = try #require(
+            gregorian.date(from: DateComponents(year: 2027, month: 3, day: 14, hour: 16, minute: 45))
+        )
+
+        let created = try await service.create(command("timed", startingAt: start))
+        // A year out, so the default window would not reach it — the window really is a filter.
+        let inDefaultWindow = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], limit: 200)
+        )
+        #expect(!inDefaultWindow.contains { $0.title == created.title })
+
+        #expect(created.isAllDay == false)
+        let components = gregorian.dateComponents([.hour, .minute], from: created.startAt)
+        #expect(components.hour == 16)
+        #expect(components.minute == 45)
+    }
+
+    /// The window is the route's only bound on how much of somebody's calendar comes back, so it
+    /// has to actually bound it against real data.
+    @Test("the window really filters, and a wider one finds what a narrower one missed")
+    func windowFilters() async throws {
+        let start = Date().addingTimeInterval(20 * 24 * 3600)
+        let created = try await service.create(command("far-out", startingAt: start))
+
+        let narrow = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 1, limit: 200)
+        )
+        #expect(!narrow.contains { $0.title == created.title })
+
+        let wide = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 31, limit: 200)
+        )
+        #expect(wide.contains { $0.title == created.title })
+    }
+
+    @Test("a listing is capped by its limit and sorted soonest-first")
+    func limitAndOrder() async throws {
+        let base = Date().addingTimeInterval(2 * 3600)
+        for offset in [3.0, 1.0, 2.0] {
+            _ = try await service.create(command("ordering", startingAt: base.addingTimeInterval(offset * 3600)))
+        }
+
+        let listed = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 2, limit: 200)
+        )
+        #expect(listed == listed.sorted { $0.startAt < $1.startAt })
+
+        let capped = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 2, limit: 1)
+        )
+        #expect(capped.count <= 1)
+    }
+
+    /// A name nobody's calendar wears fails, on a Mac full of real calendars — no default, no
+    /// nearest match, no "the first writable one".
+    @Test("a name that matches no calendar fails closed against the real database")
+    func unknownNameFailsClosed() async throws {
+        let missing = try #require(CalendarName(rawValue: "erdabridge-no-such-calendar-\(UUID().uuidString)"))
+
+        await #expect(throws: ApiError.noSuchCalendar) {
+            try await service.create(self.command("must not be created", calendar: missing))
+        }
+        await #expect(throws: ApiError.noSuchCalendar) {
+            try await service.upcoming(try ListCalendarEventsQuery(calendars: [missing]))
+        }
+    }
+
+    /// A filtered listing stays inside the calendar it named. (The unfiltered case spans every
+    /// calendar by design, so it is not asserted here — that would mean reading real appointments
+    /// into a test's assertions.)
+    @Test("a filtered listing returns nothing from any other calendar")
+    func filteredListingStaysInsideItsCalendar() async throws {
+        _ = try await service.create(command("containment"))
+        let listed = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 2, limit: 200)
+        )
+        #expect(listed.allSatisfy { $0.calendar == scratch })
+    }
+
+    /// Both grants run through one `EKEventStore`. If the shared store or the shared change flag
+    /// were mishandled, interleaving the two would be where it showed up — a reminder fetch
+    /// invalidating the calendar's objects, or vice versa.
+    @Test(
+        "reminder and calendar operations interleave on one store without disturbing each other",
+        .enabled(if: EventKitEnvironment.listTitle != nil, "needs ERDA_BRIDGE_TEST_LIST too")
+    )
+    func interleavesWithReminders() async throws {
+        let listTitle = try #require(EventKitEnvironment.listTitle)
+        let list = try #require(ListName(rawValue: listTitle))
+        try #require(RemindersAccess.status().isUsable, "needs Reminders access as well")
+
+        let created = try await service.create(command("interleaved"))
+        _ = try await service.create(
+            CreateReminderCommand(
+                id: .generate(),
+                list: list,
+                title: "[erdabridge-test] interleaved \(UUID().uuidString.prefix(8))",
+                notes: nil,
+                dueAt: nil,
+                priority: 0
+            )
+        )
+
+        let events = try await service.upcoming(
+            try ListCalendarEventsQuery(calendars: [scratch], days: 2, limit: 200)
+        )
+        #expect(events.contains { $0.title == created.title })
+        // And the reminder side still answers after all of that.
+        #expect(await service.availableLists().contains(list))
     }
 }

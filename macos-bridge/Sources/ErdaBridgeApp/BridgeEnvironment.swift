@@ -45,15 +45,21 @@ struct BridgeEnvironment: Sendable {
         let tokenStore = TokenStoreFactory.make(backend: .keychain, directories: directories)
         let tokenService = TokenService(store: tokenStore)
 
-        // Every reminder list on this Mac is in scope; the actor resolves names against EventKit
-        // per request, so a list created or renamed in Reminders.app takes effect without a
-        // restart and nothing here needs to be re-read.
-        let reminders = EventKitReminders(
+        // Every reminder list and every calendar on this Mac is in scope; the actor resolves names
+        // against EventKit per request, so one created or renamed in Reminders.app or Calendar.app
+        // takes effect without a restart and nothing here needs to be re-read.
+        //
+        // **One instance, wired in twice.** `EKEventStore` is a one-per-process object whose
+        // `reset()` invalidates every fetched reminder *and* event at once, so the two seams are
+        // deliberately the same actor — see `EventKitStore`'s own documentation for why a second
+        // store would be a second uncoordinated writer rather than an isolated one.
+        let eventKit = EventKitStore(
             identity: StoreReminderIdentity(reminderMap: store.reminderMap)
         )
 
         let services = BridgeServices(
-            reminders: reminders,
+            reminders: eventKit,
+            calendar: eventKit,
             // Re-read per request, so rotating the token in the setup UI takes effect at once
             // rather than at the next restart.
             tokenVerifier: { try? tokenService.currentVerifier() },

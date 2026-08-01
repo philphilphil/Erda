@@ -2,14 +2,16 @@ import BridgeCore
 import Foundation
 import NIOHTTP1
 
-/// The four things this API can do. Nothing else exists — in particular there is no route that
+/// The six things this API can do. Nothing else exists — in particular there is no route that
 /// touches the token, permissions or config, because those must not be reachable from the network
-/// at all.
+/// at all, and nothing that edits or deletes a reminder or an event.
 public enum Route: Sendable, Equatable {
     case status
     case listReminders(ListRemindersQuery)
     case createReminder
     case completeReminder(BridgeID)
+    case listCalendarEvents(ListCalendarEventsQuery)
+    case createCalendarEvent
 
     var auditOperation: AuditOperation {
         switch self {
@@ -17,19 +19,21 @@ public enum Route: Sendable, Equatable {
         case .listReminders: .remindersList
         case .createReminder: .remindersCreate
         case .completeReminder: .remindersComplete
+        case .listCalendarEvents: .calendarList
+        case .createCalendarEvent: .calendarCreate
         }
     }
 
     /// Mutations draw on the tighter rate-limit bucket.
     var rateLimitClass: RateLimitClass {
         switch self {
-        case .status, .listReminders: .read
-        case .createReminder, .completeReminder: .mutation
+        case .status, .listReminders, .listCalendarEvents: .read
+        case .createReminder, .completeReminder, .createCalendarEvent: .mutation
         }
     }
 }
 
-/// A four-entry table matched by a hand-written path splitter.
+/// A small table matched by a hand-written path splitter.
 ///
 /// No regex anywhere: no ReDoS surface, and no arguments about what a pattern does with an
 /// unusual encoding. And **the path is never percent-decoded** — decoding is what turns
@@ -65,6 +69,18 @@ public enum Router {
             guard let id = BridgeID(rawValue: String(components[3])) else { throw ApiError.notFound }
             guard method == .POST else { throw HTTPFailure.methodNotAllowed(allow: ["POST"]) }
             return .completeReminder(id)
+        }
+
+        // `/v1/calendar-events`. Hyphenated rather than `/v1/calendar/events`: the resource is
+        // events, not calendars, and a `/v1/calendar/…` prefix would read like the start of a
+        // calendar-management API this bridge deliberately does not have.
+        if components.count == 3, components[0].isEmpty, components[1] == "v1",
+           components[2] == "calendar-events" {
+            switch method {
+            case .GET: return .listCalendarEvents(try Self.calendarEventsQuery(from: query))
+            case .POST: return .createCalendarEvent
+            default: throw HTTPFailure.methodNotAllowed(allow: ["GET", "POST"])
+            }
         }
 
         throw ApiError.notFound
@@ -116,5 +132,54 @@ public enum Router {
         }
 
         return try ListRemindersQuery(lists: lists, limit: limit)
+    }
+
+    /// `?calendar=Privat&calendar=Arbeit&days=14&limit=50`, parsed with the same strictness as the
+    /// reminder query: an unknown parameter is a 400, a repeated `calendar` narrows to those
+    /// calendars, and omitting it means every calendar on the Mac.
+    ///
+    /// A `calendar` value **is** percent-decoded, for the same reason a list name is — real
+    /// calendar names hold spaces and umlauts — and only after decoding does `CalendarName` get to
+    /// reject it. `days` and `limit` are left raw: they are digits, and anything with a `%` in it
+    /// fails to parse as an integer, which is the right answer anyway.
+    static func calendarEventsQuery(from query: Substring) throws -> ListCalendarEventsQuery {
+        guard !query.isEmpty else { return try ListCalendarEventsQuery() }
+
+        var calendars: [CalendarName] = []
+        var days = Limits.eventWindowDefaultDays
+        var limit = Limits.eventLimitDefault
+
+        for pair in query.split(separator: "&", omittingEmptySubsequences: false) {
+            guard !pair.isEmpty else { throw ApiError.invalidRequest }
+            guard let separator = pair.firstIndex(of: "=") else { throw ApiError.invalidRequest }
+            let name = pair[pair.startIndex..<separator]
+            let value = pair[pair.index(after: separator)...]
+
+            switch name {
+            case "calendar":
+                guard let decoded = PercentDecoding.decode(value),
+                      let calendar = CalendarName(rawValue: decoded)
+                else { throw ApiError.invalidRequest }
+                guard !calendars.contains(calendar) else { throw ApiError.invalidRequest }
+                calendars.append(calendar)
+            case "days":
+                days = try Self.integer(value)
+            case "limit":
+                limit = try Self.integer(value)
+            default:
+                throw ApiError.invalidRequest
+            }
+        }
+
+        return try ListCalendarEventsQuery(calendars: calendars, days: days, limit: limit)
+    }
+
+    /// A query integer in exactly one spelling: no leading `+`, no leading zeros, no whitespace.
+    /// Round-tripping through `String` is what rejects those — `Int("05")` is happily 5.
+    private static func integer(_ value: Substring) throws -> Int {
+        guard let parsed = Int(value), String(value) == String(parsed) else {
+            throw ApiError.invalidRequest
+        }
+        return parsed
     }
 }

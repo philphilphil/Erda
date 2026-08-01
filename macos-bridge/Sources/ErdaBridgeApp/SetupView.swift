@@ -11,9 +11,9 @@ enum SetupWindow {
 /// reachable over HTTP — the remote API has no route that can change any of these, which is why
 /// this window exists at all.
 ///
-/// There is no list picker. The bridge reaches every reminder list on this Mac, so there is
-/// nothing here to choose; the list section below is a read-only inventory, and it is there
-/// because the names it shows are exactly what Erda has to send.
+/// There is no list or calendar picker. The bridge reaches every reminder list and every calendar
+/// on this Mac, so there is nothing here to choose; the two inventory sections below are read-only,
+/// and they are there because the names they show are exactly what Erda has to send.
 struct SetupView: View {
     @Bindable var model: AppModel
 
@@ -21,8 +21,10 @@ struct SetupView: View {
         Form {
             StatusSection(model: model)
             AccessSection(model: model)
+            CalendarAccessSection(model: model)
             ListenerSection(model: model)
             ListsSection(model: model)
+            CalendarsSection(model: model)
             TokenSection(model: model)
             FilesSection(model: model)
 
@@ -52,6 +54,7 @@ private struct StatusSection: View {
                 Button("Refresh") { model.reloadAll() }
             }
             LabeledContent("Reminders access", value: model.authorization.displayText)
+            LabeledContent("Calendar access", value: model.calendarAuthorization.displayText)
             LabeledContent("Listener", value: model.listenerText)
             LabeledContent("Scope", value: model.scopeText)
             LabeledContent("Last request", value: model.lastRequestText)
@@ -81,6 +84,44 @@ private struct AccessSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 Button("Request Reminders access") { model.requestAccess() }
+            }
+        }
+    }
+}
+
+// MARK: - Calendar access
+
+/// A second, independent grant. macOS keeps one TCC record per entity type, so this button raises
+/// its own prompt and denying it leaves the reminder routes working exactly as they were.
+private struct CalendarAccessSection: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        Section("Calendar access") {
+            if model.calendarAuthorization.isUsable {
+                Text(
+                    """
+                    Full access granted — which means ErdaBridge can **read every event in every \
+                    calendar** on this Mac, not just write new ones. That is the cost of naming a \
+                    calendar by its title: listing calendars is a read, and write-only access \
+                    cannot do it. Revoke in System Settings › Privacy & Security › Calendars.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } else {
+                Text(
+                    """
+                    ErdaBridge needs full access to create events in a calendar you name. \
+                    Write-only cannot enumerate calendars, so it could not find the calendar to \
+                    write to. Full access also lets it read your events — that is a real cost, \
+                    accepted deliberately. macOS only shows the prompt once; after a denial it has \
+                    to be changed in System Settings.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Button("Request Calendar access") { model.requestCalendarAccess() }
             }
         }
     }
@@ -176,6 +217,50 @@ private struct ListsSection: View {
                     }
                 }
                 Button("Reload lists") { model.reloadLists() }
+            }
+        }
+    }
+}
+
+// MARK: - Calendars
+
+/// Read-only, for the same reason the list section is: Erda addresses a calendar by the name shown
+/// here, so the one job of this section is to show the exact spelling — plus which calendars can
+/// actually take an event, since a subscribed or holiday calendar cannot.
+private struct CalendarsSection: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        Section("Calendars") {
+            Text(
+                """
+                ErdaBridge can read events in **all** of these and create events in the writable \
+                ones. Erda names a calendar by its title, exactly as it reads here — and a title \
+                two calendars share is refused rather than guessed at.
+                """
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if !model.calendarAuthorization.isUsable {
+                Text("Grant Calendar access to see the calendars on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if model.calendars.isEmpty {
+                Text("No calendars found.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                ForEach(model.calendars, id: \.calendarId) { calendar in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(calendar.title).textSelection(.enabled)
+                        Spacer()
+                        Text("\(calendar.source) · \(calendar.isWritable ? "writable" : "read-only")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Button("Reload calendars") { model.reloadCalendars() }
             }
         }
     }

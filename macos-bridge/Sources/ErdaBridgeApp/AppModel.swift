@@ -26,11 +26,17 @@ final class AppModel {
 
     // MARK: - Observed state
 
-    private(set) var authorization: RemindersAuthorization = RemindersAccess.status()
+    private(set) var authorization: EventKitAuthorization = RemindersAccess.status()
+    /// Read separately from `authorization` and never derived from it: macOS records the two TCC
+    /// grants independently, so one can be full access while the other has never been asked for.
+    private(set) var calendarAuthorization: EventKitAuthorization = CalendarAccess.status()
     private(set) var serverState: ServerState = .stopped
     private(set) var lists: [ReminderListInfo] = []
     /// Distinguishes "no lists" from "we have not been allowed to look".
     private(set) var listsLoaded = false
+    private(set) var calendars: [CalendarInfo] = []
+    /// The same distinction for calendars.
+    private(set) var calendarsLoaded = false
     private(set) var tokenSummary: TokenSummary?
     private(set) var lastRequest: AuditEvent?
     private(set) var requestCount = 0
@@ -77,19 +83,26 @@ final class AppModel {
         }
     }
 
-    /// A slow poll of the two cheap readouts: the authorization status (a class method) and the
-    /// last audited request. Reminder lists are deliberately not in here — each read builds a
-    /// fresh `EKEventStore`, so those refresh on a gesture instead.
+    /// A slow poll of the cheap readouts: the two authorization statuses (class methods) and the
+    /// last audited request. Reminder lists and calendars are deliberately not in here — each read
+    /// builds a fresh `EKEventStore`, so those refresh on a gesture instead.
     private func startPolling() {
         Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
+
                 let status = RemindersAccess.status()
-                let usabilityChanged = status.isUsable != authorization.isUsable
+                let remindersChanged = status.isUsable != authorization.isUsable
                 authorization = status
                 // Access granted (or revoked) in System Settings while the app runs. Only that
                 // transition pays for a list read, so the poll stays cheap.
-                if usabilityChanged { reloadLists() }
+                if remindersChanged { reloadLists() }
+
+                let calendarStatus = CalendarAccess.status()
+                let calendarChanged = calendarStatus.isUsable != calendarAuthorization.isUsable
+                calendarAuthorization = calendarStatus
+                if calendarChanged { reloadCalendars() }
+
                 reloadLastRequest()
             }
         }
@@ -99,7 +112,9 @@ final class AppModel {
 
     func reloadAll() {
         authorization = RemindersAccess.status()
+        calendarAuthorization = CalendarAccess.status()
         reloadLists()
+        reloadCalendars()
         reloadToken()
         reloadLastRequest()
         reloadStoredSelection()
@@ -111,6 +126,13 @@ final class AppModel {
             ($0.source, $0.title) < ($1.source, $1.title)
         }
         listsLoaded = authorization.isUsable
+    }
+
+    func reloadCalendars() {
+        calendars = CalendarAccess.calendars().sorted {
+            ($0.source, $0.title) < ($1.source, $1.title)
+        }
+        calendarsLoaded = calendarAuthorization.isUsable
     }
 
     private func reloadToken() {
@@ -134,7 +156,7 @@ final class AppModel {
         draftPort = String(storedSelection?.port ?? BridgeEnvironment.suggestedPort)
     }
 
-    // MARK: - Reminders access
+    // MARK: - EventKit access
 
     /// Only ever called from a user gesture — never automatically at launch, and never from an
     /// HTTP handler: a TCC prompt must not be raised by a network packet.
@@ -148,6 +170,22 @@ final class AppModel {
             }
             authorization = RemindersAccess.status()
             reloadLists()
+        }
+    }
+
+    /// The calendar counterpart, and a *separate* gesture: macOS shows one prompt per entity type,
+    /// so bundling them would either raise two prompts from one click or silently ask for more
+    /// than the button says.
+    func requestCalendarAccess() {
+        Task {
+            switch await CalendarAccess.requestFullAccess() {
+            case .success:
+                actionError = nil
+            case .failure(let error):
+                actionError = String(describing: error)
+            }
+            calendarAuthorization = CalendarAccess.status()
+            reloadCalendars()
         }
     }
 
@@ -303,12 +341,16 @@ final class AppModel {
     }
 
     /// What the bridge can reach. There is no allowlist to report any more, so this says so
-    /// plainly rather than implying a selection nobody made.
+    /// plainly rather than implying a selection nobody made — and it reports the two capabilities
+    /// separately, because one can be granted while the other is not.
     var scopeText: String {
-        guard authorization.isUsable else { return "all reminder lists (none visible yet)" }
-        return lists.count == 1
-            ? "all reminder lists (1 visible)"
-            : "all reminder lists (\(lists.count) visible)"
+        "\(Self.scope(noun: "reminder list", granted: authorization.isUsable, count: lists.count)), "
+            + Self.scope(noun: "calendar", granted: calendarAuthorization.isUsable, count: calendars.count)
+    }
+
+    private static func scope(noun: String, granted: Bool, count: Int) -> String {
+        guard granted else { return "no \(noun)s (access not granted)" }
+        return count == 1 ? "all \(noun)s (1 visible)" : "all \(noun)s (\(count) visible)"
     }
 
     var lastRequestText: String {
@@ -324,6 +366,11 @@ final class AppModel {
     /// necessary, so a green light cannot be shown while any of them is missing — including the
     /// case where the listener is happily bound to loopback and therefore unreachable from the
     /// machine that is supposed to call it.
+    ///
+    /// Calendar access is graded differently, and deliberately: missing reminder access **blocks**
+    /// (red), missing calendar access **degrades** (amber). A bridge with only reminders granted
+    /// genuinely serves half its routes, so calling that red would be as wrong as calling it green
+    /// — but green it is not, because `POST /v1/calendar-events` would 503.
     var readiness: Readiness {
         if let startupError { return .blocked("Startup failed: \(startupError)") }
         guard authorization.isUsable else {
@@ -353,6 +400,15 @@ final class AppModel {
         // there is nothing for Erda to write into, and saying "Ready" would be a lie.
         if listsLoaded, lists.isEmpty {
             return .degraded("This Mac has no reminder lists — make one in Reminders.app.")
+        }
+        guard calendarAuthorization.isUsable else {
+            return .degraded(
+                "Reminders are ready; Calendar access is \(calendarAuthorization.displayText) — "
+                    + "the calendar routes will answer 503."
+            )
+        }
+        if calendarsLoaded, calendars.isEmpty {
+            return .degraded("This Mac has no calendars — make one in Calendar.app.")
         }
         return .ready
     }

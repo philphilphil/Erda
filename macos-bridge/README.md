@@ -1,17 +1,19 @@
 # ErdaBridge (macOS)
 
 A narrow macOS bridge that lets Erda (running in Docker on `leela`) create, list and complete
-**Apple Reminders** — and nothing else. Lists are addressed by their real name, exactly as they
-read in Reminders.app. Chain: `Erda → HTTP + bearer token → ErdaBridge → EventKit → Reminders`.
+**Apple Reminders**, and create and read **Apple Calendar** events — and nothing else. Lists and
+calendars are addressed by their real name, exactly as they read in Reminders.app and Calendar.app.
+Chain: `Erda → HTTP + bearer token → ErdaBridge → EventKit → Reminders / Calendar`.
 
-**It can read and write every reminder list on this Mac.** That is a deliberate decision, not an
-oversight — see the [threat model](#threat-model).
+**It can read and write every reminder list on this Mac, and it can read every event in every
+calendar.** Both are deliberate decisions, not oversights — see the [threat model](#threat-model).
 
-**Status: M0–M7 complete** — `BridgeCore`, `BridgeStore`, `BridgeHTTP`, `BridgeEventKit`, the setup
-UI, and hardening (forbidden-API lint, binary-level symbol checks, an audit-redaction property
-test). 368 tests / 42 suites pass, `make test` and `./scripts/bundle.sh` are clean. **The app has
-never been run against real Reminders data or installed to `/Applications`** — that verification is
-this document's main job: see [Needs a human at the screen](#-needs-a-human-at-the-screen) and the
+**Status: M0–M7 complete, plus calendar support** — `BridgeCore`, `BridgeStore`, `BridgeHTTP`,
+`BridgeEventKit`, the setup UI, and hardening (forbidden-API lint, binary-level symbol checks, an
+audit-redaction property test). 471 tests / 50 suites pass, `make test` and `./scripts/bundle.sh`
+are clean. **The app has never been run against real Reminders or Calendar data, or installed to
+`/Applications`** — that verification is this document's main job: see
+[Needs a human at the screen](#-needs-a-human-at-the-screen) and the
 [manual verification checklist](#manual-verification-checklist).
 
 ---
@@ -36,8 +38,8 @@ this document's main job: see [Needs a human at the screen](#-needs-a-human-at-t
 ## ⚠ Needs a human at the screen
 
 Nothing below can be done from an agent session — no `open`/launch, no granting or revoking
-Reminders, no token rotation, nothing under `~/Library`. All of it needs the app running with real
-permissions on Phil's Mac.
+Reminders or Calendar access, no token rotation, nothing under `~/Library`. All of it needs the app
+running with real permissions on Phil's Mac.
 
 1. **Reachable from `leela`**, and confirm whether a **Local Network privacy alert** appears:
    ```bash
@@ -50,14 +52,23 @@ permissions on Phil's Mac.
 2. **Grant Reminders access** via the Setup window and confirm the TCC prompt names **ErdaBridge**
    and quotes `NSRemindersFullAccessUsageDescription` ("ErdaBridge reads and creates reminders in
    your lists, …"). Confirm the status flips to `full access` with a non-zero list count.
-3. **Run the full create → list → complete cycle** against a real list in Reminders.app — this
-   bridge has only ever talked to `FakeReminders` in tests.
-4. Work through the [manual verification checklist](#manual-verification-checklist) below.
-5. **Install to `/Applications`** (`make install`), re-approve the Application Firewall at the new
+3. **Grant Calendar access** — a **separate button and a separate prompt**, because macOS records
+   the two grants independently. Confirm it quotes `NSCalendarsFullAccessUsageDescription`
+   ("ErdaBridge reads your calendar events and creates new ones, …") and that the prompt is the
+   *full access* one, not write-only. Confirm the status flips to `full access` with a non-zero
+   calendar count. Note that granting this lets the bridge read every event on this Mac — see the
+   [threat model](#threat-model) before clicking it.
+4. **Run the full reminder create → list → complete cycle** against a real list in Reminders.app,
+   and **create → list an event** in a real calendar — this bridge has only ever talked to
+   `FakeReminders`/`FakeCalendar` in tests. Remember that **an event cannot be deleted through the
+   bridge**: whatever you create you remove by hand in Calendar.app.
+5. Work through the [manual verification checklist](#manual-verification-checklist) below.
+6. **Install to `/Applications`** (`make install`), re-approve the Application Firewall at the new
    path, add to Login Items, and point `leela`'s `.env` at the bridge (`AppleBridge__*`).
-6. **End-to-end**: `dotnet test Erda.Tests/Erda.Tests.csproj`, then `make dev` on `leela` with
-   `AppleBridge__*` set, and ask Erda over WhatsApp to add, list and complete a reminder — confirm
-   each in Reminders.app. Then close the MacBook lid and repeat: the tools must return a readable
+7. **End-to-end**: `dotnet test Erda.Tests/Erda.Tests.csproj`, then `make dev` on `leela` with
+   `AppleBridge__*` set, and ask Erda over WhatsApp to add, list and complete a reminder, and to
+   put an appointment in a calendar and read back what's coming up — confirm each in Reminders.app
+   and Calendar.app. Then close the MacBook lid and repeat: the tools must return a readable
    "bridge unreachable" message, never an exception.
 
 ---
@@ -66,16 +77,17 @@ permissions on Phil's Mac.
 
 ```bash
 make bundle    # swift build -c release + assemble + codesign + verify + print the DR
-make test      # scripts/lint-forbidden.sh, then swift test (368 tests / 42 suites)
+make test      # scripts/lint-forbidden.sh, then swift test (471 tests / 50 suites)
 make run       # bundle, then `open` the signed .app
 make install   # copy to /Applications/ErdaBridge.app
 make clean
 ```
 
 > ## ⚠ Never `swift run`
-> A bare SwiftPM binary has no bundle identifier, so TCC attributes the Reminders request to the
-> **terminal emulator**, not ErdaBridge. You would grant Terminal access to Reminders and learn
-> nothing about this app. `make run` always bundles + `open`s the signed `.app` — use it, always.
+> A bare SwiftPM binary has no bundle identifier, so TCC attributes the Reminders and Calendar
+> requests to the **terminal emulator**, not ErdaBridge. You would grant Terminal access to your
+> reminders and calendars and learn nothing about this app. `make run` always bundles + `open`s the
+> signed `.app` — use it, always.
 >
 > Never ad-hoc sign (`--sign -`) either: TCC then falls back to the cdhash, and M0 measured that
 > the cdhash changes on every relink, so every rebuild would re-prompt and orphan the previous
@@ -90,17 +102,25 @@ Do these in order — later steps depend on earlier ones:
 1. **`make run`** — menu bar item appears, no Dock icon (`LSUIElement`).
 2. **Grant Reminders access** from the Setup window (menu bar icon → **Setup…**). Confirms as
    `full access` with a non-zero list count.
-3. **Note the list names.** There is nothing to configure here — every reminder list is reachable
-   — but the Setup window shows the exact titles, and the title is how Erda addresses a list.
-4. **Choose the bind address.** The picker offers the addresses currently configured on this Mac;
+3. **Grant Calendar access** — a second button, a second prompt, a second TCC record. Denying it
+   leaves the reminder half working exactly as before; the calendar routes then answer
+   `503 calendar_unavailable` and the readiness light goes amber rather than green. Read the
+   [threat model](#threat-model) first: this grant is full read access to every event on this Mac.
+4. **Note the list and calendar names.** There is nothing to configure here — every reminder list
+   and every calendar is reachable — but the Setup window shows the exact titles, and the title is
+   how Erda addresses one. It also shows which calendars are writable: a subscribed or holiday
+   calendar can be read but not written.
+5. **Choose the bind address.** The picker offers the addresses currently configured on this Mac;
    nothing is auto-selected — see [Network: the DHCP reservation](#network-the-dhcp-reservation)
    for why the choice must be a LAN address with a DHCP reservation, not "whatever is available."
-5. **Generate the token.** Shown exactly once with a Copy button; only a salted digest is
+6. **Generate the token.** Shown exactly once with a Copy button; only a salted digest is
    persisted. Save it somewhere durable now — there is no way to retrieve it again, only to
    rotate it (see [Token rotation](#token-rotation)).
-6. **Start the listener.** The Setup window's readiness line goes green only when Reminders access
-   is `full access`, a token exists, and the listener is bound to a non-loopback address.
-7. **Configure Erda's `.env`** on `leela` (`.env.example` documents these):
+7. **Start the listener.** The Setup window's readiness line goes green only when Reminders access
+   is `full access`, Calendar access is `full access`, a token exists, and the listener is bound to
+   a non-loopback address.
+8. **Configure Erda's `.env`** on `leela` (`.env.example` documents these) — one switch covers both
+   capabilities, since they are the same app, the same token and the same address:
    ```
    AppleBridge__Enabled=true
    AppleBridge__BaseUrl=http://<bind-ip>:<port>
@@ -110,7 +130,7 @@ Do these in order — later steps depend on earlier ones:
    Then restart Erda (`make deploy` in production, or restart `make dev`).
 
 The first time through, also expect the [Application Firewall prompt](#the-macos-application-firewall)
-the moment the listener binds — a second, independent one-time approval from step 6.
+the moment the listener binds — a further, independent one-time approval from step 7.
 
 ---
 
@@ -264,7 +284,8 @@ In order — later steps assume earlier ones are done:
    Login" (skip if you never added it).
 2. **Quit the app** from the menu bar (or `killall ErdaBridge` if the menu is unresponsive).
 3. **Revoke Reminders access**: System Settings → Privacy & Security → Reminders → turn off
-   ErdaBridge (or remove it from the list entirely).
+   ErdaBridge (or remove it from the list entirely). Then do the same under **Calendars** — a
+   separate row, and one that is easy to leave behind.
 4. **Delete the Keychain item**: Keychain Access.app → login keychain → search
    `de.philippbaum.erdabridge` → delete the `api-token` password item. Or from Terminal:
    ```bash
@@ -284,7 +305,10 @@ In order — later steps assume earlier ones are done:
    `rm -f ~/Library/Preferences/de.philippbaum.erdabridge.plist`).
 7. On `leela`, set `AppleBridge__Enabled=false` in `.env` and restart Erda so the tools stop being
    registered (they already fail soft if left enabled and unreachable, but there is no reason to
-   leave them on).
+   leave them on). This covers both the reminder and the calendar tools — one switch.
+
+Events the bridge created stay in Calendar.app: it has no delete route, so nothing here removes
+them. Search for them by title if you want them gone.
 
 The Application Firewall's per-path allow entry for `/Applications/ErdaBridge.app` is left behind
 by `socketfilterfw`; it is inert once the app is gone and does not need separate cleanup.
@@ -297,7 +321,17 @@ by `socketfilterfw`; it is inert once the app is gone and does not need separate
 
 - No delete or edit of reminders — only `create`, `list`, `complete`. Complete-of-completed is an
   idempotent no-op; there is no "uncomplete", no field edit, no move-between-lists.
-- No calendar access at all — Reminders only.
+- No delete or edit of calendar events — only `create` and `list upcoming`. **Nothing the bridge
+  writes to a calendar can be removed through the bridge**, by design: an API that could delete
+  events is an API that can quietly empty a calendar, and the recovery from a bad create (delete it
+  by hand in Calendar.app) is far cheaper than the recovery from a bad delete. There is also no
+  recurrence, no attendees, no invitations, no alarms and no attachments — a create carries a
+  calendar, a title, optional notes, a start, an end and a time zone, and the request DTO rejects
+  any other key outright, so an unsupported feature is a loud 400 rather than a silently dropped
+  field.
+- No calendar *management*: no route creates, renames or deletes a calendar, and there is no
+  `/v1/calendars` at all. `GET /v1/status` reports calendar names because a name is how a caller
+  addresses one; that is a readout, not a handle.
 - No shell, no AppleScript, no Shortcuts, no scripting-bridge path of any kind. Enforced twice:
   the module boundaries (only `BridgeEventKit` links `EventKit`; nothing links `ScriptingBridge` or
   `WebKit`) are compiler-enforced, and `scripts/lint-forbidden.sh` (wired into `make test`) greps
@@ -306,12 +340,15 @@ by `socketfilterfw`; it is inert once the app is gone and does not need separate
   `scripts/bundle.sh` additionally scans the **linked binary's** undefined symbols for the same
   APIs, so a transitive dependency pulling one in would also be caught.
 - No remote route that can change the token, permissions, or the bind-address/config — those are
-  exclusively local Setup-window actions (or `--rotate-token` at the terminal on this Mac). The four
+  exclusively local Setup-window actions (or `--rotate-token` at the terminal on this Mac). The six
   HTTP routes (`GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`,
-  `POST /v1/reminders/{id}/complete`) touch reminders and nothing else — there is no route shaped
-  like "create a list", "delete a list" or "issue a token."
+  `POST /v1/reminders/{id}/complete`, `POST /v1/calendar-events`, `GET /v1/calendar-events`) touch
+  reminders and calendar events and nothing else — there is no route shaped like "create a list",
+  "delete a calendar" or "issue a token."
 - Missing functionality is never "solved" by adding a macOS permission or a shell fallback — if a
-  capability needs one of the above, the answer is "not in scope," not "add it quietly."
+  capability needs one of the above, the answer is "not in scope," not "add it quietly." (Calendar
+  access is the one permission that *was* added, and it was added with the cost written down below
+  rather than quietly.)
 
 **What it can reach: every reminder list on this Mac.**
 
@@ -332,25 +369,62 @@ Concretely, anyone holding the bearer token can, on any list on this Mac:
 - create a reminder in any list they can name;
 - complete any reminder the bridge has ever issued an id for.
 
-They still **cannot** delete or edit a reminder, move one between lists, uncomplete one, touch
-calendars or events, or learn any `calendarIdentifier`. A list is addressed by name, and a name that
-matches nothing — or that matches two lists, which happens when two accounts both hold a
-"Reminders" — is refused rather than guessed at, because guessing is how a write lands in somebody
-else's shared list.
+They still **cannot** delete or edit a reminder, move one between lists, uncomplete one, or learn
+any `calendarIdentifier`. A list is addressed by name, and a name that matches nothing — or that
+matches two lists, which happens when two accounts both hold a "Reminders" — is refused rather than
+guessed at, because guessing is how a write lands in somebody else's shared list.
 
-**Three deliberate relaxations of the original spec** (all recorded as accepted-cost decisions, not
+**What it can also reach: every event in every calendar on this Mac — including reading them.**
+
+This is the part to be clear-eyed about. The bridge holds **Calendars full access**, not write-only,
+and that is not a convenience: **write-only access cannot enumerate calendars**, and enumerating
+calendars is the only way to turn the string `"Privat"` into the calendar to write to. The
+alternative was to address calendars by `calendarIdentifier` — an opaque handle a human would have
+to copy out of the app once, that EventKit's own headers say is not sync-proof, and that would put
+us straight back into the identifier-drift problem the reminder allowlist was removed to escape.
+Phil chose the string, and therefore chose full access, with this paragraph as the price.
+
+Concretely, anyone holding the bearer token can:
+
+- read **every event in every calendar** for a window of up to 31 days ahead — title, notes, start,
+  end, all-day flag, time zone — via `GET /v1/calendar-events` with no filter. That includes work
+  meetings, medical appointments, and anything shared into this Mac's calendars by anyone else;
+- create an event in any writable calendar they can name.
+
+They **cannot** edit an event, delete one, read anything more than 31 days out, read the past,
+enumerate attendees, or learn any `calendarIdentifier`. As with lists, a calendar is addressed by
+name; a name matching nothing is `404 no_such_calendar` and a name matching two is
+`409 ambiguous_calendar` — separate codes on purpose, because "check the spelling" and "you have
+two calendars called that" are different problems with different fixes.
+
+The two macOS grants are **independent**. Denying Calendars leaves the reminder routes working
+untouched and vice versa; each half answers its own 503 (`reminders_unavailable` /
+`calendar_unavailable`), which is what lets Erda tell Phil which System Settings row to open. If
+reading events is not a trade you want, deny the Calendar prompt: the app stays useful for
+reminders, and the setup window will say so in amber rather than claiming to be ready.
+
+**Nothing about an event reaches the audit log.** The JSONL line for a calendar operation records
+the calendar *name*, the operation, the result and the timing — never a title, never a note, and
+**never a start or end time**. That last one is deliberate and load-bearing: an audit log that
+recorded when Phil's appointments were would be a movement log. `AuditEvent` has no bare `String`
+field and no `Date` field other than the request's own timestamp, so this is a property of the type
+rather than of anyone's discipline (see [Hardening](#hardening-m7)).
+
+**Four deliberate relaxations of the original spec** (all recorded as accepted-cost decisions, not
 gaps that slipped through):
 
 1. **Plain HTTP on the LAN, bearer token, instead of loopback-only + Tailscale Serve.** Both
    machines are on the same home Wi-Fi, and setting up Tailscale for this round was out of scope.
    **Accepted cost: the bearer token crosses the home Wi-Fi in cleartext** on every request.
    Anyone with access to that Wi-Fi (or anything upstream of it, e.g. a compromised router) can
-   read the token off the wire and would then have the same reminders-create/list/complete access
-   Erda has, on every reminder list, until the token is rotated. Mitigations in place: the token is
-   only ever useful against this bridge's narrow API (no lateral capability, no delete, no edit) and
-   rotation is cheap (see [Token rotation](#token-rotation)). The allowlist used to be listed here
-   as a third mitigation bounding the blast radius; with it gone, the blast radius is every reminder
-   list — see above.
+   read the token off the wire and would then have the same access Erda has — create/list/complete
+   on every reminder list, and create/read on every calendar — until the token is rotated. Note
+   what that second half means for a passive eavesdropper: the **contents** of every calendar event
+   in the next month cross the home Wi-Fi in cleartext every time Erda lists them. Mitigations in
+   place: the token is only ever useful against this bridge's narrow API (no lateral capability, no
+   delete, no edit) and rotation is cheap (see [Token rotation](#token-rotation)). The allowlist
+   used to be listed here as a third mitigation bounding the blast radius; with it gone, the blast
+   radius is every reminder list and every calendar — see above.
 2. **No App Sandbox, no `SMAppService`.** The app runs with the ambient privileges of Phil's user
    account rather than inside a sandbox container, and login-launch is a manual
    [Login Items](#login-items) entry rather than a programmatic `SMAppService` registration. This
@@ -363,14 +437,25 @@ gaps that slipped through):
    sandbox would provide is absent.
 3. **No per-list allowlist**, as set out above: a user-approved widening of the boundary, taken with
    the reasoning written down rather than as a quiet simplification.
+4. **Calendars full access rather than write-only.** Set out above: naming a calendar by its title
+   requires enumerating calendars, which write-only forbids, so the only two options were "full
+   access" or "address calendars by an opaque, non-sync-proof identifier." **Accepted cost: the
+   bridge can read every calendar event on this Mac**, and so can anyone holding the token. Nothing
+   compensates for this — it is the capability, not a side effect of one. What bounds it is the
+   shape of the API (a 31-day forward window, no past, no edit, no delete) and the fact that the
+   grant is separately deniable.
 
 ---
 
 ## Manual verification checklist
 
-Everything here needs the app running with real Reminders data and a real network — none of it can
-be done from an agent session. Work through it once before relying on the bridge, and again after
-any change to `BridgeEventKit`, the router, or the store.
+Everything here needs the app running with real Reminders and Calendar data and a real network —
+none of it can be done from an agent session. Work through it once before relying on the bridge, and
+again after any change to `BridgeEventKit`, the router, or the store.
+
+> **Before the calendar rows:** make a throwaway calendar in Calendar.app and use it for every
+> create below. **The bridge cannot delete an event**, so everything you create here you remove by
+> hand afterwards.
 
 **Permissions and revocation**
 
@@ -379,6 +464,15 @@ any change to `BridgeEventKit`, the router, or the store.
       `503 reminders_unavailable`, no crash, no partial write.
 - [ ] Re-grant → bridge recovers without a restart (confirm via `eventStoreChangedNotification`
       handling, not just a relaunch).
+- [ ] Grant Calendar access → the prompt names **ErdaBridge**, quotes
+      `NSCalendarsFullAccessUsageDescription`, and is the **full access** prompt (not write-only).
+      Setup window shows `full access` with a non-zero calendar count.
+- [ ] Revoke **Calendar** access only, leaving Reminders granted → calendar routes return
+      `503 calendar_unavailable`; **the reminder routes keep working**. This is the one that would
+      catch the two grants being wired together.
+- [ ] Revoke **Reminders** access only, leaving Calendar granted → the mirror image: reminder routes
+      503, calendar routes keep working.
+- [ ] With Calendar denied, the readiness light is **amber, not green**, and says why.
 
 **List addressing**
 
@@ -403,12 +497,47 @@ any change to `BridgeEventKit`, the router, or the store.
       rather than trusting the stored one).
 - [ ] Complete an already-completed reminder → `200`, idempotent no-op, not an error.
 
+**Calendar addressing and events**
+
+- [ ] `POST /v1/calendar-events` naming a real writable calendar creates the event, and it appears
+      in that calendar in Calendar.app at the **right wall-clock time** — not shifted by the UTC
+      offset, and not as an all-day band.
+- [ ] The same with the title in the wrong case (`privat` for `Privat`) lands in the same calendar,
+      and the response echoes back `Privat`.
+- [ ] `POST` naming a calendar that does not exist → `404 no_such_calendar`, and **nothing is
+      created anywhere**. Check the other calendars, not just the response.
+- [ ] Make two calendars with the same title in two different accounts (e.g. iCloud and On My Mac),
+      then address that title → `409 ambiguous_calendar`, **not** a write into either one, and
+      **not** a 404. Delete one again afterwards.
+- [ ] `POST` to a subscribed or holiday calendar → `409 calendar_read_only`, not a 500.
+- [ ] `GET /v1/calendar-events` with no filter returns events from **every** calendar — worth
+      seeing once against real data before relying on it, since it is also the clearest look at what
+      the [threat model](#threat-model) means in practice.
+- [ ] `GET /v1/calendar-events?calendar=<title>` narrows to that calendar; a title with a space or
+      an umlaut works when percent-encoded (`?calendar=Familie%20%2F%20Geteilt`).
+- [ ] An event further out than `?days=` is **not** returned, and appears once the window widens.
+- [ ] A real all-day event (a birthday) comes back with `isAllDay: true`, not as a timed event.
+- [ ] A naive `startAt` (no offset), an `endAt` before the `startAt`, and an event longer than seven
+      days each → `400 invalid_request`, with nothing created.
+- [ ] `PUT`/`DELETE /v1/calendar-events` → `405` with `Allow: GET, POST`. There is no edit and no
+      delete, and the response says so.
+- [ ] Delete a bridge-created event in Calendar.app → it simply stops appearing; nothing 500s.
+
 **Idempotency**
 
 - [ ] Two concurrent `POST /v1/reminders` with the same `Idempotency-Key` and the same body →
       exactly one reminder created; the second response carries `Idempotency-Replayed: true`.
 - [ ] Same key, different body → `409 idempotency_key_reuse`.
 - [ ] Same key while the first request is still in flight → `409 request_in_progress`.
+- [ ] The same three, for `POST /v1/calendar-events` — **exactly one event on the calendar** after a
+      retried create. This matters more here than for reminders: a duplicate reminder is noise, a
+      duplicate appointment is a double booking, and neither can be deleted through the bridge.
+
+**Audit**
+
+- [ ] `tail -f ~/Library/Logs/ErdaBridge/*.jsonl` while creating an event → the line carries
+      `"op":"calendar.create"` and `"calendar":"<name>"`, and **no title, no notes, and no start or
+      end time**.
 
 **Token rotation**
 
@@ -424,7 +553,8 @@ any change to `BridgeEventKit`, the router, or the store.
       (sanity-check that reachability is a bind choice, not a firewall rule this app doesn't have).
 - [ ] Turn Wi-Fi off with the listener bound → status goes red within ~30s and starts retrying;
       turn it back on → rebinds without a relaunch.
-- [ ] From `leela`: full status → create → list → complete round trip over the real LAN.
+- [ ] From `leela`: full status → create → list → complete round trip over the real LAN, and a
+      calendar create → list round trip alongside it.
 
 **Firewall and signing**
 
@@ -447,7 +577,7 @@ and codesigns `ErdaBridge.app`. Module boundaries *are* the security architectur
 by the compiler, not by discipline:
 
 ```
-BridgeCore      pure logic, Sendable DTOs, no frameworks    ← the RemindersService seam
+BridgeCore      pure logic, Sendable DTOs, no frameworks    ← RemindersService + CalendarService
 BridgeStore     raw SQLite3 + Keychain + JSONL audit sink
 BridgeHTTP      SwiftNIO/NIOHTTP1 — does NOT link EventKit
 BridgeEventKit  the ONLY target that imports EventKit
@@ -464,29 +594,63 @@ ErdaBridgeApp   @main SwiftUI MenuBarExtra + setup window
   **JSONL file** for the audit log so it stays `tail -f`-able and can't be locked out by a
   transaction.
 - **EventKit behind an actor with a custom `DispatchSerialQueue` executor** — serialises mutations
-  *and* keeps blocking `saveReminder:` calls off the cooperative pool. EventKit types are
-  non-`Sendable` and must never cross an isolation boundary; `[EKReminder]` is mapped to DTOs inside
-  the fetch completion closure.
-- **Identifier drift is the main domain risk**, and it is why no list is stored by identifier any
-  more. `EKCalendar.calendarIdentifier` and `EKCalendarItem.calendarItemIdentifier` are explicitly
-  *not* sync-proof, so a list is resolved **by name against EventKit on every request** — which
-  cannot go stale, and which is what made dropping the allowlist a simplification rather than a
-  trade. A name matching nothing, or matching two lists, is refused rather than guessed at. The
+  *and* keeps blocking `saveReminder:`/`saveEvent:`/`events(matching:)` calls off the cooperative
+  pool. EventKit types are non-`Sendable` and must never cross an isolation boundary; `[EKReminder]`
+  is mapped to DTOs inside the fetch completion closure, and `[EKEvent]` in the same expression that
+  reads it.
+- **One actor, one `EKEventStore`, for reminders *and* calendars** (`EventKitStore`, implementing
+  both seams). Not a stylistic choice: the header asks for one store per process, objects fetched
+  from one store cannot be used with another, and `EKEventStoreChanged` is a single notification
+  covering both entity types — so a second store would be a second uncoordinated writer with its own
+  `reset()` schedule. Sharing one store *between* two actors was the alternative and does not
+  survive Swift 6: handing an `EKEventStore` to a second actor's initialiser is passing a
+  non-`Sendable` class across an isolation boundary, which compiles only behind an
+  `@unchecked Sendable` wrapper — a hole in the exact guarantee the module exists to keep. The two
+  capabilities stay independent where it matters (authorization is read per entity type), and the
+  request layer never learns they share an implementation: `BridgeServices` holds two protocol
+  references that happen to point at the same instance.
+- **Identifier drift is the main domain risk**, and it is why no list or calendar is stored by
+  identifier any more. `EKCalendar.calendarIdentifier` and `EKCalendarItem.calendarItemIdentifier`
+  are explicitly *not* sync-proof, so a list or calendar is resolved **by name against EventKit on
+  every request** — which cannot go stale, and which is what made dropping the allowlist a
+  simplification rather than a trade. It is also the reason calendars need *full* access rather than
+  write-only: resolving a name means enumerating calendars. A name matching nothing, or matching
+  two, is refused rather than guessed at — for calendars with two distinct codes
+  (`no_such_calendar` / `ambiguous_calendar`), because Erda relays the reason to Phil and the two
+  fixes differ; lists fold both into `no_such_list`, where the caller's next move is the same. The
   `reminder_map` table still keys on `calendarItemIdentifier` because a reminder has no other
   handle; a dangling id is always a `404`, and `complete` re-reads the reminder's *current* list
   before writing, so a re-homed or orphaned id can never quietly succeed.
 
 ### API
 
-`GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`, `POST /v1/reminders/{id}/complete`.
-Bearer token on all four including status.
+`GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`, `POST /v1/reminders/{id}/complete`,
+`POST /v1/calendar-events`, `GET /v1/calendar-events`. Bearer token on all six including status.
 
 A list is named by its title: `{"list":"Groceries","title":"Buy milk"}` on create, and a repeatable
-`?list=<percent-encoded title>` on list (omitted ⇒ every list). `GET /v1/status` answers
-`{"availability":"ok","lists":["Groceries","Work"]}` — the names a caller may address. The list
-route keeps its `{"items":[…]}` wrapper so it can gain a field later. Query **values** are
-percent-decoded (titles have spaces in them); `+` is not a space, and the **path** is still never
-decoded, so an encoded traversal stays a 404.
+`?list=<percent-encoded title>` on list (omitted ⇒ every list). A calendar works the same way:
+`{"calendar":"Privat","title":"Dentist","startAt":"…","endAt":"…"}` on create, and a repeatable
+`?calendar=<percent-encoded title>` plus `?days=` (1–31, default 7) and `?limit=` (≤ 200, default
+50) on list. The event window always starts *now* — "upcoming" is the only question the route
+answers, and a caller-supplied start would need a zone to be meaningful and would let the route be
+used to trawl history.
+
+`GET /v1/status` answers
+`{"availability":"ok","lists":["Groceries","Work"],"calendarAvailability":"ok","calendars":["Arbeit","Privat"]}`
+— the names a caller may address, with the two capabilities reported **separately** because macOS
+authorizes them separately. Both list routes keep their `{"items":[…]}` wrapper so they can gain a
+field later. Query **values** are percent-decoded (titles have spaces in them); `+` is not a space,
+and the **path** is still never decoded, so an encoded traversal stays a 404.
+
+An event carries **no id** on the wire. No route takes one — there is no complete, no edit and no
+delete — so an id would be a handle to nothing, and shipping one would imply an operation the bridge
+does not have.
+
+Both `startAt` and `endAt` must carry an explicit UTC offset (the same rule `dueAt` has), `endAt`
+must be strictly after `startAt`, and an event may not exceed seven days. The optional `timeZone` is
+a **canonical IANA identifier**: `Europe/Berlin` yes, `CEST` and `GMT+2` no — both of those parse
+through `TimeZone(identifier:)` and both are ambiguous, so the check is membership of Foundation's
+canonical zone list, not merely "it parsed". `UTC` is accepted and canonicalised to `GMT`.
 
 Errors are `{"error":"<snake_code>","requestId":"…"}`
 with **no message field** — structurally impossible to leak a path or `NSError` description.
@@ -504,9 +668,15 @@ on rejection).
   Unicode titles/notes (plus fixed adversarial strings: a vault path, the bearer token, a token-
   shaped string, an RTL override, a SQL-injection attempt) through the **full handler path** against
   `FakeReminders`, and asserts the emitted JSONL audit line contains none of them and no `/Users/`
-  substring. `AuditEvent` has no bare `String` field — the only thing it takes from a request is the
-  list *name*, and `ListName` caps that and refuses control characters — so this guards a structural
-  guarantee rather than hunting for a leak, which is why it's cheap to run over adversarial input.
+  substring. `AuditEvent` has no bare `String` field — the only things it takes from a request are
+  the list and calendar *names*, and `ListName`/`CalendarName` cap those and refuse control
+  characters — so this guards a structural guarantee rather than hunting for a leak, which is why
+  it's cheap to run over adversarial input.
+- `Tests/BridgeHTTPTests/CalendarResponderTests.swift` does the same for the calendar routes, with
+  one extra assertion the reminder version does not need: the line must contain **no event time and
+  no time zone**. `AuditEvent` has no `Date` field other than the request's own timestamp, so an
+  appointment's time has nowhere to go — an audit log that recorded when Phil's appointments were
+  would be a movement log.
 
 ### Setup UI (M5)
 
@@ -542,15 +712,23 @@ choice and re-validates it on **every** attempt:
 The menu bar icon changes shape with the state (`checklist` / triangle / octagon), so a bridge that
 cannot serve a request looks different without opening the window.
 
-**Lists are shown, not chosen.** The window lists every reminder list with its title, source and
-whether it is writable — read-only, because there is nothing to pick. Its job is to show the exact
-spelling of each title, since that is what Erda sends. The list picker, alias assignment and
-broken-alias re-bind flows that used to live here went with the allowlist.
+**Lists and calendars are shown, not chosen.** The window lists every reminder list and every
+calendar with its title, source and whether it is writable — read-only, because there is nothing to
+pick. Its job is to show the exact spelling of each title, since that is what Erda sends, and (for
+calendars) to make it obvious which ones are subscribed and therefore unwritable. The list picker,
+alias assignment and broken-alias re-bind flows that used to live here went with the allowlist.
 
-**Readiness is a conjunction.** The window says **Ready** only when Reminders access is
-`full access`, a token exists, and the listener is bound to a non-loopback address. A Mac with no
-reminder lists at all is amber rather than green — there would be nothing to write to. Anything
-less is amber or red with the specific reason.
+**Access is two buttons, not one.** Reminders and Calendar have separate grants, separate prompts
+and separate status lines, because macOS records them separately. One button raising both prompts
+would either ask for more than it says or fire two dialogs from one click.
+
+**Readiness is a conjunction, with one graded exception.** The window says **Ready** only when
+Reminders access is `full access`, Calendar access is `full access`, a token exists, and the
+listener is bound to a non-loopback address. A Mac with no reminder lists or no calendars at all is
+amber rather than green — there would be nothing to write to. Missing **Reminders** access is red;
+missing **Calendar** access is amber, not red, and says so — a bridge with only reminders granted
+genuinely serves half its routes, so calling that red would be as wrong as calling it green.
+Anything less is amber or red with the specific reason.
 
 ### M0 findings
 

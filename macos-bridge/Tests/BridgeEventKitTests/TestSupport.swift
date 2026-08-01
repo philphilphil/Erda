@@ -8,10 +8,20 @@ func listName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) 
     try #require(ListName(rawValue: raw), sourceLocation: sourceLocation)
 }
 
+func calendarName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> CalendarName {
+    try #require(CalendarName(rawValue: raw), sourceLocation: sourceLocation)
+}
+
 /// One entry of the list table `ListLookup` resolves against, with a calendar id that is obviously
 /// not derived from the title — resolution must never fall back to matching identifiers.
 func candidate(_ title: String, calendarId: String? = nil) -> ListLookup.Candidate {
     ListLookup.Candidate(calendarId: calendarId ?? "CAL-\(UUID().uuidString)", title: title)
+}
+
+/// The same, for `CalendarLookup`. A distinct function rather than an overload on return type:
+/// every call site would otherwise depend on inference to pick a namespace.
+func calendarCandidate(_ title: String, calendarId: String? = nil) -> CalendarLookup.Candidate {
+    CalendarLookup.Candidate(calendarId: calendarId ?? "CAL-\(UUID().uuidString)", title: title)
 }
 
 /// `EKErrorDomain` and its ordinals, written out rather than imported.
@@ -26,14 +36,18 @@ enum EKErrorFixture {
 
     static let noCalendar = 1
     static let noStartDate = 2
+    static let noEndDate = 3
     static let datesInverted = 4
     static let internalFailure = 5
     static let calendarReadOnly = 6
     static let startDateTooFarInFuture = 9
+    static let invalidSpan = 13
     static let calendarIsImmutable = 16
     static let recurringReminderRequiresDueDate = 18
+    static let calendarDoesNotAllowEvents = 22
     static let calendarDoesNotAllowReminders = 23
     static let sourceDoesNotAllowReminders = 24
+    static let sourceDoesNotAllowEvents = 25
     static let priorityIsInvalid = 26
     static let eventStoreNotAuthorized = 29
 

@@ -38,7 +38,24 @@ public class AppleBridgeClientTests
             Options.Create(new AppleBridgeOptions { Enabled = true, BaseUrl = baseUrl, ApiKey = apiKey, TimeoutSeconds = 5 }),
             NullLogger<AppleBridgeClient>.Instance);
 
-    private static readonly object StatusOk = new { availability = "ok", lists = new[] { "Groceries" } };
+    private static readonly object StatusOk = new
+    {
+        availability = "ok",
+        lists = new[] { "Groceries" },
+        calendarAvailability = "ok",
+        calendars = new[] { "Privat" },
+    };
+
+    private static object EventBody(string calendar = "Privat", string title = "Dentist") => new
+    {
+        calendar,
+        title,
+        notes = (string?)null,
+        startAt = new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2)),
+        endAt = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.FromHours(2)),
+        isAllDay = false,
+        timeZone = "Europe/Berlin",
+    };
 
     private static object ReminderBody(string list = "Groceries", string title = "Buy milk") => new
     {
@@ -144,7 +161,13 @@ public class AppleBridgeClientTests
     {
         var handler = new CapturingHandler
         {
-            ResponseBody = new { availability = "ok", lists = new[] { "Groceries", "Work" } },
+            ResponseBody = new
+            {
+                availability = "ok",
+                lists = new[] { "Groceries", "Work" },
+                calendarAvailability = "ok",
+                calendars = new[] { "Arbeit", "Privat" },
+            },
         };
 
         var result = await Make(handler).GetStatusAsync();
@@ -152,6 +175,31 @@ public class AppleBridgeClientTests
         Assert.True(result.Success);
         Assert.Equal("ok", result.Value!.Availability);
         Assert.Equal(["Groceries", "Work"], result.Value!.Lists);
+        Assert.Equal(["Arbeit", "Privat"], result.Value!.Calendars);
+    }
+
+    // macOS grants the two permissions separately, so the bridge reports them separately — a client
+    // that collapsed them would tell Phil to fix the wrong setting.
+    [Fact]
+    public async Task Status_reports_calendar_availability_separately_from_reminders()
+    {
+        var handler = new CapturingHandler
+        {
+            ResponseBody = new
+            {
+                availability = "ok",
+                lists = new[] { "Groceries" },
+                calendarAvailability = "unauthorized",
+                calendars = Array.Empty<string>(),
+            },
+        };
+
+        var result = await Make(handler).GetStatusAsync();
+
+        Assert.True(result.Success);
+        Assert.Equal("ok", result.Value!.Availability);
+        Assert.Equal("unauthorized", result.Value!.CalendarAvailability);
+        Assert.Empty(result.Value!.Calendars);
     }
 
     [Fact]
@@ -202,6 +250,10 @@ public class AppleBridgeClientTests
     [InlineData("no_such_list")]
     [InlineData("list_read_only")]
     [InlineData("reminders_unavailable")]
+    [InlineData("no_such_calendar")]
+    [InlineData("ambiguous_calendar")]
+    [InlineData("calendar_read_only")]
+    [InlineData("calendar_unavailable")]
     [InlineData("internal")]
     public async Task Every_closed_error_code_maps_to_a_non_empty_message(string code)
     {
@@ -334,5 +386,227 @@ public class AppleBridgeClientTests
 
         var status = new YieldingHandler { ResponseBody = StatusOk };
         Assert.True((await MakeYielding(status).GetStatusAsync()).Success);
+    }
+
+    // The same regression, on the new POST. `using var request` plus a returned-but-not-awaited send
+    // disposes the JsonContent before HttpClient writes it, and the failure looks exactly like "the
+    // Mac is asleep". The in-memory fake completes synchronously and hides it; yielding first
+    // reproduces the real ordering.
+    [Fact]
+    public async Task Create_calendar_event_body_survives_an_async_gap_before_it_is_read()
+    {
+        var handler = new YieldingHandler { ResponseBody = EventBody() };
+
+        var result = await MakeYielding(handler).CreateCalendarEventAsync(
+            "Privat",
+            "Dentist",
+            new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2)),
+            new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.FromHours(2)));
+
+        Assert.True(result.Success);
+        Assert.NotNull(handler.Body);
+        Assert.Contains("Dentist", handler.Body);
+        Assert.Contains("Privat", handler.Body);
+    }
+
+    // MARK: - Calendar events
+
+    [Fact]
+    public async Task Create_calendar_event_posts_to_the_calendar_route_with_an_idempotency_key()
+    {
+        var handler = new CapturingHandler { ResponseBody = EventBody() };
+
+        var result = await Make(handler).CreateCalendarEventAsync(
+            "Privat",
+            "Dentist",
+            new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2)),
+            new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.FromHours(2)),
+            notes: "bring the referral",
+            timeZone: "Europe/Berlin");
+
+        Assert.True(result.Success);
+        Assert.Equal(HttpMethod.Post, handler.Request!.Method);
+        Assert.Equal("/v1/calendar-events", handler.Request.RequestUri!.AbsolutePath);
+        Assert.True(Guid.TryParse(handler.Request.Headers.GetValues("Idempotency-Key").Single(), out _));
+
+        using var sentBody = JsonDocument.Parse(handler.Body!);
+        Assert.Equal("Privat", sentBody.RootElement.GetProperty("calendar").GetString());
+        Assert.Equal("bring the referral", sentBody.RootElement.GetProperty("notes").GetString());
+        Assert.Equal("Europe/Berlin", sentBody.RootElement.GetProperty("timeZone").GetString());
+    }
+
+    // The bridge refuses a timestamp with no offset outright (ISO8601.parseRequiringOffset), so both
+    // ends have to go out carrying one — and it must be the caller's offset, not a UTC-normalised
+    // rewrite, or the event displays at the wrong wall-clock time.
+    [Fact]
+    public async Task Create_calendar_event_sends_both_timestamps_with_their_explicit_offset()
+    {
+        var handler = new CapturingHandler { ResponseBody = EventBody() };
+        var start = new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2));
+        var end = new DateTimeOffset(2026, 8, 3, 10, 30, 0, TimeSpan.FromHours(2));
+
+        await Make(handler).CreateCalendarEventAsync("Privat", "Dentist", start, end);
+
+        using var sentBody = JsonDocument.Parse(handler.Body!);
+        Assert.Contains("+02:00", sentBody.RootElement.GetProperty("startAt").GetString());
+        Assert.Contains("+02:00", sentBody.RootElement.GetProperty("endAt").GetString());
+    }
+
+    // DateTimeOffset, not DateTime, so the response deserializer cannot silently drop the offset
+    // either — the round trip has to land on the same instant.
+    [Fact]
+    public async Task Create_calendar_event_round_trips_a_non_utc_offset()
+    {
+        var start = new DateTimeOffset(2026, 8, 3, 9, 0, 0, TimeSpan.FromHours(2));
+        var handler = new CapturingHandler { ResponseBody = EventBody() };
+
+        var result = await Make(handler).CreateCalendarEventAsync(
+            "Privat", "Dentist", start, start.AddHours(1));
+
+        Assert.True(result.Success);
+        Assert.Equal(start, result.Value!.StartAt);
+        Assert.Equal("Europe/Berlin", result.Value!.TimeZone);
+        Assert.False(result.Value!.IsAllDay);
+    }
+
+    [Fact]
+    public async Task List_calendar_events_unwraps_the_items_object_and_builds_its_query()
+    {
+        var handler = new CapturingHandler { ResponseBody = new { items = new[] { EventBody() } } };
+
+        var result = await Make(handler).ListCalendarEventsAsync(["Privat", "Arbeit"], days: 14, limit: 25);
+
+        Assert.True(result.Success);
+        Assert.Single(result.Value!);
+        Assert.Equal("Dentist", result.Value![0].Title);
+        Assert.Equal(
+            "http://192.168.1.50:17832/v1/calendar-events?calendar=Privat&calendar=Arbeit&days=14&limit=25",
+            handler.Request!.RequestUri!.AbsoluteUri);
+    }
+
+    // Calendar names hold spaces and umlauts just like list names, and the bridge does not treat "+"
+    // as a space — so a space has to go out as %20 and nothing else.
+    [Fact]
+    public async Task List_calendar_events_percent_encodes_a_name_with_spaces_and_non_ascii()
+    {
+        var handler = new CapturingHandler { ResponseBody = new { items = Array.Empty<object>() } };
+
+        await Make(handler).ListCalendarEventsAsync(["Family / Shared", "Geburtstage ☕"]);
+
+        var uri = handler.Request!.RequestUri!;
+        Assert.DoesNotContain(" ", uri.PathAndQuery);
+        Assert.DoesNotContain("+", uri.PathAndQuery);
+        Assert.Contains("calendar=Family%20%2F%20Shared", uri.PathAndQuery);
+    }
+
+    [Fact]
+    public async Task List_calendar_events_omits_a_query_entirely_when_nothing_narrows_it()
+    {
+        var handler = new CapturingHandler { ResponseBody = new { items = Array.Empty<object>() } };
+
+        await Make(handler).ListCalendarEventsAsync();
+
+        Assert.Equal("http://192.168.1.50:17832/v1/calendar-events", handler.Request!.RequestUri!.AbsoluteUri);
+        Assert.False(handler.Request.Headers.Contains("Idempotency-Key"));
+    }
+
+    // The four calendar failures each imply a different fix, and Erda relays them verbatim — so no
+    // two of them may read the same, and none may read like its reminders counterpart.
+    [Fact]
+    public async Task The_four_calendar_failures_read_differently_from_each_other()
+    {
+        var messages = new Dictionary<string, string>();
+        foreach (var code in new[] { "no_such_calendar", "ambiguous_calendar", "calendar_read_only", "calendar_unavailable" })
+        {
+            var result = await Make(new CapturingHandler
+            {
+                Status = HttpStatusCode.BadRequest,
+                ResponseBody = new { error = code, requestId = "r1" },
+            }).CreateCalendarEventAsync("Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+            Assert.False(result.Success);
+            messages[code] = result.Error!;
+        }
+
+        Assert.Equal(4, messages.Values.Distinct().Count());
+        Assert.Contains("no calendar with that name", messages["no_such_calendar"], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rename one", messages["ambiguous_calendar"], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("read-only", messages["calendar_read_only"], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Calendars permission", messages["calendar_unavailable"]);
+    }
+
+    // "Grant Reminders access" and "Grant Calendar access" are two different rows in System Settings,
+    // so the two 503s must not be interchangeable.
+    [Fact]
+    public async Task Calendar_unavailable_names_a_different_permission_from_reminders_unavailable()
+    {
+        var calendar = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.ServiceUnavailable,
+            ResponseBody = new { error = "calendar_unavailable", requestId = "r1" },
+        }).CreateCalendarEventAsync("Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+        var reminders = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.ServiceUnavailable,
+            ResponseBody = new { error = "reminders_unavailable", requestId = "r1" },
+        }).CreateReminderAsync("Groceries", "x");
+
+        Assert.NotEqual(calendar.Error, reminders.Error);
+        Assert.Contains("Calendars permission", calendar.Error);
+        Assert.DoesNotContain("Reminders permission", calendar.Error);
+        Assert.Contains("Reminders permission", reminders.Error);
+    }
+
+    // A missing calendar and a missing list are different problems on different Macs' surfaces; the
+    // wording must send Phil to the right app.
+    [Fact]
+    public async Task No_such_calendar_and_no_such_list_do_not_read_the_same()
+    {
+        var calendar = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.NotFound,
+            ResponseBody = new { error = "no_such_calendar", requestId = "r1" },
+        }).CreateCalendarEventAsync("Nope", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+        var list = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.NotFound,
+            ResponseBody = new { error = "no_such_list", requestId = "r1" },
+        }).CreateReminderAsync("Nope", "x");
+
+        Assert.NotEqual(calendar.Error, list.Error);
+        Assert.Contains("Calendar.app", calendar.Error);
+        Assert.Contains("Reminders.app", list.Error);
+    }
+
+    [Fact]
+    public async Task Calendar_transport_failure_yields_a_result_instead_of_throwing()
+    {
+        var handler = new CapturingHandler { ThrowOnSend = new HttpRequestException("connection refused") };
+
+        var result = await Make(handler).CreateCalendarEventAsync(
+            "Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+
+        Assert.False(result.Success);
+        Assert.Contains("Couldn't reach", result.Error);
+    }
+
+    [Fact]
+    public async Task Unconfigured_base_url_fails_a_calendar_call_without_making_one()
+    {
+        var handler = new CapturingHandler();
+        var client = new AppleBridgeClient(
+            new HttpClient(handler),
+            Options.Create(new AppleBridgeOptions { BaseUrl = "", ApiKey = "x" }),
+            NullLogger<AppleBridgeClient>.Instance);
+
+        var created = await client.CreateCalendarEventAsync(
+            "Privat", "x", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
+        var listed = await client.ListCalendarEventsAsync();
+
+        Assert.False(created.Success);
+        Assert.False(listed.Success);
+        Assert.Null(handler.Request);
     }
 }

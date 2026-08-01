@@ -42,6 +42,56 @@ public enum Validate {
         return raw
     }
 
+    public static func eventLimit(_ raw: Int) throws -> Int {
+        guard raw >= 1, raw <= Limits.eventLimitMax else { throw ApiError.invalidRequest }
+        return raw
+    }
+
+    public static func eventWindowDays(_ raw: Int) throws -> Int {
+        guard (Limits.eventWindowMinDays...Limits.eventWindowMaxDays).contains(raw) else {
+            throw ApiError.invalidRequest
+        }
+        return raw
+    }
+
+    /// An **IANA** time-zone identifier (`Europe/Berlin`), and nothing else.
+    ///
+    /// Two checks, because either alone is too loose. `TimeZone(identifier:)` must parse it —
+    /// which already rules out `CEST` — *and* what it parses to must be a zone Foundation lists as
+    /// canonical. Parsing alone is not enough: `TimeZone(identifier: "PST")` succeeds and produces
+    /// a zone called `PST`, and an abbreviation is ambiguous across the year and across the world.
+    /// `TimeZone(identifier: "GMT+2")` likewise succeeds, as an offset dressed up as a zone.
+    /// Silently accepting either is how an appointment lands an hour out twice a year.
+    ///
+    /// An alias is canonicalised rather than refused: `UTC` parses to `GMT`, which *is* canonical,
+    /// so it is accepted and stored as `GMT`. What comes back on the wire is therefore the
+    /// canonical spelling, not necessarily the one that was sent.
+    public static func timeZone(_ raw: String) throws -> TimeZone {
+        guard let zone = TimeZone(identifier: raw),
+              Self.canonicalTimeZoneIdentifiers.contains(zone.identifier)
+        else {
+            throw ApiError.invalidRequest
+        }
+        return zone
+    }
+
+    /// Built once. `knownTimeZoneIdentifiers` is an array of several hundred strings, and a linear
+    /// scan per request would be a silly thing to pay for a membership test.
+    private static let canonicalTimeZoneIdentifiers = Set(TimeZone.knownTimeZoneIdentifiers)
+
+    /// The two rules an event's interval has to satisfy, checked here rather than left to
+    /// EventKit: `EKErrorDatesInverted` comes back from a save that has already been attempted,
+    /// and there is no error at all for "this appointment is four months long".
+    ///
+    /// `end` must be **strictly** after `start` — a zero-length event is not a thing anyone means
+    /// to create, and EventKit renders one as a point with no extent.
+    public static func eventInterval(start: Date, end: Date) throws {
+        guard end > start else { throw ApiError.invalidRequest }
+        guard end.timeIntervalSince(start) <= Limits.eventMaxDuration else {
+            throw ApiError.invalidRequest
+        }
+    }
+
     /// Idempotency keys are opaque to the bridge, but they are stored, so they get a length and
     /// charset cap: printable ASCII only, so a key can never carry a control character into the
     /// database or the log.

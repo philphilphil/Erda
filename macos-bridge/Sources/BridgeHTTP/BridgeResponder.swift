@@ -55,6 +55,7 @@ public struct BridgeResponder: Sendable {
                 tokenId: trace.tokenId,
                 operation: trace.operation,
                 list: trace.list,
+                calendar: trace.calendar,
                 result: result,
                 status: response.status,
                 durationMs: Int((services.clock.now.timeIntervalSince(started) * 1000).rounded()),
@@ -91,6 +92,12 @@ public struct BridgeResponder: Sendable {
         case .completeReminder(let id):
             return try await withIdempotency(request, trace: trace) {
                 try await completeResponse(id: id)
+            }
+        case .listCalendarEvents(let query):
+            return try await calendarEventsResponse(query)
+        case .createCalendarEvent:
+            return try await withIdempotency(request, trace: trace) {
+                try await createCalendarEventResponse(request, trace: trace)
             }
         }
     }
@@ -130,12 +137,12 @@ public struct BridgeResponder: Sendable {
         let contentType = request.headers.first(name: "Content-Type")
 
         switch route {
-        case .status, .listReminders:
+        case .status, .listReminders, .listCalendarEvents:
             // A GET with a body is a client bug worth naming rather than ignoring; ignoring it
             // is how a request gets interpreted differently by two hops.
             guard request.body.isEmpty else { throw ApiError.invalidRequest }
 
-        case .createReminder:
+        case .createReminder, .createCalendarEvent:
             guard let contentType, Self.isJSON(contentType) else { throw ApiError.unsupportedMediaType }
             guard !request.body.isEmpty else { throw ApiError.invalidRequest }
 
@@ -211,7 +218,11 @@ public struct BridgeResponder: Sendable {
             availability: await services.reminders.availability(),
             // The names a caller may address. It has to be able to learn them: with no allowlist
             // and no aliases, the name in Reminders.app is the only handle there is.
-            lists: await services.reminders.availableLists()
+            lists: await services.reminders.availableLists(),
+            // Reported separately, because macOS authorizes the two independently — one of these
+            // can be `ok` while the other is not, and a single verdict could not say so.
+            calendarAvailability: await services.calendar.calendarAvailability(),
+            calendars: await services.calendar.availableCalendars()
         )
         // Status reports unavailability in its body rather than as a 503: a monitoring client
         // needs to be able to ask "are you well?" and get an answer, not an error.
@@ -242,10 +253,42 @@ public struct BridgeResponder: Sendable {
         return BridgeResponse(status: 200, body: try encode(outcome))
     }
 
+    private func calendarEventsResponse(_ query: ListCalendarEventsQuery) async throws -> BridgeResponse {
+        try await requireCalendarAvailable()
+        let events = try await services.calendar.upcoming(query)
+        // Wrapped in an object at the HTTP edge only — the service seam still speaks in arrays.
+        return BridgeResponse(status: 200, body: try encode(ListCalendarEventsResponse(items: events)))
+    }
+
+    private func createCalendarEventResponse(
+        _ request: BridgeRequest,
+        trace: AuditTrace
+    ) async throws -> BridgeResponse {
+        // Step 7: strict decode. Unknown keys, over-length fields, a naive timestamp, an end
+        // before the start and an appointment longer than a week all fail here, before anything
+        // reaches EventKit.
+        let decoded = try StrictJSON.decode(CreateCalendarEventRequest.self, from: Data(request.body))
+        // The calendar *name* is the only thing about this request the audit log ever sees — never
+        // the title, the notes or the times.
+        trace.calendar = decoded.calendar
+
+        try await requireCalendarAvailable()
+        let event = try await services.calendar.create(decoded.command(defaultTimeZone: .current))
+        return BridgeResponse(status: 201, body: try encode(event))
+    }
+
     /// Revoked access is a 503 with a `Retry-After` — never a 500 and never a stack trace.
     private func requireAvailable() async throws {
         if await services.reminders.availability() != .ok {
             throw HTTPFailure.remindersUnavailable()
+        }
+    }
+
+    /// The calendar counterpart, and a *distinct* 503: "grant Reminders access" and "grant
+    /// Calendar access" send Phil to two different rows in System Settings.
+    private func requireCalendarAvailable() async throws {
+        if await services.calendar.calendarAvailability() != .ok {
+            throw HTTPFailure.calendarUnavailable()
         }
     }
 

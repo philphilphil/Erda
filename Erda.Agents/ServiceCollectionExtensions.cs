@@ -24,6 +24,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<VaultEditorTool>();
         services.AddSingleton<CardPriceTool>();
         services.AddSingleton<AppleReminderTools>();
+        services.AddSingleton<AppleCalendarTools>();
 
         // Browser MCP: Playwright stdio child process, connected once at startup.
         services.AddSingleton<IBrowserMcp, PlaywrightMcp>();

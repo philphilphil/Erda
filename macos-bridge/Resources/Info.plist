@@ -32,6 +32,13 @@
 	<!-- Legacy pre-macOS-14 key; harmless, cheap insurance. -->
 	<key>NSRemindersUsageDescription</key>
 	<string>ErdaBridge reads and creates reminders in your lists, so your Erda assistant can use them.</string>
+	<!-- Full access, not write-only: naming a calendar by its title means enumerating calendars,
+	     which write-only forbids. The string says "reads" first because that is the honest order. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>ErdaBridge reads your calendar events and creates new ones, so your Erda assistant can use them.</string>
+	<!-- Legacy pre-macOS-14 key; harmless, cheap insurance. -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>ErdaBridge reads your calendar events and creates new ones, so your Erda assistant can use them.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ErdaBridge accepts requests from your Erda server on the local network.</string>
 	<!-- A server must flush its state before dying. -->

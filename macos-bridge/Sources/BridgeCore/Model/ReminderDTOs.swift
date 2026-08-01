@@ -145,14 +145,31 @@ public struct CompleteOutcome: Sendable, Equatable, Codable {
 }
 
 /// The body of `GET /v1/status`.
+///
+/// The two capabilities are reported **separately** because macOS authorizes them separately: a
+/// Mac can have granted reminders and denied calendars, and a single `availability` would have to
+/// lie about one of them. The reminder fields keep their original names and meaning, so a client
+/// written before calendars existed still reads this correctly.
 public struct StatusResponse: Sendable, Equatable, Codable {
     public let availability: ReminderAvailability
     /// Every reminder list on this Mac, sorted — the names a caller may address. Empty when access
     /// is not usable, which is exactly what `availability` is there to explain.
     public let lists: [ListName]
+    public let calendarAvailability: CalendarAvailability
+    /// Every calendar on this Mac, sorted. Same job as `lists`: with no allowlist and no aliases,
+    /// the name in Calendar.app is the only handle there is, so a caller has to be able to learn
+    /// them.
+    public let calendars: [CalendarName]
 
-    public init(availability: ReminderAvailability, lists: [ListName]) {
+    public init(
+        availability: ReminderAvailability,
+        lists: [ListName],
+        calendarAvailability: CalendarAvailability,
+        calendars: [CalendarName]
+    ) {
         self.availability = availability
         self.lists = lists
+        self.calendarAvailability = calendarAvailability
+        self.calendars = calendars
     }
 }

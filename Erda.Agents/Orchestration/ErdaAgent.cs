@@ -52,11 +52,17 @@ public static class ErdaAgent
         // card_price is pure HTTP (Scryfall + a prebuilt Cardmarket link) — always available.
         tools.AddRange(services.GetRequiredService<CardPriceTool>().AsTools());
 
-        // Apple Reminders (macOS ErdaBridge), only when configured — same null-when-disabled posture
-        // as BrowserAgent.TryCreateTool, so a Phil without the bridge running never sees these tools.
+        // Apple Reminders and Apple Calendar (macOS ErdaBridge), only when configured — same
+        // null-when-disabled posture as BrowserAgent.TryCreateTool, so a Phil without the bridge
+        // running never sees these tools. One switch for both: they are the same app, the same token
+        // and the same LAN address. (The two macOS *permissions* are separate, but that is the
+        // bridge's problem — an ungranted one surfaces as a readable 503 through the tool.)
         var appleBridge = services.GetRequiredService<IOptions<AppleBridgeOptions>>().Value;
         if (appleBridge.Enabled)
+        {
             tools.AddRange(services.GetRequiredService<AppleReminderTools>().AsTools());
+            tools.AddRange(services.GetRequiredService<AppleCalendarTools>().AsTools());
+        }
 
         var browseTool = BrowserAgent.TryCreateTool(services);
         if (browseTool is not null) tools.Add(browseTool);

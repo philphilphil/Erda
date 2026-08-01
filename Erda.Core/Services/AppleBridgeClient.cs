@@ -23,9 +23,30 @@ public sealed record AppleReminder(
 /// reminder was already done — the bridge treats that as a success no-op, not an error.</summary>
 public sealed record AppleReminderCompletion(string Id, bool AlreadyCompleted);
 
-/// <summary>The bridge's <c>GET /v1/status</c> response: whether Reminders access is currently
-/// usable, and the names of every reminder list on the Mac — the names a caller may address.</summary>
-public sealed record AppleBridgeStatus(string Availability, IReadOnlyList<string> Lists);
+/// <summary>One Apple Calendar event as reported by the bridge. Mirrors the wire shape of the Swift
+/// <c>CalendarEventSnapshot</c> (macos-bridge/Sources/BridgeCore/Model/CalendarDTOs.swift):
+/// <c>Calendar</c> is the calendar's name as it reads in Calendar.app, and there is deliberately
+/// <b>no id</b> — the bridge has no route that takes one, since events cannot be edited or deleted
+/// through it. <see cref="TimeZone"/> is the event's own IANA zone and is null for a floating
+/// event.</summary>
+public sealed record AppleCalendarEvent(
+    string Calendar,
+    string Title,
+    string? Notes,
+    DateTimeOffset StartAt,
+    DateTimeOffset EndAt,
+    bool IsAllDay,
+    string? TimeZone);
+
+/// <summary>The bridge's <c>GET /v1/status</c> response. Reminders and Calendar are reported
+/// separately because macOS authorizes them separately — one can be usable while the other is not,
+/// so a single verdict would have to lie about one of them. <see cref="Lists"/> and
+/// <see cref="Calendars"/> are the names a caller may address.</summary>
+public sealed record AppleBridgeStatus(
+    string Availability,
+    IReadOnlyList<string> Lists,
+    string CalendarAvailability,
+    IReadOnlyList<string> Calendars);
 
 /// <summary>
 /// The outcome of one <see cref="IAppleBridgeClient"/> call. Never an exception — like
@@ -50,13 +71,16 @@ public sealed class AppleBridgeResult<T>
     public static AppleBridgeResult<T> Fail(string error) => new(false, default, error);
 }
 
-/// <summary>Client for the macOS ErdaBridge HTTP API (create/list/complete Apple Reminders). The
-/// bridge reaches every reminder list on the Mac and lists are addressed by their real name — see
-/// <see cref="AppleBridgeOptions"/> for configuration and macos-bridge/README.md for why.</summary>
+/// <summary>Client for the macOS ErdaBridge HTTP API: create/list/complete Apple Reminders, plus
+/// create/list Apple Calendar events. The bridge reaches every reminder list and every calendar on
+/// the Mac, both addressed by their real name — see <see cref="AppleBridgeOptions"/> for
+/// configuration and macos-bridge/README.md for why (including why calendar access is full read,
+/// not write-only).</summary>
 public interface IAppleBridgeClient
 {
-    /// <summary>Checks whether the bridge can currently serve requests (Reminders access granted) and
-    /// which list names exist on the Mac.</summary>
+    /// <summary>Checks whether the bridge can currently serve requests — Reminders and Calendar
+    /// access are reported separately, since macOS grants them separately — and which list and
+    /// calendar names exist on the Mac.</summary>
     Task<AppleBridgeResult<AppleBridgeStatus>> GetStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Creates a reminder in the named list. <paramref name="list"/> is the list's name as it
@@ -81,6 +105,32 @@ public interface IAppleBridgeClient
     /// reminder succeeds as a no-op (<see cref="AppleReminderCompletion.AlreadyCompleted"/> = true).</summary>
     Task<AppleBridgeResult<AppleReminderCompletion>> CompleteReminderAsync(
         string reminderId, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates an event in the named calendar. <paramref name="calendar"/> is the calendar's
+    /// name as it reads in Calendar.app — there is no default calendar; a name that matches nothing
+    /// and a name that matches two calendars fail <i>differently</i>, because the fixes differ.
+    /// <paramref name="startAt"/>/<paramref name="endAt"/> must carry a real offset (the bridge
+    /// refuses a naive timestamp), <paramref name="endAt"/> must be after <paramref name="startAt"/>,
+    /// and the event may not exceed seven days. <paramref name="timeZone"/> is an optional IANA
+    /// identifier (e.g. <c>Europe/Berlin</c>) deciding which wall-clock time the event displays
+    /// at.</summary>
+    Task<AppleBridgeResult<AppleCalendarEvent>> CreateCalendarEventAsync(
+        string calendar,
+        string title,
+        DateTimeOffset startAt,
+        DateTimeOffset endAt,
+        string? notes = null,
+        string? timeZone = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Lists upcoming events, starting now. Omitting <paramref name="calendars"/> spans every
+    /// calendar on the Mac. <paramref name="days"/> is the window length (the bridge's default
+    /// applies if omitted; it caps both the window and the count).</summary>
+    Task<AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>> ListCalendarEventsAsync(
+        IReadOnlyList<string>? calendars = null,
+        int? days = null,
+        int? limit = null,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -184,6 +234,63 @@ public sealed class AppleBridgeClient(
         return await SendAsync<AppleReminderCompletion>(request, "complete reminder", cancellationToken);
     }
 
+    public async Task<AppleBridgeResult<AppleCalendarEvent>> CreateCalendarEventAsync(
+        string calendar,
+        string title,
+        DateTimeOffset startAt,
+        DateTimeOffset endAt,
+        string? notes = null,
+        string? timeZone = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryBuildUrl("/v1/calendar-events", out var url, out var configError))
+            return AppleBridgeResult<AppleCalendarEvent>.Fail(configError!);
+
+        // Note the `await` inside the `using` — see the comment on GetStatusAsync. A DateTimeOffset
+        // serializes with its offset intact ("+02:00"), which is exactly what the bridge requires:
+        // it refuses a timestamp with no offset outright.
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(
+                new { calendar, title, notes, startAt, endAt, timeZone }, options: Json),
+        };
+        ApplyAuth(request);
+        ApplyIdempotencyKey(request);
+        return await SendAsync<AppleCalendarEvent>(request, "create calendar event", cancellationToken);
+    }
+
+    public async Task<AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>> ListCalendarEventsAsync(
+        IReadOnlyList<string>? calendars = null,
+        int? days = null,
+        int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryBuildUrl("/v1/calendar-events", out var baseUrl, out var configError))
+            return AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Fail(configError!);
+
+        // GET /v1/calendar-events takes a repeated ?calendar=x&calendar=y (omitted means every
+        // calendar) plus ?days=n and ?limit=n. EscapeDataString for the same reason as the reminder
+        // route: calendar names hold spaces and non-ASCII, and a space must arrive as %20, never +.
+        var query = new List<string>();
+        foreach (var calendar in calendars ?? [])
+            if (!string.IsNullOrWhiteSpace(calendar))
+                query.Add($"calendar={Uri.EscapeDataString(calendar.Trim())}");
+        if (days is > 0)
+            query.Add($"days={days.Value}");
+        if (limit is > 0)
+            query.Add($"limit={limit.Value}");
+
+        var url = query.Count == 0 ? baseUrl : $"{baseUrl}?{string.Join("&", query)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplyAuth(request);
+
+        // Wrapper object, {"items":[...]}, not a bare array — same convention as the reminder list.
+        var result = await SendAsync<CalendarEventListResponse>(request, "list calendar events", cancellationToken);
+        return result.Success
+            ? AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Ok(result.Value!.Items)
+            : AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Fail(result.Error!);
+    }
+
     private bool TryBuildUrl(string path, out string url, out string? error)
     {
         var baseUrl = options.Value.BaseUrl;
@@ -249,12 +356,16 @@ public sealed class AppleBridgeClient(
 
     /// <summary>
     /// Maps the bridge's closed error-code set (macos-bridge/Sources/BridgeCore/Model/ApiError.swift)
-    /// to a short message safe to relay to Phil. Three categories need visibly different wording since
-    /// they call for different fixes: <c>no_such_list</c>/<c>list_read_only</c> mean the list Erda
-    /// named is wrong (retry with a different name), <c>reminders_unavailable</c> points at macOS
-    /// Reminders permission (revoked/never granted), and everything else here is either an Erda-side
-    /// bug or a transient bridge condition worth retrying. A caught exception (network failure, not an
-    /// HTTP error response) never reaches this method — see <see cref="TransportFailureMessage"/>.
+    /// to a short message safe to relay to Phil. Categories that call for different fixes must read
+    /// differently: <c>no_such_list</c>/<c>list_read_only</c> mean the list Erda named is wrong (retry
+    /// with a different name), <c>reminders_unavailable</c> points at macOS Reminders permission, and
+    /// on the calendar side <c>no_such_calendar</c> (check the name), <c>ambiguous_calendar</c> (two
+    /// calendars wear that name — rename one), <c>calendar_read_only</c> (a subscribed/holiday
+    /// calendar) and <c>calendar_unavailable</c> (macOS <i>Calendars</i> permission, a different
+    /// System Settings row from Reminders) are four separate fixes and never share wording.
+    /// Everything else here is either an Erda-side bug or a transient bridge condition worth
+    /// retrying. A caught exception (network failure, not an HTTP error response) never reaches this
+    /// method — see <see cref="TransportFailureMessage"/>.
     /// </summary>
     private static string MapError(string? code) => code switch
     {
@@ -271,8 +382,12 @@ public sealed class AppleBridgeClient(
         "no_such_list" => "There's no Reminders list with that name on the Mac — check the exact name in Reminders.app (or list reminders to see the names). If two accounts both have a list with that name, rename one: the bridge won't guess between them.",
         "list_read_only" => "That Reminders list is read-only, so nothing can be added to it — pick a different list.",
         "reminders_unavailable" => "The Mac has revoked (or never granted) Reminders access to ErdaBridge — check Reminders permission in System Settings on the Mac.",
+        "no_such_calendar" => "There's no calendar with that name on the Mac — check the exact name in Calendar.app.",
+        "ambiguous_calendar" => "Two calendars on the Mac have that exact name (e.g. one in iCloud and one local), so the bridge won't guess between them — rename one in Calendar.app, or name the other calendar instead.",
+        "calendar_read_only" => "That calendar is read-only (a subscribed or holiday calendar), so nothing can be added to it — pick a different calendar.",
+        "calendar_unavailable" => "The Mac has revoked (or never granted) Calendar access to ErdaBridge — check Calendars permission in System Settings on the Mac. (That's a different setting from Reminders.)",
         "internal" => "The bridge hit an internal error — check its logs on the Mac.",
-        _ => "The Apple Reminders bridge returned an unexpected error.",
+        _ => "The Apple bridge returned an unexpected error.",
     };
 
     /// <summary>The bridge's error envelope: <c>{"error":"&lt;snake_code&gt;","requestId":"…"}</c> — no
@@ -281,4 +396,7 @@ public sealed class AppleBridgeClient(
 
     /// <summary>The wrapper body of <c>GET /v1/reminders</c>: <c>{"items":[...]}</c>.</summary>
     private sealed record ReminderListResponse(IReadOnlyList<AppleReminder> Items);
+
+    /// <summary>The wrapper body of <c>GET /v1/calendar-events</c>: <c>{"items":[...]}</c>.</summary>
+    private sealed record CalendarEventListResponse(IReadOnlyList<AppleCalendarEvent> Items);
 }

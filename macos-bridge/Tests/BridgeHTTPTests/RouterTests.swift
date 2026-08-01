@@ -7,13 +7,18 @@ import Testing
 
 @Suite("Router")
 struct RouterTests {
-    @Test("the four routes match")
+    @Test("the six routes match")
     func matchesTheTable() throws {
         #expect(try Router.route(method: .GET, uri: "/v1/status") == .status)
         #expect(try Router.route(method: .POST, uri: "/v1/reminders") == .createReminder)
+        #expect(try Router.route(method: .POST, uri: "/v1/calendar-events") == .createCalendarEvent)
 
         guard case .listReminders = try Router.route(method: .GET, uri: "/v1/reminders") else {
             Issue.record("GET /v1/reminders should list")
+            return
+        }
+        guard case .listCalendarEvents = try Router.route(method: .GET, uri: "/v1/calendar-events") else {
+            Issue.record("GET /v1/calendar-events should list")
             return
         }
 
@@ -25,13 +30,17 @@ struct RouterTests {
     @Test("an unknown path is a 404", arguments: [
         "/", "", "/v1", "/v1/", "/v2/status", "/status", "/v1/reminder", "/v1/status/extra",
         "/v1/reminders/complete", "/v1//status", "//v1/status",
+        // Shapes the calendar API deliberately does not have: no calendar management, no
+        // per-event addressing, and no `/v1/calendar/…` prefix that would imply either.
+        "/v1/calendar", "/v1/calendars", "/v1/calendar/events", "/v1/calendar-event",
+        "/v1/calendar-events/some-id", "/v1/calendar-events/some-id/delete",
     ])
     func unknownPathIs404(uri: String) {
         #expect(throws: ApiError.notFound) { try Router.route(method: .GET, uri: uri) }
     }
 
     @Test("a trailing slash is a different path, and it does not exist", arguments: [
-        "/v1/status/", "/v1/reminders/",
+        "/v1/status/", "/v1/reminders/", "/v1/calendar-events/",
     ])
     func trailingSlashIs404(uri: String) {
         #expect(throws: ApiError.notFound) { try Router.route(method: .GET, uri: uri) }
@@ -60,6 +69,11 @@ struct RouterTests {
             (HTTPMethod.DELETE, "/v1/status", "GET"),
             (HTTPMethod.PUT, "/v1/reminders", "GET, POST"),
             (HTTPMethod.DELETE, "/v1/reminders", "GET, POST"),
+            // No PUT and no DELETE on events either: there is no edit and no delete, and the
+            // `Allow` header says so rather than leaving a client to guess.
+            (HTTPMethod.PUT, "/v1/calendar-events", "GET, POST"),
+            (HTTPMethod.DELETE, "/v1/calendar-events", "GET, POST"),
+            (HTTPMethod.PATCH, "/v1/calendar-events", "GET, POST"),
         ] {
             do {
                 _ = try Router.route(method: method, uri: uri)
@@ -209,5 +223,77 @@ struct RouterTests {
         #expect(Route.createReminder.auditOperation == .remindersCreate)
         #expect(Route.createReminder.rateLimitClass == .mutation)
         #expect(Route.completeReminder(BridgeID.generate()).rateLimitClass == .mutation)
+
+        #expect(try Route.listCalendarEvents(ListCalendarEventsQuery()).auditOperation == .calendarList)
+        #expect(try Route.listCalendarEvents(ListCalendarEventsQuery()).rateLimitClass == .read)
+        #expect(Route.createCalendarEvent.auditOperation == .calendarCreate)
+        #expect(Route.createCalendarEvent.rateLimitClass == .mutation)
+    }
+
+    // MARK: - The calendar query string
+
+    @Test("calendar query parameters are parsed")
+    func parsesCalendarQuery() throws {
+        guard case .listCalendarEvents(let query) = try Router.route(
+            method: .GET,
+            uri: "/v1/calendar-events?calendar=Privat&calendar=Arbeit&days=14&limit=25"
+        ) else {
+            Issue.record("should list")
+            return
+        }
+        #expect(query.calendars.map(\.rawValue) == ["Privat", "Arbeit"])
+        #expect(query.days == 14)
+        #expect(query.limit == 25)
+    }
+
+    @Test("an empty calendar query is the default query")
+    func emptyCalendarQuery() throws {
+        for uri in ["/v1/calendar-events", "/v1/calendar-events?"] {
+            guard case .listCalendarEvents(let query) = try Router.route(method: .GET, uri: uri) else {
+                Issue.record("should list")
+                return
+            }
+            #expect(query.calendars.isEmpty)
+            #expect(query.days == Limits.eventWindowDefaultDays)
+            #expect(query.limit == Limits.eventLimitDefault)
+        }
+    }
+
+    @Test("a calendar name is percent-decoded", arguments: [
+        ("/v1/calendar-events?calendar=Family%20%2F%20Shared", "Family / Shared"),
+        ("/v1/calendar-events?calendar=Geburtstage", "Geburtstage"),
+        ("/v1/calendar-events?calendar=Caf%C3%A9%20%E2%98%95%EF%B8%8F", "Café ☕️"),
+        ("/v1/calendar-events?calendar=a%2Bb", "a+b"),
+    ])
+    func decodesCalendarName(uri: String, expected: String) throws {
+        guard case .listCalendarEvents(let query) = try Router.route(method: .GET, uri: uri) else {
+            Issue.record("should list")
+            return
+        }
+        #expect(query.calendars.map(\.rawValue) == [expected])
+    }
+
+    @Test("a bad calendar query is a 400, matching the reminder route's strictness", arguments: [
+        "/v1/calendar-events?unknown=1",
+        "/v1/calendar-events?list=Privat",          // the reminder parameter is not tolerated here
+        "/v1/calendar-events?calendar=",
+        "/v1/calendar-events?calendar=%20%20",
+        "/v1/calendar-events?calendar=Privat&calendar=Privat",
+        "/v1/calendar-events?calendar=%zz",
+        "/v1/calendar-events?calendar=%00",
+        "/v1/calendar-events?calendar=a%0Ab",
+        "/v1/calendar-events?days=0",
+        "/v1/calendar-events?days=32",
+        "/v1/calendar-events?days=-1",
+        "/v1/calendar-events?days=07",
+        "/v1/calendar-events?days=abc",
+        "/v1/calendar-events?limit=0",
+        "/v1/calendar-events?limit=201",
+        "/v1/calendar-events?limit=+5",
+        "/v1/calendar-events?calendar",
+        "/v1/calendar-events?&calendar=Privat",
+    ])
+    func badCalendarQueryIs400(uri: String) {
+        #expect(throws: ApiError.invalidRequest) { try Router.route(method: .GET, uri: uri) }
     }
 }

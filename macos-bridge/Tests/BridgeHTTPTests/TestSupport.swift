@@ -17,10 +17,15 @@ func listName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) 
     try #require(ListName(rawValue: raw), sourceLocation: sourceLocation)
 }
 
+func calendarName(_ raw: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> CalendarName {
+    try #require(CalendarName(rawValue: raw), sourceLocation: sourceLocation)
+}
+
 /// Everything a test needs to drive the responder, with the knobs it needs to poke.
 struct TestHarness {
     let token = "erdab_9lQ2xR7vT4pN0aZ8sK1yH6bG3jW5cM2d"
     let reminders: FakeReminders
+    let calendar: FakeCalendar
     let audit = MemoryAuditSink()
     let idempotency: MemoryIdempotencyStore
     let clock = ManualClock()
@@ -30,6 +35,9 @@ struct TestHarness {
     init(
         lists: [String] = ["Groceries", "Work"],
         readOnly: [String] = [],
+        calendars: [String] = ["Privat", "Arbeit"],
+        readOnlyCalendars: [String] = [],
+        ambiguousCalendars: [String] = [],
         rateLimiterCapacities: (global: Int, mutation: Int) = (30, 10),
         tokenPresent: Bool = true
     ) throws {
@@ -38,6 +46,12 @@ struct TestHarness {
             readOnly: Set(try readOnly.map { try listName($0) })
         )
         let clock = self.clock
+        calendar = FakeCalendar(
+            calendars: Set(try calendars.map { try calendarName($0) }),
+            readOnly: Set(try readOnlyCalendars.map { try calendarName($0) }),
+            ambiguous: Set(try ambiguousCalendars.map { try calendarName($0) }),
+            clock: clock
+        )
         idempotency = MemoryIdempotencyStore(clock: clock)
 
         let hasher = CryptoKitHasher()
@@ -48,6 +62,7 @@ struct TestHarness {
 
         services = BridgeServices(
             reminders: reminders,
+            calendar: calendar,
             tokenVerifier: { verifier },
             rateLimiter: RateLimiter(
                 clock: clock,
@@ -121,3 +136,10 @@ struct TestHarness {
 }
 
 let createBody = #"{"list":"Groceries","title":"Buy milk"}"#
+
+/// A calendar create whose window lands just after `ManualClock`'s default now
+/// (`2026-05-28T20:26:40Z`), so the event is genuinely "upcoming" for a harness that has not
+/// advanced its clock.
+let createEventBody = #"""
+{"calendar":"Privat","title":"Dentist","startAt":"2026-05-29T09:00:00+02:00","endAt":"2026-05-29T10:00:00+02:00"}
+"""#

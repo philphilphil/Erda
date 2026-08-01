@@ -68,6 +68,10 @@ struct HTTPFailure: Error {
     static func remindersUnavailable() -> HTTPFailure {
         HTTPFailure(.remindersUnavailable, extraHeaders: [(name: "Retry-After", value: "60")])
     }
+
+    static func calendarUnavailable() -> HTTPFailure {
+        HTTPFailure(.calendarUnavailable, extraHeaders: [(name: "Retry-After", value: "60")])
+    }
 }
 
 /// Mutable bookkeeping for the audit line, filled in as the chain makes progress.
@@ -78,5 +82,6 @@ final class AuditTrace {
     var operation: AuditOperation = .unrouted
     var tokenId: TokenId?
     var list: ListName?
+    var calendar: CalendarName?
     var replay = false
 }

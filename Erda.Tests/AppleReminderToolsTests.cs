@@ -8,47 +8,8 @@ namespace Erda.Tests;
 
 public class AppleReminderToolsTests
 {
-    private sealed class FakeAppleBridgeClient : IAppleBridgeClient
-    {
-        public AppleBridgeResult<AppleBridgeStatus> StatusResult { get; set; } =
-            AppleBridgeResult<AppleBridgeStatus>.Ok(new AppleBridgeStatus("ok", []));
-        public AppleBridgeResult<AppleReminder> CreateResult { get; set; } =
-            AppleBridgeResult<AppleReminder>.Fail("not configured for this test");
-        public AppleBridgeResult<IReadOnlyList<AppleReminder>> ListResult { get; set; } =
-            AppleBridgeResult<IReadOnlyList<AppleReminder>>.Ok(Array.Empty<AppleReminder>());
-        public AppleBridgeResult<AppleReminderCompletion> CompleteResult { get; set; } =
-            AppleBridgeResult<AppleReminderCompletion>.Fail("not configured for this test");
-
-        public (string List, string Title, string? Notes, DateTimeOffset? DueAt, int? Priority)? CreateCall { get; private set; }
-        public (IReadOnlyList<string>? Lists, int? Limit)? ListCall { get; private set; }
-        public string? CompleteCall { get; private set; }
-
-        public Task<AppleBridgeResult<AppleBridgeStatus>> GetStatusAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(StatusResult);
-
-        public Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
-            string list, string title, string? notes = null, DateTimeOffset? dueAt = null, int? priority = null,
-            CancellationToken cancellationToken = default)
-        {
-            CreateCall = (list, title, notes, dueAt, priority);
-            return Task.FromResult(CreateResult);
-        }
-
-        public Task<AppleBridgeResult<IReadOnlyList<AppleReminder>>> ListRemindersAsync(
-            IReadOnlyList<string>? lists = null, int? limit = null, CancellationToken cancellationToken = default)
-        {
-            ListCall = (lists, limit);
-            return Task.FromResult(ListResult);
-        }
-
-        public Task<AppleBridgeResult<AppleReminderCompletion>> CompleteReminderAsync(
-            string reminderId, CancellationToken cancellationToken = default)
-        {
-            CompleteCall = reminderId;
-            return Task.FromResult(CompleteResult);
-        }
-    }
-
+    // The fake lives in FakeAppleBridgeClient.cs, shared with AppleCalendarToolsTests — the two tool
+    // classes talk to one client, and two copies would drift.
     private static AppleReminderTools Make(FakeAppleBridgeClient client) => new(client);
 
     private static AIFunction Tool(AppleReminderTools tools, string name) =>

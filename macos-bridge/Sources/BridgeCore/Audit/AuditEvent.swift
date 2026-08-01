@@ -7,6 +7,8 @@ public enum AuditOperation: String, Sendable, Hashable, CaseIterable, Codable {
     case remindersCreate = "reminders.create"
     case remindersList = "reminders.list"
     case remindersComplete = "reminders.complete"
+    case calendarCreate = "calendar.create"
+    case calendarList = "calendar.list"
     case tokenRotate = "token.rotate"
     /// A request rejected before it reached a route (bad version, unknown path, no credential).
     case unrouted = "unrouted"
@@ -27,15 +29,17 @@ public enum AuditResult: Sendable, Hashable {
 
 /// One line of the audit log.
 ///
-/// Every field is either an enum, an integer, a bool, a UUID, a `TokenId` (8 hex characters) or a
-/// `ListName` (a Reminders list title, capped and with control characters refused). **There is no
-/// bare `String` property**, so a title, a note, a file path, a token or a raw idempotency key has
-/// nowhere to go: redaction is a property of the type, not of the discipline of whoever writes the
-/// call site.
+/// Every field is either an enum, an integer, a bool, a UUID, a `TokenId` (8 hex characters), a
+/// `ListName` (a Reminders list title) or a `CalendarName` (a Calendar.app title) — the last two
+/// both capped and with control characters refused. **There is no bare `String` property**, so a
+/// title, a note, an event time, a file path, a token or a raw idempotency key has nowhere to go:
+/// redaction is a property of the type, not of the discipline of whoever writes the call site.
 ///
-/// `list` is the one field carrying anything the user chose, and it carries the *name of a list*,
-/// never the contents of a reminder. Since the allowlist went away, a list name is no longer drawn
-/// from a short local table — which is why `ListName` caps its length and refuses control
+/// `list` and `calendar` are the only fields carrying anything the user chose, and they carry the
+/// *name of a collection*, never the contents of a reminder or an event. **No event title, note or
+/// time is ever logged** — a calendar is the whole of what a calendar operation records, exactly as
+/// a list is for a reminder one. Since the allowlist went away, those names are no longer drawn
+/// from a short local table — which is why both types cap their length and refuse control
 /// characters, so a line stays one line and stays greppable.
 public struct AuditEvent: Sendable, Equatable {
     public let timestamp: Date
@@ -45,6 +49,10 @@ public struct AuditEvent: Sendable, Equatable {
     public let operation: AuditOperation
     /// `nil` when the request named no list.
     public let list: ListName?
+    /// `nil` when the request named no calendar. A separate field rather than a shared one,
+    /// because a line that said `list: "Privat"` for a calendar operation would be actively
+    /// misleading when both a list and a calendar of that name exist.
+    public let calendar: CalendarName?
     public let result: AuditResult
     public let status: Int
     public let durationMs: Int
@@ -56,6 +64,7 @@ public struct AuditEvent: Sendable, Equatable {
         tokenId: TokenId?,
         operation: AuditOperation,
         list: ListName?,
+        calendar: CalendarName? = nil,
         result: AuditResult,
         status: Int,
         durationMs: Int,
@@ -66,6 +75,7 @@ public struct AuditEvent: Sendable, Equatable {
         self.tokenId = tokenId
         self.operation = operation
         self.list = list
+        self.calendar = calendar
         self.result = result
         self.status = status
         self.durationMs = durationMs
@@ -92,6 +102,7 @@ public struct AuditEvent: Sendable, Equatable {
         let tokenId: String?
         let op: String
         let list: String?
+        let calendar: String?
         let result: String
         let status: Int
         let durationMs: Int
@@ -103,6 +114,7 @@ public struct AuditEvent: Sendable, Equatable {
             self.tokenId = event.tokenId?.rawValue
             self.op = event.operation.rawValue
             self.list = event.list?.rawValue
+            self.calendar = event.calendar?.rawValue
             self.result = event.result.code
             self.status = event.status
             self.durationMs = event.durationMs
@@ -110,7 +122,7 @@ public struct AuditEvent: Sendable, Equatable {
         }
 
         enum CodingKeys: String, CodingKey {
-            case ts, requestId, tokenId, op, list, result, status, durationMs, replay
+            case ts, requestId, tokenId, op, list, calendar, result, status, durationMs, replay
         }
 
         /// Written by hand so the optional fields emit an explicit `null` instead of vanishing.
@@ -124,6 +136,7 @@ public struct AuditEvent: Sendable, Equatable {
             try container.encode(tokenId, forKey: .tokenId)
             try container.encode(op, forKey: .op)
             try container.encode(list, forKey: .list)
+            try container.encode(calendar, forKey: .calendar)
             try container.encode(result, forKey: .result)
             try container.encode(status, forKey: .status)
             try container.encode(durationMs, forKey: .durationMs)

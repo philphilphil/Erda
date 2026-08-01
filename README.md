@@ -23,6 +23,14 @@ an Obsidian vault.
   from the scheduler above: those are notifications, these are tasks. Lists are addressed by their
   real name; the bridge can reach all of them, and a name that matches nothing (or two lists) is
   refused rather than guessed at.
+- **Apple Calendar** (optional) — create an event and read what's coming up, through the same
+  bridge. Calendars are named the same way, with a name matching nothing and a name matching two
+  reported as *different* errors. Two operations only: **no edit, no delete**, no recurrence, no
+  attendees. This one costs a real permission — the bridge holds Calendars *full access*, because
+  naming a calendar by its title means enumerating calendars and write-only cannot, so it can read
+  every event on that Mac. That trade is written down in the bridge's
+  [threat model](macos-bridge/README.md#threat-model); the grant is separately deniable and the
+  reminder half keeps working without it.
 - **Error watch** — polls a Seq log server, deduplicates errors by signature, has the model
   analyze them, and pings me on WhatsApp.
 - **Agentic browsing** (optional) — a Playwright-driven browser with 1Password-backed logins the
@@ -36,8 +44,9 @@ over a local OpenAI-compatible endpoint via the **Responses API** (streamed); an
 key is used only for transcription.
 
 One component lives outside the stack: **ErdaBridge**, a macOS app on my Mac that Erda reaches over
-the LAN to touch Apple Reminders. It can't be containerised — EventKit only exists on macOS — so
-it's the one piece that is off when the Mac is asleep, and the agent is expected to say so.
+the LAN to touch Apple Reminders and Apple Calendar. It can't be containerised — EventKit only
+exists on macOS — so it's the one piece that is off when the Mac is asleep, and the agent is
+expected to say so.
 
 ```mermaid
 flowchart LR
@@ -52,7 +61,9 @@ flowchart LR
 
     bridge <--> agent
     sched --> agent
-    agent --> mac["ErdaBridge · Swift<br/>on my Mac, outside the stack"] --> ek[("Apple Reminders")]
+    agent --> mac["ErdaBridge · Swift<br/>on my Mac, outside the stack"]
+    mac --> ek[("Apple Reminders")]
+    mac --> cal[("Apple Calendar")]
     agent <--> vault[("Obsidian vault")]
     sync["obsidian-sync"] <--> vault
     agent --> endpoint{{"Local OpenAI-compatible endpoint<br/>Responses API · web_search"}}
@@ -71,7 +82,7 @@ Erda.Tests/       # xUnit
 web/              # Vue 3 + Vite control panel
 whatsapp-bridge/  # Go bridge (whatsmeow)
 obsidian-sync/    # headless Obsidian Sync sidecar
-macos-bridge/     # ErdaBridge: signed macOS app exposing Apple Reminders over the LAN (Swift)
+macos-bridge/     # ErdaBridge: signed macOS app exposing Apple Reminders + Calendar over the LAN (Swift)
 ```
 
 ## Dev

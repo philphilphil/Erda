@@ -27,21 +27,7 @@ public struct ListName: Sendable, Hashable, Codable, RawRepresentable, CustomStr
     /// True for a name already in canonical form. `init(rawValue:)` trims first, so it accepts
     /// input this returns `false` for; what it will never do is *store* something non-canonical.
     public static func isValid(_ candidate: String) -> Bool {
-        guard candidate.trimmingCharacters(in: .whitespacesAndNewlines) == candidate else { return false }
-        // Counted in Unicode scalars: `count` on `Character` would let a grapheme cluster of many
-        // scalars slip past the cap.
-        let scalars = Array(candidate.unicodeScalars)
-        guard (Limits.listNameMinLength...Limits.listNameMaxLength).contains(scalars.count) else {
-            return false
-        }
-        for scalar in scalars where isControl(scalar) { return false }
-        return true
-    }
-
-    /// C0, DEL and C1. Everything else — umlauts, CJK, emoji — is a perfectly ordinary list name
-    /// and there is no reason to refuse it.
-    private static func isControl(_ scalar: Unicode.Scalar) -> Bool {
-        scalar.value < 0x20 || (0x7F...0x9F).contains(scalar.value)
+        NameHygiene.isValid(candidate, length: Limits.listNameMinLength...Limits.listNameMaxLength)
     }
 
     public var description: String { rawValue }
