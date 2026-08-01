@@ -102,17 +102,21 @@ public sealed class AppleBridgeClient(
     // [JsonPropertyName] attributes — see ScryfallClient for the same convention.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public Task<AppleBridgeResult<AppleBridgeStatus>> GetStatusAsync(CancellationToken cancellationToken = default)
+    // Every method here must `await` inside the `using`. Returning the Task instead disposes the
+    // request — and with it the JsonContent body — before HttpClient has written it to the socket,
+    // which surfaces as an ObjectDisposedException wrapped in HttpRequestException, i.e. as a
+    // transport failure that looks exactly like "the Mac is asleep".
+    public async Task<AppleBridgeResult<AppleBridgeStatus>> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         if (!TryBuildUrl("/v1/status", out var url, out var configError))
-            return Task.FromResult(AppleBridgeResult<AppleBridgeStatus>.Fail(configError!));
+            return AppleBridgeResult<AppleBridgeStatus>.Fail(configError!);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         ApplyAuth(request);
-        return SendAsync<AppleBridgeStatus>(request, "check status", cancellationToken);
+        return await SendAsync<AppleBridgeStatus>(request, "check status", cancellationToken);
     }
 
-    public Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
+    public async Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
         string alias,
         string title,
         string? notes = null,
@@ -121,7 +125,7 @@ public sealed class AppleBridgeClient(
         CancellationToken cancellationToken = default)
     {
         if (!TryBuildUrl("/v1/reminders", out var url, out var configError))
-            return Task.FromResult(AppleBridgeResult<AppleReminder>.Fail(configError!));
+            return AppleBridgeResult<AppleReminder>.Fail(configError!);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -129,7 +133,7 @@ public sealed class AppleBridgeClient(
         };
         ApplyAuth(request);
         ApplyIdempotencyKey(request);
-        return SendAsync<AppleReminder>(request, "create reminder", cancellationToken);
+        return await SendAsync<AppleReminder>(request, "create reminder", cancellationToken);
     }
 
     public async Task<AppleBridgeResult<IReadOnlyList<AppleReminder>>> ListRemindersAsync(
@@ -161,19 +165,19 @@ public sealed class AppleBridgeClient(
             : AppleBridgeResult<IReadOnlyList<AppleReminder>>.Fail(result.Error!);
     }
 
-    public Task<AppleBridgeResult<AppleReminderCompletion>> CompleteReminderAsync(
+    public async Task<AppleBridgeResult<AppleReminderCompletion>> CompleteReminderAsync(
         string reminderId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(reminderId))
-            return Task.FromResult(AppleBridgeResult<AppleReminderCompletion>.Fail("No reminder id was given."));
+            return AppleBridgeResult<AppleReminderCompletion>.Fail("No reminder id was given.");
 
         if (!TryBuildUrl($"/v1/reminders/{Uri.EscapeDataString(reminderId.Trim())}/complete", out var url, out var configError))
-            return Task.FromResult(AppleBridgeResult<AppleReminderCompletion>.Fail(configError!));
+            return AppleBridgeResult<AppleReminderCompletion>.Fail(configError!);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         ApplyAuth(request);
         ApplyIdempotencyKey(request);
-        return SendAsync<AppleReminderCompletion>(request, "complete reminder", cancellationToken);
+        return await SendAsync<AppleReminderCompletion>(request, "complete reminder", cancellationToken);
     }
 
     private bool TryBuildUrl(string path, out string url, out string? error)

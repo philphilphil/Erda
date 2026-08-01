@@ -238,4 +238,65 @@ public class AppleBridgeClientTests
         Assert.False(result.Success);
         Assert.Null(handler.Request);
     }
+
+    /// <summary>
+    /// A handler that yields before touching the request, so the caller's `using` scope has
+    /// definitely exited by the time the body is read — which is what a real socket does and an
+    /// in-memory fake does not.
+    /// </summary>
+    private sealed class YieldingHandler : HttpMessageHandler
+    {
+        public string? Body { get; private set; }
+        public object? ResponseBody { get; set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            if (request.Content is not null)
+            {
+                // CopyToAsync is what HttpConnection actually calls, and it is the call that throws
+                // ObjectDisposedException on a disposed body. ReadAsStringAsync does not, which is
+                // why a fake built on it cannot see this class of bug.
+                using var buffer = new MemoryStream();
+                await request.Content.CopyToAsync(buffer, cancellationToken);
+                Body = System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(ResponseBody) };
+        }
+    }
+
+    private static AppleBridgeClient MakeYielding(YieldingHandler handler) =>
+        new(new HttpClient(handler),
+            Options.Create(new AppleBridgeOptions { Enabled = true, BaseUrl = "http://192.168.1.50:17832", ApiKey = "tok3n", TimeoutSeconds = 5 }),
+            NullLogger<AppleBridgeClient>.Instance);
+
+    // Regression: the request was built with `using var request = ...` and the send Task returned
+    // without `await`, so the request — and its JsonContent — were disposed before HttpClient wrote
+    // them to the socket. Against a real bridge that surfaced as ObjectDisposedException wrapped in
+    // HttpRequestException, i.e. indistinguishable from "the Mac is asleep". The in-memory fake
+    // completed synchronously and hid it; yielding first reproduces the real ordering.
+    [Fact]
+    public async Task Create_reminder_body_survives_an_async_gap_before_it_is_read()
+    {
+        var handler = new YieldingHandler { ResponseBody = ReminderBody() };
+
+        var result = await MakeYielding(handler).CreateReminderAsync("groceries", "Buy milk");
+
+        Assert.True(result.Success);
+        Assert.NotNull(handler.Body);
+        Assert.Contains("Buy milk", handler.Body);
+    }
+
+    [Fact]
+    public async Task Complete_and_status_also_survive_an_async_gap()
+    {
+        var complete = new YieldingHandler
+        {
+            ResponseBody = new { id = "rem_11111111-1111-1111-1111-111111111111", alreadyCompleted = false },
+        };
+        Assert.True((await MakeYielding(complete).CompleteReminderAsync("rem_11111111-1111-1111-1111-111111111111")).Success);
+
+        var status = new YieldingHandler { ResponseBody = StatusOk };
+        Assert.True((await MakeYielding(status).GetStatusAsync()).Success);
+    }
 }
