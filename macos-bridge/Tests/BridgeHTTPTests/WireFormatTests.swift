@@ -23,10 +23,11 @@ struct WireFormatTests {
     /// omits an optional that is nil rather than writing `null`.
     static let requiredSnapshotKeys: Set<String> = ["id", "list", "title", "priority", "isCompleted"]
 
-    /// A create carrying every optional the request can express, so the response body shows the
-    /// spelling of `notes`, `dueAt` and `priority` as well as the mandatory fields.
+    /// A create carrying every optional the request can express — which no longer includes a list.
+    /// The response still reports one, because the caller has to be able to tell Phil where the task
+    /// landed.
     static let fullCreateBody = #"""
-    {"list":"Groceries","title":"Buy milk","notes":"semi-skimmed","dueAt":"2026-08-01T09:00:00Z","priority":5}
+    {"title":"Buy milk","notes":"semi-skimmed","dueAt":"2026-08-01T09:00:00Z","priority":5}
     """#
 
     // MARK: - GET /v1/status
@@ -40,7 +41,8 @@ struct WireFormatTests {
         let payload = try harness.json(response)
         #expect(
             Set(payload.keys) == [
-                "availability", "lists", "calendarAvailability", "calendars", "writeCalendar",
+                "availability", "lists", "writeList",
+                "calendarAvailability", "calendars", "writeCalendar",
             ],
             "got \(payload.keys)"
         )
@@ -51,12 +53,45 @@ struct WireFormatTests {
         #expect(payload["calendarAvailability"] as? String == "ok")
         #expect(payload["calendars"] as? [String] == ["Arbeit", "Privat"])
 
+        // `lists` is what a read may filter by; `writeList` is the one a create lands in, and the
+        // two are deliberately not the same thing — the reminder mirror of `writeCalendar`.
+        let writeList = try #require(payload["writeList"] as? [String: Any])
+        #expect(Set(writeList.keys) == ["state", "name"], "got \(writeList.keys)")
+        #expect(writeList["state"] as? String == "ok")
+        #expect(writeList["name"] as? String == "Groceries")
+
         // `calendars` is what a read may filter by; `writeCalendar` is the one a create lands in,
         // and the two are deliberately not the same thing.
         let writeCalendar = try #require(payload["writeCalendar"] as? [String: Any])
         #expect(Set(writeCalendar.keys) == ["state", "name"], "got \(writeCalendar.keys)")
         #expect(writeCalendar["state"] as? String == "ok")
         #expect(writeCalendar["name"] as? String == "Privat")
+    }
+
+    /// The two failure states have to be distinguishable on the wire, because they are the same 503
+    /// on a create and different sentences to Phil — the reminder mirror of `writeCalendarStates`.
+    @Test("the write list reports never-chosen and gone as different states")
+    func writeListStates() async throws {
+        let unpinned = try TestHarness(writeList: nil)
+        let none = try #require(
+            try unpinned.json(
+                await unpinned.responder.respond(to: unpinned.request(.GET, "/v1/status"))
+            )["writeList"] as? [String: Any]
+        )
+        // No name to report, so the key is omitted rather than written as null or "".
+        #expect(Set(none.keys) == ["state"], "got \(none.keys)")
+        #expect(none["state"] as? String == "not_configured")
+
+        let harness = try TestHarness()
+        await harness.reminders.removeList(try listName("Groceries"))
+        let gone = try #require(
+            try harness.json(
+                await harness.responder.respond(to: harness.request(.GET, "/v1/status"))
+            )["writeList"] as? [String: Any]
+        )
+        #expect(gone["state"] as? String == "unresolvable")
+        // Still named: this is exactly when a human needs to know which list went missing.
+        #expect(gone["name"] as? String == "Groceries")
     }
 
     /// The two failure states have to be distinguishable on the wire, because they are the same
@@ -141,6 +176,23 @@ struct WireFormatTests {
         #expect(response.status == 201)
         let payload = try harness.json(response)
         #expect(Set(payload.keys) == Self.requiredSnapshotKeys, "got \(payload.keys)")
+    }
+
+    /// `list` was a **required** request key before writes were pinned, so a client built against the
+    /// old shape will keep sending it. Strict decoding turns that into a clean 400 instead of a
+    /// silently ignored field — the reminder mirror of `createEventRejectsACalendarKey`.
+    @Test("a create that still sends a list is a 400, not a quietly ignored field")
+    func createRejectsAListKey() async throws {
+        let harness = try TestHarness()
+        let body = #"{"list":"Work","title":"Buy milk"}"#
+
+        let response = await harness.responder.respond(
+            to: harness.request(.POST, "/v1/reminders", body: body)
+        )
+        #expect(response.status == 400)
+        #expect(try harness.errorCode(response) == "invalid_request")
+        // And nothing was written — not into "Work", and not into the pinned list either.
+        #expect(await harness.reminders.all.isEmpty)
     }
 
     // MARK: - GET /v1/reminders

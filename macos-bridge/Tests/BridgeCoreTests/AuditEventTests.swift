@@ -151,18 +151,28 @@ struct AuditEventTests {
         var generator = SeededGenerator(seed: 0xA11D_17A5_0000_0001)
         for secret in secrets {
             let request = CreateReminderRequest(
-                list: try listName("Groceries"),
                 title: secret,
                 notes: secret,
                 dueAt: Date(timeIntervalSince1970: Double(generator.next(upperBound: 2_000_000_000)))
             )
             let command = request.command(id: BridgeID.generate())
+            // The command names no list — the write target is pinned locally — so the name on the
+            // line comes from the reminder that was actually created, exactly as the responder takes
+            // it. Everything else the command carries still has to vanish.
+            let created = ReminderSnapshot(
+                id: command.id,
+                list: try listName("Groceries"),
+                title: command.title,
+                notes: command.notes,
+                dueAt: command.dueAt,
+                priority: command.priority
+            )
             let line = try AuditEvent(
                 timestamp: timestamp,
                 requestId: requestId,
                 tokenId: TokenId(rawValue: "a1b2c3d4"),
                 operation: .remindersCreate,
-                list: command.list,
+                list: created.list,
                 result: .ok,
                 status: 201,
                 durationMs: 12

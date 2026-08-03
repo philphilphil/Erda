@@ -20,9 +20,13 @@ an Obsidian vault.
   the agent (so they can use tools). These are *notifications*: at time T, message me.
 - **Apple Reminders** (optional) — create, list and complete real tasks in Apple Reminders, via a
   small signed macOS app ([`macos-bridge/`](macos-bridge/)) running on my Mac. Deliberately separate
-  from the scheduler above: those are notifications, these are tasks. Lists are addressed by their
-  real name; the bridge can reach all of them, and a name that matches nothing (or two lists) is
-  refused rather than guessed at.
+  from the scheduler above: those are notifications, these are tasks. **Reads span every list; writes
+  go to exactly one** — the list I pick in the ErdaBridge app on the Mac, the same way the write
+  calendar is picked. Erda has no list parameter on create at all: it doesn't choose where a task
+  lands, doesn't need to know what my lists are called, and can't be talked into either. With none
+  picked, a create fails with a message telling me to go pick one, rather than guessing. A listing
+  can still name a list to filter, and a filter name that matches nothing (or two lists) is refused
+  rather than guessed at.
 - **Apple Calendar** (optional) — create an event and read what's coming up, through the same
   bridge. **Reads span every calendar; writes go to exactly one** — the calendar I pick in the
   ErdaBridge app on the Mac. Erda has no calendar parameter on create at all: it doesn't choose

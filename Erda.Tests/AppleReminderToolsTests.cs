@@ -24,6 +24,34 @@ public class AppleReminderToolsTests
         Assert.Contains("complete_apple_reminder", names);
     }
 
+    // The tool description carries what stops the model choosing a list — or asking Phil which one
+    // — when the choice is not its to make.
+    [Fact]
+    public void Create_description_says_who_chooses_the_list()
+    {
+        var create = Tool(Make(new FakeAppleBridgeClient()), "create_apple_reminder").Description;
+
+        Assert.Contains("Apple Reminders", create);
+        Assert.Contains("NOT Erda's own scheduler", create);
+        Assert.Contains("you do not choose a list", create, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("must not ask him which one", create, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The parameter is gone, not merely ignored: a model cannot pass what the schema does not
+    // declare, which is a stronger guarantee than any wording in a description. This is the whole
+    // point of the change — the list is pinned on the Mac, so create names none.
+    [Fact]
+    public void Create_has_no_list_parameter_at_all()
+    {
+        var schema = Tool(Make(new FakeAppleBridgeClient()), "create_apple_reminder")
+            .JsonSchema.ToString();
+
+        Assert.DoesNotContain("\"list\"", schema);
+        // The listing filter is untouched — reads still span, or narrow to, any list.
+        Assert.Contains("\"list\"", Tool(Make(new FakeAppleBridgeClient()), "list_apple_reminders")
+            .JsonSchema.ToString());
+    }
+
     [Fact]
     public async Task Create_reminder_forwards_arguments_and_reports_success()
     {
@@ -34,11 +62,12 @@ public class AppleReminderToolsTests
         };
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["list"] = "Groceries", ["title"] = "Buy milk" }))!).GetString()!;
+            .InvokeAsync(new() { ["title"] = "Buy milk" }))!).GetString()!;
 
         Assert.Contains("Buy milk", result);
+        // The caller named no list, so the response is the only way Phil learns where the task went.
         Assert.Contains("Groceries", result);
-        Assert.Equal(("Groceries", "Buy milk", (string?)null, (DateTimeOffset?)null, (int?)null), fake.CreateCall);
+        Assert.Equal(("Buy milk", (string?)null, (DateTimeOffset?)null, (int?)null), fake.CreateCall);
     }
 
     [Fact]
@@ -47,21 +76,29 @@ public class AppleReminderToolsTests
         var fake = new FakeAppleBridgeClient { CreateResult = AppleBridgeResult<AppleReminder>.Fail("the list isn't set up") };
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["list"] = "Nope", ["title"] = "x" }))!).GetString()!;
+            .InvokeAsync(new() { ["title"] = "x" }))!).GetString()!;
 
         Assert.Contains("the list isn't set up", result);
     }
 
+    // "No list chosen on the Mac" has to read as something Phil can act on, and specifically not as
+    // "your Mac is unreachable" — the two are both failures of a create and mean entirely different
+    // things. The reminder mirror of the calendar unconfigured case.
     [Fact]
-    public async Task Create_reminder_refuses_a_blank_list_without_calling_the_client()
+    public async Task Create_reminder_relays_an_unconfigured_write_list_as_a_thing_to_fix_on_the_mac()
     {
-        var fake = new FakeAppleBridgeClient();
+        var fake = new FakeAppleBridgeClient
+        {
+            CreateResult = AppleBridgeResult<AppleReminder>.Fail(
+                "No Reminders list is set up for writing on the Mac — open the ErdaBridge app there "
+                + "and choose which list reminders should go into."),
+        };
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["list"] = "", ["title"] = "x" }))!).GetString()!;
+            .InvokeAsync(new() { ["title"] = "Buy milk" }))!).GetString()!;
 
-        Assert.Contains("which Reminders list", result);
-        Assert.Null(fake.CreateCall);
+        Assert.Contains("open the ErdaBridge app", result);
+        Assert.DoesNotContain("unreachable", result);
     }
 
     [Fact]
@@ -70,7 +107,7 @@ public class AppleReminderToolsTests
         var fake = new FakeAppleBridgeClient();
 
         var result = ((JsonElement)(await Tool(Make(fake), "create_apple_reminder")
-            .InvokeAsync(new() { ["list"] = "Groceries", ["title"] = "  " }))!).GetString()!;
+            .InvokeAsync(new() { ["title"] = "  " }))!).GetString()!;
 
         Assert.Contains("no title", result);
         Assert.Null(fake.CreateCall);

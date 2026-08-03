@@ -23,7 +23,10 @@ internal sealed class FakeAppleBridgeClient : IAppleBridgeClient
     public AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>> ListEventsResult { get; set; } =
         AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Ok(Array.Empty<AppleCalendarEvent>());
 
-    public (string List, string Title, string? Notes, DateTimeOffset? DueAt, int? Priority)? CreateCall { get; private set; }
+    // No list in here, and that is the point: the create route takes none — the write target is
+    // pinned on the Mac. A test asserting "the right list was passed" is a test that cannot exist
+    // any more, exactly as for the calendar create below.
+    public (string Title, string? Notes, DateTimeOffset? DueAt, int? Priority)? CreateCall { get; private set; }
     public (IReadOnlyList<string>? Lists, int? Limit)? ListCall { get; private set; }
     public string? CompleteCall { get; private set; }
     // No calendar in here, and that is the point: the create route takes none — the write target is
@@ -40,10 +43,10 @@ internal sealed class FakeAppleBridgeClient : IAppleBridgeClient
     }
 
     public Task<AppleBridgeResult<AppleReminder>> CreateReminderAsync(
-        string list, string title, string? notes = null, DateTimeOffset? dueAt = null, int? priority = null,
+        string title, string? notes = null, DateTimeOffset? dueAt = null, int? priority = null,
         CancellationToken cancellationToken = default)
     {
-        CreateCall = (list, title, notes, dueAt, priority);
+        CreateCall = (title, notes, dueAt, priority);
         return Task.FromResult(CreateResult);
     }
 

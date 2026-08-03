@@ -22,6 +22,7 @@ let apiErrorStatusTable: [(ApiError, Int)] = [
     (.rateLimited, 429),
     (.internal, 500),
     (.remindersUnavailable, 503),
+    (.listNotConfigured, 503),
     (.calendarUnavailable, 503),
     (.calendarNotConfigured, 503),
     (.unsupportedHttpVersion, 505),
@@ -116,5 +117,16 @@ struct ApiErrorTests {
         #expect(ApiError.calendarNotConfigured != ApiError.calendarUnavailable)
         #expect(ApiError.calendarNotConfigured.httpStatus == 503)
         #expect(ApiError.calendarNotConfigured.code == "calendar_not_configured")
+    }
+
+    /// The reminder mirror: "grant Reminders access in System Settings" and "pick a list in the
+    /// ErdaBridge window" are different errands. They share a 503, but never a code — and the write
+    /// list's "not configured" is its own thing, distinct from the calendar's.
+    @Test("an unconfigured write list is its own 503, distinct from a missing grant and from the calendar's")
+    func listNotConfiguredIsDistinct() {
+        #expect(ApiError.listNotConfigured != ApiError.remindersUnavailable)
+        #expect(ApiError.listNotConfigured != ApiError.calendarNotConfigured)
+        #expect(ApiError.listNotConfigured.httpStatus == 503)
+        #expect(ApiError.listNotConfigured.code == "list_not_configured")
     }
 }

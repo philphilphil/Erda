@@ -34,6 +34,9 @@ struct TestHarness {
 
     init(
         lists: [String] = ["Groceries", "Work"],
+        /// The pinned write list. `nil` is a bridge nobody has configured yet, where every reminder
+        /// create is a 503 — the reminder counterpart of `writeCalendar`.
+        writeList: String? = "Groceries",
         readOnly: [String] = [],
         calendars: [String] = ["Privat", "Arbeit"],
         /// The pinned write target. `nil` is a bridge nobody has configured yet, where every create
@@ -46,6 +49,7 @@ struct TestHarness {
     ) throws {
         reminders = FakeReminders(
             lists: Set(try lists.map { try listName($0) }),
+            writeList: try writeList.map { try listName($0) },
             readOnly: Set(try readOnly.map { try listName($0) })
         )
         let clock = self.clock
@@ -139,7 +143,9 @@ struct TestHarness {
     }
 }
 
-let createBody = #"{"list":"Groceries","title":"Buy milk"}"#
+/// A reminder create. It names **no list**, because the route takes none: the reminder lands in
+/// whatever the harness pinned as its write list.
+let createBody = #"{"title":"Buy milk"}"#
 
 /// A calendar create whose window lands just after `ManualClock`'s default now
 /// (`2026-05-28T20:26:40Z`), so the event is genuinely "upcoming" for a harness that has not

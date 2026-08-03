@@ -34,6 +34,9 @@ final class AppModel {
     private(set) var lists: [ReminderListInfo] = []
     /// Distinguishes "no lists" from "we have not been allowed to look".
     private(set) var listsLoaded = false
+    /// The one reminder list the bridge writes to. `nil` means nobody has chosen one, and every
+    /// `POST /v1/reminders` answers `503 list_not_configured` until somebody does.
+    private(set) var writeList: ListBinding?
     private(set) var calendars: [CalendarInfo] = []
     /// The same distinction for calendars.
     private(set) var calendarsLoaded = false
@@ -50,10 +53,14 @@ final class AppModel {
 
     var draftAddress = ""
     var draftPort = ""
-    /// The `calendarIdentifier` the picker is on. Empty means nothing selected — never a default,
-    /// for the same reason the bind address has none.
+    /// The reminder list's `calendarIdentifier` the picker is on. Empty means nothing selected —
+    /// never a default, for the same reason the bind address has none.
+    var draftWriteListId = ""
+    /// The calendar's `calendarIdentifier` the picker is on. Empty means nothing selected — never a
+    /// default, for the same reason the bind address has none.
     var draftWriteCalendarId = ""
     private(set) var bindError: String?
+    private(set) var writeListError: String?
     private(set) var writeCalendarError: String?
     private(set) var actionError: String?
 
@@ -125,6 +132,7 @@ final class AppModel {
         reloadToken()
         reloadLastRequest()
         reloadStoredSelection()
+        reloadWriteList()
         reloadWriteCalendar()
         rescanAddresses()
     }
@@ -159,6 +167,11 @@ final class AppModel {
         storedSelection = (try? environment.store.bindSettings.load()) ?? nil
     }
 
+    private func reloadWriteList() {
+        guard let environment else { return }
+        writeList = (try? environment.store.listBinding.load()) ?? nil
+    }
+
     private func reloadWriteCalendar() {
         guard let environment else { return }
         writeCalendar = (try? environment.store.calendarBinding.load()) ?? nil
@@ -167,6 +180,7 @@ final class AppModel {
     private func loadDraftFromStore() {
         draftAddress = storedSelection?.ipAddress ?? ""
         draftPort = String(storedSelection?.port ?? BridgeEnvironment.suggestedPort)
+        draftWriteListId = writeList?.listId ?? ""
         draftWriteCalendarId = writeCalendar?.calendarId ?? ""
     }
 
@@ -313,6 +327,85 @@ final class AppModel {
         Task { await environment.supervisor.restart() }
     }
 
+    // MARK: - Write list
+
+    /// The reminder lists that may be offered as the write target: writable, and wearing a title the
+    /// wire format can carry.
+    ///
+    /// A read-only list is excluded because pinning one would produce a bridge that answers
+    /// `409 list_read_only` to every create — a trap with no error message at the moment it is set. A
+    /// list whose title is not a usable `ListName` is excluded because the create response has to be
+    /// able to *name* the list it landed in, and there is no such list on a Mac anyone has actually
+    /// used.
+    var writableLists: [ReminderListInfo] {
+        lists.filter { $0.isWritable && ListName(rawValue: $0.title) != nil }
+    }
+
+    /// Whether the pinned identifier still matches a list on this Mac. False when nothing is pinned,
+    /// so callers must check `writeList` first.
+    var writeListResolves: Bool {
+        guard let writeList else { return false }
+        return lists.contains { $0.calendarId == writeList.listId }
+    }
+
+    /// What the status row says. It distinguishes the two failures, because they read the same to
+    /// Erda (one 503) and must not read the same to Phil: nothing chosen yet, versus the list he
+    /// chose having gone.
+    var writeListText: String {
+        guard let writeList else { return "none chosen — reminders cannot be created" }
+        guard authorization.isUsable else {
+            return "\(writeList.titleAtBind.rawValue) — cannot be confirmed without Reminders access"
+        }
+        guard let live = lists.first(where: { $0.calendarId == writeList.listId }) else {
+            return "\(writeList.titleAtBind.rawValue) — no longer on this Mac, choose it again"
+        }
+        // A rename is not a problem — the identifier is what resolves — but it is worth showing,
+        // since the name is what Erda will report back to Phil after a create.
+        return live.title == writeList.titleAtBind.rawValue
+            ? live.title
+            : "\(live.title) (pinned as \(writeList.titleAtBind.rawValue))"
+    }
+
+    var canSaveWriteList: Bool {
+        !draftWriteListId.isEmpty && draftWriteListId != writeList?.listId
+    }
+
+    /// Pins the write list. The **only** way it can be set: no route touches it, exactly as no route
+    /// touches the token or the bind address.
+    ///
+    /// It re-validates the draft against the lists EventKit reports right now rather than trusting
+    /// what the picker was populated with — the list can be minutes old, and a list deleted in
+    /// between must not be pinnable.
+    func saveWriteList() {
+        guard let environment else { return }
+        guard let choice = lists.first(where: { $0.calendarId == draftWriteListId }) else {
+            writeListError = "That list is no longer on this Mac — reload and pick again."
+            return
+        }
+        guard choice.isWritable else {
+            writeListError = "\(choice.title) is read-only and cannot hold new reminders."
+            return
+        }
+        guard let title = ListName(rawValue: choice.title) else {
+            writeListError = "\(choice.title) is not a name the bridge can report."
+            return
+        }
+
+        do {
+            try environment.store.listBinding.save(
+                ListBinding(listId: choice.calendarId, titleAtBind: title)
+            )
+            writeListError = nil
+        } catch {
+            writeListError = "Could not store the list: \(error)"
+            return
+        }
+
+        // No restart: `EventKitStore` re-reads the binding on every create, so the next request
+        // already uses the new one.
+        reloadWriteList()
+    }
+
     // MARK: - Write calendar
 
     /// The calendars that may be offered as the write target: writable, and wearing a title the
@@ -433,12 +526,12 @@ final class AppModel {
         }
     }
 
-    /// What the bridge can **reach**, which for calendars is not the same as what it can write to —
-    /// hence the separate "Write calendar" row. There is no allowlist to report any more, so this
-    /// says so plainly rather than implying a selection nobody made, and it reports the two
-    /// capabilities separately, because one can be granted while the other is not.
+    /// What the bridge can **reach**, which on neither half is the same as what it can write to —
+    /// hence the separate "Write list" and "Write calendar" rows. There is no allowlist to report
+    /// any more, so this says so plainly rather than implying a selection nobody made, and it reports
+    /// the two capabilities separately, because one can be granted while the other is not.
     var scopeText: String {
-        "\(Self.scope(noun: "reminder list", granted: authorization.isUsable, count: lists.count)), "
+        "reads \(Self.scope(noun: "reminder list", granted: authorization.isUsable, count: lists.count)), "
             + "reads \(Self.scope(noun: "calendar", granted: calendarAuthorization.isUsable, count: calendars.count))"
     }
 
@@ -494,6 +587,19 @@ final class AppModel {
         // there is nothing for Erda to write into, and saying "Ready" would be a lie.
         if listsLoaded, lists.isEmpty {
             return .degraded("This Mac has no reminder lists — make one in Reminders.app.")
+        }
+        // Amber, not red, for the same reason an unpinned write *calendar* is: reading reminders
+        // still works, and the fix is a click in this window rather than a trip to System Settings.
+        guard let writeList else {
+            return .degraded(
+                "No list is chosen for writing — creating reminders will answer 503 until you pick one."
+            )
+        }
+        if !writeListResolves {
+            return .degraded(
+                "The chosen list '\(writeList.titleAtBind.rawValue)' is no longer on this Mac — "
+                    + "pick one again. Nothing will be written until you do."
+            )
         }
         guard calendarAuthorization.isUsable else {
             return .degraded(

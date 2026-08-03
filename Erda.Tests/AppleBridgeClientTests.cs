@@ -88,11 +88,27 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ResponseBody = ReminderBody() };
         var client = Make(handler);
 
-        var result = await client.CreateReminderAsync("Groceries", "Buy milk");
+        var result = await client.CreateReminderAsync("Buy milk");
 
         Assert.True(result.Success);
         Assert.True(handler.Request!.Headers.Contains("Idempotency-Key"));
         Assert.True(Guid.TryParse(handler.Request.Headers.GetValues("Idempotency-Key").Single(), out _));
+    }
+
+    [Fact]
+    public async Task Create_reminder_sends_no_list_in_the_body()
+    {
+        var handler = new CapturingHandler { ResponseBody = ReminderBody() };
+
+        await Make(handler).CreateReminderAsync("Buy milk", notes: "2%", priority: 1);
+
+        using var sentBody = JsonDocument.Parse(handler.Body!);
+        // No list goes out at all: the write target lives on the Mac, and the bridge decodes this
+        // body strictly — sending one would be a 400, not a preference it quietly ignores. This is
+        // the reminder mirror of the calendar create carrying no `calendar`.
+        Assert.False(sentBody.RootElement.TryGetProperty("list", out _));
+        Assert.Equal("Buy milk", sentBody.RootElement.GetProperty("title").GetString());
+        Assert.Equal("2%", sentBody.RootElement.GetProperty("notes").GetString());
     }
 
     [Fact]
@@ -202,6 +218,56 @@ public class AppleBridgeClientTests
         Assert.Empty(result.Value!.Calendars);
     }
 
+    // The lists a listing may filter by are not where reminders go. Status reports both, and the
+    // write target is the only way Erda can explain a `list_not_configured` to Phil — the reminder
+    // mirror of the write-calendar readout below.
+    [Fact]
+    public async Task Status_reports_the_write_list_separately_from_the_readable_ones()
+    {
+        var handler = new CapturingHandler
+        {
+            ResponseBody = new
+            {
+                availability = "ok",
+                lists = new[] { "Groceries", "Work" },
+                writeList = new { state = "ok", name = "Groceries" },
+                calendarAvailability = "ok",
+                calendars = new[] { "Privat" },
+            },
+        };
+
+        var result = await Make(handler).GetStatusAsync();
+
+        Assert.True(result.Success);
+        Assert.Equal(["Groceries", "Work"], result.Value!.Lists);
+        Assert.Equal("ok", result.Value!.WriteList!.State);
+        Assert.Equal("Groceries", result.Value!.WriteList!.Name);
+    }
+
+    // Never chosen carries no name at all, so the field is absent rather than empty — a client that
+    // read "" as a list title would report a nonsense one.
+    [Fact]
+    public async Task Status_reports_an_unchosen_write_list_without_inventing_a_name()
+    {
+        var handler = new CapturingHandler
+        {
+            ResponseBody = new
+            {
+                availability = "ok",
+                lists = Array.Empty<string>(),
+                writeList = new { state = "not_configured" },
+                calendarAvailability = "ok",
+                calendars = new[] { "Privat" },
+            },
+        };
+
+        var result = await Make(handler).GetStatusAsync();
+
+        Assert.True(result.Success);
+        Assert.Equal("not_configured", result.Value!.WriteList!.State);
+        Assert.Null(result.Value!.WriteList!.Name);
+    }
+
     // The calendars a listing may filter by are not where events go. Status reports both, and the
     // write target is the only way Erda can explain a `calendar_not_configured` to Phil.
     [Fact]
@@ -274,7 +340,7 @@ public class AppleBridgeClientTests
         };
         var client = Make(handler);
 
-        var result = await client.CreateReminderAsync("Groceries", "Buy milk", dueAt: due);
+        var result = await client.CreateReminderAsync("Buy milk", dueAt: due);
 
         Assert.True(result.Success);
 
@@ -298,6 +364,7 @@ public class AppleBridgeClientTests
     [InlineData("request_in_progress")]
     [InlineData("no_such_list")]
     [InlineData("list_read_only")]
+    [InlineData("list_not_configured")]
     [InlineData("reminders_unavailable")]
     [InlineData("no_such_calendar")]
     [InlineData("ambiguous_calendar")]
@@ -307,7 +374,7 @@ public class AppleBridgeClientTests
     public async Task Every_closed_error_code_maps_to_a_non_empty_message(string code)
     {
         var handler = new CapturingHandler { Status = HttpStatusCode.BadRequest, ResponseBody = new { error = code, requestId = "req-1" } };
-        var result = await Make(handler).CreateReminderAsync("Groceries", "Buy milk");
+        var result = await Make(handler).CreateReminderAsync("Buy milk");
 
         Assert.False(result.Success);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));
@@ -319,9 +386,9 @@ public class AppleBridgeClientTests
     public async Task No_such_list_and_list_read_only_produce_visibly_different_messages()
     {
         var missing = await Make(new CapturingHandler { Status = HttpStatusCode.NotFound, ResponseBody = new { error = "no_such_list", requestId = "r1" } })
-            .CreateReminderAsync("Nope", "x");
+            .CreateReminderAsync("x");
         var readOnly = await Make(new CapturingHandler { Status = HttpStatusCode.Conflict, ResponseBody = new { error = "list_read_only", requestId = "r2" } })
-            .CreateReminderAsync("Shared", "x");
+            .CreateReminderAsync("x");
 
         Assert.NotEqual(missing.Error, readOnly.Error);
         Assert.Contains("no Reminders list with that name", missing.Error, StringComparison.OrdinalIgnoreCase);
@@ -332,18 +399,53 @@ public class AppleBridgeClientTests
     public async Task Reminders_unavailable_names_the_macos_permission_not_the_list()
     {
         var result = await Make(new CapturingHandler { Status = HttpStatusCode.ServiceUnavailable, ResponseBody = new { error = "reminders_unavailable", requestId = "r1" } })
-            .CreateReminderAsync("Groceries", "x");
+            .CreateReminderAsync("x");
 
         Assert.False(result.Success);
         Assert.Contains("Reminders permission", result.Error);
         Assert.DoesNotContain("no Reminders list with that name", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
+    // Both are 503s and both stop a create, but one is a macOS permission and the other is a choice
+    // nobody has made in the ErdaBridge app — and neither is "the Mac is unreachable", which is what
+    // a transport failure says. The reminder mirror of the write-calendar case: three failures,
+    // three errands.
+    [Fact]
+    public async Task An_unconfigured_write_list_reads_as_neither_a_permission_nor_an_unreachable_mac()
+    {
+        var notConfigured = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.ServiceUnavailable,
+            ResponseBody = new { error = "list_not_configured", requestId = "r1" },
+        }).CreateReminderAsync("x");
+
+        var unavailable = await Make(new CapturingHandler
+        {
+            Status = HttpStatusCode.ServiceUnavailable,
+            ResponseBody = new { error = "reminders_unavailable", requestId = "r1" },
+        }).CreateReminderAsync("x");
+
+        var unreachable = await Make(new CapturingHandler
+        {
+            ThrowOnSend = new HttpRequestException("connection refused"),
+        }).CreateReminderAsync("x");
+
+        Assert.False(notConfigured.Success);
+        // It names the thing to open and the thing to do there.
+        Assert.Contains("ErdaBridge app", notConfigured.Error);
+        Assert.Contains("choose which list", notConfigured.Error);
+        // And says neither of the two things it is not.
+        Assert.DoesNotContain("System Settings", notConfigured.Error);
+        Assert.DoesNotContain("Couldn't reach", notConfigured.Error);
+
+        Assert.Equal(3, new[] { notConfigured.Error, unavailable.Error, unreachable.Error }.Distinct().Count());
+    }
+
     [Fact]
     public async Task Unknown_error_code_still_yields_a_readable_message()
     {
         var result = await Make(new CapturingHandler { Status = (HttpStatusCode)599, ResponseBody = new { error = "something_new", requestId = "r1" } })
-            .CreateReminderAsync("Groceries", "x");
+            .CreateReminderAsync("x");
 
         Assert.False(result.Success);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));
@@ -355,7 +457,7 @@ public class AppleBridgeClientTests
         var handler = new CapturingHandler { ThrowOnSend = new HttpRequestException("connection refused") };
         var client = Make(handler);
 
-        var result = await client.CreateReminderAsync("Groceries", "Buy milk");
+        var result = await client.CreateReminderAsync("Buy milk");
 
         Assert.False(result.Success);
         Assert.Contains("Couldn't reach", result.Error);
@@ -370,7 +472,7 @@ public class AppleBridgeClientTests
             Options.Create(new AppleBridgeOptions { BaseUrl = "", ApiKey = "x" }),
             NullLogger<AppleBridgeClient>.Instance);
 
-        var result = await client.CreateReminderAsync("Groceries", "Buy milk");
+        var result = await client.CreateReminderAsync("Buy milk");
 
         Assert.False(result.Success);
         Assert.Null(handler.Request);
@@ -417,7 +519,7 @@ public class AppleBridgeClientTests
     {
         var handler = new YieldingHandler { ResponseBody = ReminderBody() };
 
-        var result = await MakeYielding(handler).CreateReminderAsync("Groceries", "Buy milk");
+        var result = await MakeYielding(handler).CreateReminderAsync("Buy milk");
 
         Assert.True(result.Success);
         Assert.NotNull(handler.Body);
@@ -639,7 +741,7 @@ public class AppleBridgeClientTests
         {
             Status = HttpStatusCode.ServiceUnavailable,
             ResponseBody = new { error = "reminders_unavailable", requestId = "r1" },
-        }).CreateReminderAsync("Groceries", "x");
+        }).CreateReminderAsync("x");
 
         Assert.NotEqual(calendar.Error, reminders.Error);
         Assert.Contains("Calendars permission", calendar.Error);
@@ -662,7 +764,7 @@ public class AppleBridgeClientTests
         {
             Status = HttpStatusCode.NotFound,
             ResponseBody = new { error = "no_such_list", requestId = "r1" },
-        }).CreateReminderAsync("Nope", "x");
+        }).CreateReminderAsync("x");
 
         Assert.NotEqual(calendar.Error, list.Error);
         Assert.Contains("Calendar.app", calendar.Error);

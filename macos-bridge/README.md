@@ -1,25 +1,28 @@
 # ErdaBridge (macOS)
 
 A narrow macOS bridge that lets Erda (running in Docker on `leela`) create, list and complete
-**Apple Reminders**, and create and read **Apple Calendar** events — and nothing else. Reminder
-lists are addressed by their real name, exactly as they read in Reminders.app, and so are calendars
-when a *listing* narrows to one.
+**Apple Reminders**, and create and read **Apple Calendar** events — and nothing else. A *listing*
+addresses a reminder list, or a calendar, by its real name exactly as it reads in Reminders.app /
+Calendar.app; a *create* names neither.
 Chain: `Erda → HTTP + bearer token → ErdaBridge → EventKit → Reminders / Calendar`.
 
-**Calendar writes are pinned to one calendar.** `POST /v1/calendar-events` carries no calendar
-field at all: every event lands in the single calendar chosen in the Setup window on this Mac, and
-nothing on the wire can choose, override or discover another one. Reads are unchanged — a listing
-still spans every calendar unless it names one. The asymmetry is the design: which calendar an
-appointment belongs in is a decision Erda had no good basis for making, and a parameter that does
-not exist cannot be argued into being wrong.
+**Both creates are pinned to one target, chosen in the Setup window.** `POST /v1/reminders` carries
+no `list` field and `POST /v1/calendar-events` no `calendar` field: every reminder lands in the
+single list, and every event in the single calendar, chosen locally on this Mac — and nothing on the
+wire can choose, override or discover another one. Reads are unchanged — a listing still spans every
+list / every calendar unless it names one. The asymmetry is the design: which list a task or which
+calendar an appointment belongs in is a decision Erda had no good basis for making, and a parameter
+that does not exist cannot be argued into being wrong.
 
-**It can read and write every reminder list on this Mac, and it can read every event in every
-calendar.** Both are deliberate decisions, not oversights — see the [threat model](#threat-model).
+**It can read every reminder list on this Mac, and read every event in every calendar** (it writes
+only to the one list and the one calendar pinned in the Setup window). Both read scopes are
+deliberate decisions, not oversights — see the [threat model](#threat-model).
 
 **Status: M0–M7 complete, plus calendar support** — `BridgeCore`, `BridgeStore`, `BridgeHTTP`,
 `BridgeEventKit`, the setup UI, and hardening (forbidden-API lint, binary-level symbol checks, an
-audit-redaction property test). 509 tests / 52 suites pass, `make test` and `./scripts/bundle.sh`
-are clean. **The app has never been run against real Reminders or Calendar data, or installed to
+audit-redaction property test), plus reminder writes pinned to one list chosen in the Setup window
+(the exact mirror of the calendar write target). The full test suite (`make test`) and
+`./scripts/bundle.sh` are clean. **The app has never been run against real Reminders or Calendar data, or installed to
 `/Applications`** — that verification is this document's main job: see
 [Needs a human at the screen](#-needs-a-human-at-the-screen) and the
 [manual verification checklist](#manual-verification-checklist).
@@ -62,25 +65,28 @@ running with real permissions on Phil's Mac.
 2. **Grant Reminders access** via the Setup window and confirm the TCC prompt names **ErdaBridge**
    and quotes `NSRemindersFullAccessUsageDescription` ("ErdaBridge reads and creates reminders in
    your lists, …"). Confirm the status flips to `full access` with a non-zero list count.
-3. **Grant Calendar access** — a **separate button and a separate prompt**, because macOS records
+3. **Choose the write list** in the Setup window's Reminder lists section — the picker offers only
+   writable lists, and nothing is chosen for you. Until one is chosen, `POST /v1/reminders` answers
+   `503 list_not_configured` and the readiness light is amber. Reading reminders works either way.
+4. **Grant Calendar access** — a **separate button and a separate prompt**, because macOS records
    the two grants independently. Confirm it quotes `NSCalendarsFullAccessUsageDescription`
    ("ErdaBridge reads your calendar events and creates new ones, …") and that the prompt is the
    *full access* one, not write-only. Confirm the status flips to `full access` with a non-zero
    calendar count. Note that granting this lets the bridge read every event on this Mac — see the
    [threat model](#threat-model) before clicking it.
-4. **Choose the write calendar** in the Setup window's Calendars section — the picker offers only
+5. **Choose the write calendar** in the Setup window's Calendars section — the picker offers only
    writable calendars, and nothing is chosen for you. Until one is chosen,
    `POST /v1/calendar-events` answers `503 calendar_not_configured` and the readiness light is
    amber. Reading the calendar works either way.
-5. **Run the full reminder create → list → complete cycle** against a real list in Reminders.app,
-   and **create → list an event** — the event lands in the calendar chosen in step 4, since the
-   request names none. This bridge has only ever talked to `FakeReminders`/`FakeCalendar` in tests.
-   Remember that **an event cannot be deleted through the bridge**: whatever you create you remove
-   by hand in Calendar.app.
-6. Work through the [manual verification checklist](#manual-verification-checklist) below.
-7. **Install to `/Applications`** (`make install`), re-approve the Application Firewall at the new
+6. **Run the full reminder create → list → complete cycle** against the list chosen in step 3 (the
+   create names none), and **create → list an event** — the event lands in the calendar chosen in
+   step 5, since the request names none. This bridge has only ever talked to
+   `FakeReminders`/`FakeCalendar` in tests. Remember that **an event cannot be deleted through the
+   bridge**: whatever you create you remove by hand in Calendar.app.
+7. Work through the [manual verification checklist](#manual-verification-checklist) below.
+8. **Install to `/Applications`** (`make install`), re-approve the Application Firewall at the new
    path, add to Login Items, and point `leela`'s `.env` at the bridge (`AppleBridge__*`).
-8. **End-to-end**: `dotnet test Erda.Tests/Erda.Tests.csproj`, then `make dev` on `leela` with
+9. **End-to-end**: `dotnet test Erda.Tests/Erda.Tests.csproj`, then `make dev` on `leela` with
    `AppleBridge__*` set, and ask Erda over WhatsApp to add, list and complete a reminder, and to
    put an appointment in a calendar and read back what's coming up — confirm each in Reminders.app
    and Calendar.app. Then close the MacBook lid and repeat: the tools must return a readable
@@ -124,8 +130,15 @@ Do these in order — later steps depend on earlier ones:
    **No restart is needed** after granting — see
    [Grants take effect without a restart](#grants-take-effect-without-a-restart) for why that
    sentence had to be earned.
-4. **Note the reminder list names.** There is nothing to configure there — every list is reachable
-   — but the Setup window shows the exact titles, and the title is how Erda addresses one.
+4. **Choose the list to write to.** This *is* a configuration step, and reminder creates do not work
+   without it: the Reminder lists section has a picker of writable lists, and until you save a choice
+   every `POST /v1/reminders` answers `503 list_not_configured`. Nothing is auto-selected and there
+   is no fallback to a default list — that default changes without anyone noticing, and the first
+   sign of it being wrong would be a task in a shared list. Erda is never told which list this is and
+   cannot choose another; the list *names* it does see are only for narrowing a listing. The choice
+   is stored by `calendarIdentifier`, so renaming the list in Reminders.app changes nothing; deleting
+   it stops writes dead rather than re-binding to another list wearing the same title. This is the
+   exact mirror of the write-calendar step below.
 5. **Choose the calendar to write to.** This one *is* a configuration step, and the bridge does not
    work without it: the Calendars section has a picker of writable calendars, and until you save a
    choice every `POST /v1/calendar-events` answers `503 calendar_not_configured`. Nothing is
@@ -145,8 +158,9 @@ Do these in order — later steps depend on earlier ones:
    persisted. Save it somewhere durable now — there is no way to retrieve it again, only to
    rotate it (see [Token rotation](#token-rotation)).
 8. **Start the listener.** The Setup window's readiness line goes green only when Reminders access
-   is `full access`, Calendar access is `full access`, a write calendar is chosen and still
-   resolves, a token exists, and the listener is bound to a non-loopback address.
+   is `full access`, a write list is chosen and still resolves, Calendar access is `full access`, a
+   write calendar is chosen and still resolves, a token exists, and the listener is bound to a
+   non-loopback address.
 9. **Configure Erda's `.env`** on `leela` (`.env.example` documents these) — one switch covers both
    capabilities, since they are the same app, the same token and the same address:
    ```
@@ -356,6 +370,14 @@ by `socketfilterfw`; it is inert once the app is gone and does not need separate
   recurrence, no attendees, no invitations, no alarms and no attachments — a create carries a
   title, optional notes, a start, an end and a time zone, and the request DTO rejects any other key
   outright, so an unsupported feature is a loud 400 rather than a silently dropped field.
+- **No choosing which list to write to.** A reminder create carries no list and there is no route,
+  header or query parameter that can supply one; the target is chosen in the Setup window on this
+  Mac and read fresh from the local database on every write. `list` used to be a required key, so a
+  stale client will still send it — strict decoding turns that into a `400 invalid_request` rather
+  than a silently ignored field, and there is a test pinning exactly that. With no list chosen, or
+  one whose `calendarIdentifier` no longer resolves, a create is `503 list_not_configured`: never a
+  fallback to a default list, and never an automatic re-bind onto a list wearing the stored title. A
+  re-bind needs a human, in this window, for the same reason the token and the bind address do.
 - **No choosing which calendar to write to.** A create carries no calendar and there is no route,
   header or query parameter that can supply one; the target is chosen in the Setup window on this
   Mac and read fresh from the local database on every write. `calendar` used to be a required key,
@@ -364,7 +386,8 @@ by `socketfilterfw`; it is inert once the app is gone and does not need separate
   chosen, or one whose `calendarIdentifier` no longer resolves, a create is
   `503 calendar_not_configured`: never a fallback to `defaultCalendarForNewEvents`, and never an
   automatic re-bind onto a calendar wearing the stored title. A re-bind needs a human, in this
-  window, for the same reason the token and the bind address do.
+  window, for the same reason the token and the bind address do. This is the exact mirror of the
+  reminder-list rule above.
 - No calendar *management*: no route creates, renames or deletes a calendar, and there is no
   `/v1/calendars` at all. `GET /v1/status` reports calendar names because a name is how a caller
   narrows a listing, and reports the write calendar (name plus `ok`/`not_configured`/`unresolvable`)
@@ -388,29 +411,32 @@ by `socketfilterfw`; it is inert once the app is gone and does not need separate
   access is the one permission that *was* added, and it was added with the cost written down below
   rather than quietly.)
 
-**What it can reach: every reminder list on this Mac.**
+**What it can reach: read every reminder list on this Mac; write to exactly one.**
 
 The original design carried a per-list allowlist — a table of local aliases, each bound to one
 `calendarIdentifier` a human had picked in the Setup window — because macOS grants EventKit reminder
 access all-or-nothing, and the allowlist was the only place a narrower boundary could be drawn.
 
-**That allowlist was removed on purpose.** Phil decided that a bridge with access to all of his own
-reminder lists is the behaviour he wants on his own Mac, so the alias indirection was buying
-complexity rather than containment. It has not been replaced with a weaker gate: there is no
-implicit default list, no "primary" list, and no compensating filter. What it can reach is what the
-heading says.
+**That allowlist was removed on purpose.** Phil decided that a bridge with *read* access to all of
+his own reminder lists is the behaviour he wants on his own Mac, so the alias indirection was buying
+complexity rather than containment. It has not been replaced with a weaker gate on reads: there is no
+compensating read filter. **Writes, however, are pinned** — to the single list chosen in the Setup
+window, exactly as calendar writes are pinned to one calendar — so the blast radius is asymmetric:
+**read: every list; write: exactly one.**
 
-Concretely, anyone holding the bearer token can, on any list on this Mac:
+Concretely, anyone holding the bearer token can:
 
-- read every incomplete reminder — title, notes, due date, priority — via `GET /v1/reminders` with
-  no filter;
-- create a reminder in any list they can name;
+- read every incomplete reminder on **every list** — title, notes, due date, priority — via
+  `GET /v1/reminders` with no filter;
+- create a reminder in the **one** list chosen in the Setup window — and in no other, whatever they
+  send;
 - complete any reminder the bridge has ever issued an id for.
 
-They still **cannot** delete or edit a reminder, move one between lists, uncomplete one, or learn
-any `calendarIdentifier`. A list is addressed by name, and a name that matches nothing — or that
-matches two lists, which happens when two accounts both hold a "Reminders" — is refused rather than
-guessed at, because guessing is how a write lands in somebody else's shared list.
+They still **cannot** delete or edit a reminder, move one between lists, uncomplete one, choose or
+learn where writes go, or learn any `calendarIdentifier`. A *listing* is addressed by name, and a
+name that matches nothing — or that matches two lists, which happens when two accounts both hold a
+"Reminders" — is refused rather than guessed at, because guessing is how a read filter quietly
+returns the wrong list's contents.
 
 **What it can also reach: every event in every calendar on this Mac — including reading them.**
 
@@ -531,22 +557,41 @@ again after any change to `BridgeEventKit`, the router, or the store.
       catches `GrantNote` being widened from "only overrides not-determined" into something that
       masks a denial.
 
-**List addressing**
+**The write list**
 
-- [ ] `POST /v1/reminders` naming a real list by title creates the item, and it appears in that list
-      in Reminders.app.
-- [ ] The same with the title in the wrong case (`groceries` for `Groceries`) lands in the same
-      list — a unique case-insensitive match is accepted.
-- [ ] `POST` naming a list that does not exist → `404 no_such_list`, and **nothing is created
-      anywhere**. Check the other lists, not just the response.
+- [ ] Before choosing one: `POST /v1/reminders` → `503 list_not_configured`, **nothing created in
+      any list**, and the readiness light amber with a line saying to pick one. `GET /v1/reminders`
+      still works — the narrowing is on writes only.
+- [ ] The picker offers only **writable** lists; a read-only shared list is not in the list at all.
+- [ ] Choose the throwaway list, save → the Setup window's "Write list" row names it and the
+      readiness light goes green. No restart needed.
+- [ ] `POST /v1/reminders` with **no** `list` field creates the item there, and it appears in that
+      list in Reminders.app.
+- [ ] `POST` **with** a `list` field (any value, including a real list's name) → `400
+      invalid_request`, nothing created. The field is gone from the API, not tolerated.
+- [ ] `GET /v1/status` reports `writeList: {state: "ok", name: "<title>"}`.
+- [ ] Rename the list in Reminders.app → writes keep working and land in the same list (the binding
+      is by identifier, not title); status and the create response report the **new** title.
+- [ ] Delete the pinned list in Reminders.app → `POST` → `503 list_not_configured`, status reports
+      `unresolvable` with the old title, and the readiness light goes amber saying to pick again.
+      Critically: make a *different* list with the deleted one's old title first, and confirm the
+      bridge does **not** re-bind onto it.
+- [ ] Pick again → writes resume, no restart.
+- [ ] Quit and relaunch the app → the choice survives; writes still land in the same list.
+- [ ] Choose a read-only list is impossible from the picker; but if the pinned list *becomes*
+      read-only, `POST` → `409 list_read_only`, not a 500.
+
+**Reminder read filter and lifecycle**
+
 - [ ] `GET /v1/reminders` with no filter returns items from **every** list — the intended behaviour
       now, and worth seeing once against real data before relying on it.
 - [ ] `GET /v1/reminders?list=<title>` narrows to that list; a title with a space or an umlaut works
       when percent-encoded (`?list=To%20Do`).
+- [ ] `GET /v1/reminders?list=<title>` naming a list that does not exist → `404 no_such_list`, not a
+      listing of everything.
 - [ ] Make two lists with the same title in two different accounts (e.g. iCloud and On My Mac), then
-      address that title → `404 no_such_list`, **not** a write into either one. Delete one again
-      afterwards.
-- [ ] Add a read-only shared list, then `POST` to it → `409 list_read_only`, not a 500.
+      use that title as a **listing filter** → `404 no_such_list`, **not** a listing of either. Delete
+      one again afterwards. (There is no create equivalent: a create names no list.)
 - [ ] Delete a list in Reminders.app that had bridge-created reminders in it, then try to complete
       one by id → `404`, not a silent success.
 - [ ] Move a bridge-created reminder into another list, then complete it by id → succeeds, and
@@ -688,21 +733,22 @@ ErdaBridgeApp   @main SwiftUI MenuBarExtra + setup window
 - **Identifier drift is the main domain risk.** `EKCalendar.calendarIdentifier` and
   `EKCalendarItem.calendarItemIdentifier` are explicitly *not* sync-proof, and the design answers
   that differently depending on whether a human is in the loop.
-  - **Reminder lists, and calendars used as a listing filter, are resolved by name on every
-    request** — which cannot go stale, and which is what made dropping the allowlist a
-    simplification rather than a trade. It is also why calendars need *full* access rather than
-    write-only: resolving a name means enumerating calendars. A name matching nothing, or matching
-    two, is refused rather than guessed at — for calendars with two distinct codes
-    (`no_such_calendar` / `ambiguous_calendar`), because Erda relays the reason to Phil and the two
-    fixes differ; lists fold both into `no_such_list`, where the caller's next move is the same.
-  - **The write calendar is stored by identifier, in `meta` (`calendar_id` + `calendar_title`),
-    because a human pinned it.** By name would be worse here, not better: a *filter* that resolves
-    to the wrong calendar returns wrong data, while a *write* that does lands an appointment in
-    somebody else's shared calendar. So the identifier is authoritative — a rename is a no-op — and
-    drift surfaces as `503 calendar_not_configured` rather than as a silent re-bind onto whatever
-    now wears the stored title. The title is kept alongside it purely so the Setup window and
-    `GET /v1/status` can say *which* calendar went missing. Re-binding is a human's decision, in the
-    Setup window, and there is no route that can make it.
+  - **Lists and calendars used as a listing filter are resolved by name on every request** — which
+    cannot go stale, and which is what made dropping the allowlist a simplification rather than a
+    trade. It is also why calendars need *full* access rather than write-only: resolving a name means
+    enumerating calendars. A name matching nothing, or matching two, is refused rather than guessed at
+    — for calendars with two distinct codes (`no_such_calendar` / `ambiguous_calendar`), because Erda
+    relays the reason to Phil and the two fixes differ; lists fold both into `no_such_list`, where the
+    caller's next move is the same.
+  - **The write list and the write calendar are each stored by identifier, in `meta` (`list_id` +
+    `list_title`, and `calendar_id` + `calendar_title`), because a human pinned them.** By name would
+    be worse here, not better: a *filter* that resolves to the wrong target returns wrong data, while
+    a *write* that does lands a task or an appointment in somebody else's shared list or calendar. So
+    the identifier is authoritative — a rename is a no-op — and drift surfaces as
+    `503 list_not_configured` / `503 calendar_not_configured` rather than as a silent re-bind onto
+    whatever now wears the stored title. The title is kept alongside it purely so the Setup window and
+    `GET /v1/status` can say *which* list or calendar went missing. Re-binding is a human's decision,
+    in the Setup window, and there is no route that can make it.
   - The `reminder_map` table still keys on `calendarItemIdentifier` because a reminder has no other
     handle; a dangling id is always a `404`, and `complete` re-reads the reminder's *current* list
     before writing, so a re-homed or orphaned id can never quietly succeed.
@@ -712,8 +758,14 @@ ErdaBridgeApp   @main SwiftUI MenuBarExtra + setup window
 `GET /v1/status`, `POST /v1/reminders`, `GET /v1/reminders`, `POST /v1/reminders/{id}/complete`,
 `POST /v1/calendar-events`, `GET /v1/calendar-events`. Bearer token on all six including status.
 
-A list is named by its title: `{"list":"Groceries","title":"Buy milk"}` on create, and a repeatable
-`?list=<percent-encoded title>` on list (omitted ⇒ every list).
+A list is **not** named on create. `POST /v1/reminders` takes `{"title":"Buy milk"}` (plus optional
+`notes`, `dueAt`, `priority`) — no `list` key, and an unknown key is a `400 invalid_request`, so a
+client still sending one is told rather than quietly overruled. The reminder lands in the list pinned
+in the Setup window; the response reports which one, so the caller can tell Phil where it went. With
+none pinned, or one that no longer resolves, the answer is `503 list_not_configured` — distinct from
+`503 reminders_unavailable` (the macOS grant), because one is fixed in the ErdaBridge window and the
+other in System Settings. Reads are unchanged: a repeatable `?list=<percent-encoded title>` on list
+(omitted ⇒ every list).
 
 A calendar is **not** named on create. `POST /v1/calendar-events` takes
 `{"title":"Dentist","startAt":"…","endAt":"…"}` — no `calendar` key, and an unknown key is a
@@ -728,11 +780,11 @@ always starts *now* — "upcoming" is the only question the route answers, and a
 would need a zone to be meaningful and would let the route be used to trawl history.
 
 `GET /v1/status` answers
-`{"availability":"ok","lists":["Groceries","Work"],"calendarAvailability":"ok","calendars":["Arbeit","Privat"],"writeCalendar":{"state":"ok","name":"Privat"}}`
-— the names a caller may address, with the two capabilities reported **separately** because macOS
-authorizes them separately, plus where creates land. `writeCalendar.state` is `ok`,
-`not_configured` (never chosen) or `unresolvable` (chosen, but gone or unreadable right now); `name`
-is absent only in the first case. It is a readout, not a handle — no route sets it. Both list routes
+`{"availability":"ok","lists":["Groceries","Work"],"writeList":{"state":"ok","name":"Groceries"},"calendarAvailability":"ok","calendars":["Arbeit","Privat"],"writeCalendar":{"state":"ok","name":"Privat"}}`
+— the names a caller may filter by, with the two capabilities reported **separately** because macOS
+authorizes them separately, plus where creates land. `writeList.state` / `writeCalendar.state` is
+`ok`, `not_configured` (never chosen) or `unresolvable` (chosen, but gone or unreadable right now);
+`name` is absent only in the first case. Both are readouts, not handles — no route sets them. Both list routes
 keep their `{"items":[…]}` wrapper so they can gain a field later. Query **values** are percent-decoded (titles have spaces in them); `+` is not a space,
 and the **path** is still never decoded, so an encoded traversal stays a 404.
 
@@ -892,16 +944,17 @@ same rule: no route can read or set it.
 and separate status lines, because macOS records them separately. One button raising both prompts
 would either ask for more than it says or fire two dialogs from one click.
 
-**Readiness is a conjunction, with one graded exception.** The window says **Ready** only when
-Reminders access is `full access`, Calendar access is `full access`, a write calendar is chosen and
-still resolves, a token exists, and the listener is bound to a non-loopback address. A Mac with no
-reminder lists or no calendars at all is amber rather than green — there would be nothing to write
-to. Missing **Reminders** access is red; missing **Calendar** access is amber, not red, and says so
-— a bridge with only reminders granted genuinely serves half its routes, so calling that red would
-be as wrong as calling it green. **No write calendar chosen**, and **a chosen one that has gone**,
-are likewise amber with their own sentences: reminders and calendar *reads* still work, and the fix
-is a click in this window rather than a trip to System Settings. Anything less is amber or red with
-the specific reason.
+**Readiness is a conjunction, with graded exceptions.** The window says **Ready** only when
+Reminders access is `full access`, a write list is chosen and still resolves, Calendar access is
+`full access`, a write calendar is chosen and still resolves, a token exists, and the listener is
+bound to a non-loopback address. A Mac with no reminder lists or no calendars at all is amber rather
+than green — there would be nothing to write to. Missing **Reminders** access is red; missing
+**Calendar** access is amber, not red, and says so — a bridge with only reminders granted genuinely
+serves half its routes, so calling that red would be as wrong as calling it green. **No write list
+chosen** and **no write calendar chosen** — and, for each, **a chosen one that has gone** — are
+likewise amber with their own sentences: the corresponding *reads* still work, and the fix is a click
+in this window rather than a trip to System Settings. Anything less is amber or red with the specific
+reason.
 
 ### M0 findings
 

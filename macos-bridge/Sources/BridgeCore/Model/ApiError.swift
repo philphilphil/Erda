@@ -18,6 +18,7 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
     case requestInProgress = "request_in_progress"
     case noSuchList = "no_such_list"
     case listReadOnly = "list_read_only"
+    case listNotConfigured = "list_not_configured"
     case remindersUnavailable = "reminders_unavailable"
     case noSuchCalendar = "no_such_calendar"
     case ambiguousCalendar = "ambiguous_calendar"
@@ -56,13 +57,14 @@ public enum ApiError: String, Error, Sendable, Hashable, CaseIterable, Codable {
         case .unsupportedMediaType: 415
         case .rateLimited: 429
         case .internal: 500
-        // Three ways for the calendar back end to be unable to serve a write, all of them
-        // "the Mac cannot do this right now" rather than "your request was wrong":
-        // the grant is missing (`calendarUnavailable`), or no write calendar has been pinned in
-        // the setup UI — never, or not any more (`calendarNotConfigured`). The second is a
-        // separate code because the fix is a different one: not System Settings, but the
-        // ErdaBridge window itself.
-        case .remindersUnavailable, .calendarUnavailable, .calendarNotConfigured: 503
+        // The Mac cannot serve a write right now, and none of these is "your request was wrong":
+        // the grant is missing (`remindersUnavailable`/`calendarUnavailable`), or no write list /
+        // write calendar has been pinned in the setup UI — never, or not any more
+        // (`listNotConfigured`/`calendarNotConfigured`). The "not configured" codes are separate
+        // because the fix is a different one: not System Settings, but the ErdaBridge window itself.
+        // Reminders and calendars pin independently and fail independently, exactly as their grants
+        // do — see `ListBinding` / `CalendarBinding`.
+        case .remindersUnavailable, .listNotConfigured, .calendarUnavailable, .calendarNotConfigured: 503
         case .unsupportedHttpVersion: 505
         }
     }

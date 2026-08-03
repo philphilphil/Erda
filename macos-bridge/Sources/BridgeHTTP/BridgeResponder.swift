@@ -216,9 +216,13 @@ public struct BridgeResponder: Sendable {
     private func statusResponse() async throws -> BridgeResponse {
         let payload = StatusResponse(
             availability: await services.reminders.availability(),
-            // The names a caller may address. It has to be able to learn them: with no allowlist
-            // and no aliases, the name in Reminders.app is the only handle there is.
+            // The names a caller may filter a *read* by — the name in Reminders.app is the only
+            // handle there is, with no allowlist and no aliases.
             lists: await services.reminders.availableLists(),
+            // The one list a create lands in. Reported here and settable nowhere on the wire, which
+            // is the point: a caller can *explain* a `list_not_configured` to Phil, and can do
+            // nothing whatsoever about it.
+            writeList: await services.reminders.writeList(),
             // Reported separately, because macOS authorizes the two independently — one of these
             // can be `ok` while the other is not, and a single verdict could not say so.
             calendarAvailability: await services.calendar.calendarAvailability(),
@@ -241,13 +245,18 @@ public struct BridgeResponder: Sendable {
     }
 
     private func createResponse(_ request: BridgeRequest, trace: AuditTrace) async throws -> BridgeResponse {
-        // Step 7: strict decode. Unknown keys, over-length fields, a naive timestamp and a
-        // priority outside 0…9 all fail here, before anything reaches EventKit.
+        // Step 7: strict decode. Unknown keys — including a `list`, which this route no longer takes
+        // — over-length fields, a naive timestamp and a priority outside 0…9 all fail here, before
+        // anything reaches EventKit.
         let decoded = try StrictJSON.decode(CreateReminderRequest.self, from: Data(request.body))
-        trace.list = decoded.list
 
         try await requireAvailable()
         let snapshot = try await services.reminders.create(decoded.command(id: BridgeID.generate()))
+        // Recorded *after* the write, from the reminder that was actually created: the request names
+        // no list, so there is nothing to log before one exists — and a failed create logs none,
+        // because the caller chose none. The list *name* remains the only thing about this request
+        // the audit log ever sees; never the title, the notes or the times.
+        trace.list = snapshot.list
         return BridgeResponse(status: 201, body: try encode(snapshot))
     }
 

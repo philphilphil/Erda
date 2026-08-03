@@ -7,6 +7,9 @@ public struct BridgeStoreHandle: Sendable {
     public let db: SQLiteDB
     public let meta: MetaRepository
     public let bindSettings: BindSettingsRepository
+    /// The single reminder list creates land in. Local-only, like `bindSettings` — no route reads
+    /// or writes it.
+    public let listBinding: ListBindingRepository
     /// The single calendar creates land in. Local-only, like `bindSettings` — no route reads or
     /// writes it.
     public let calendarBinding: CalendarBindingRepository
@@ -33,6 +36,7 @@ public struct BridgeStoreHandle: Sendable {
             db: db,
             meta: meta,
             bindSettings: BindSettingsRepository(meta: meta),
+            listBinding: ListBindingRepository(meta: meta),
             calendarBinding: CalendarBindingRepository(meta: meta),
             reminderMap: ReminderMapRepository(db: db),
             idempotency: IdempotencyRepository(db: db, clock: clock),

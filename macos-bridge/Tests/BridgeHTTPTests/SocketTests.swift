@@ -129,7 +129,7 @@ struct SocketTests {
     func oversizedBodyIs413() async throws {
         try await withServer { harness, port, _ in
             let padding = String(repeating: "x", count: 17 * 1024)
-            let body = #"{"list":"Groceries","title":"\#(padding)"}"#
+            let body = #"{"title":"\#(padding)"}"#
             let response = try exchange(
                 port: port,
                 request(
@@ -149,7 +149,7 @@ struct SocketTests {
         try await withServer { harness, port, _ in
             // Notes cap out at 4096, so a large-but-legal body is padded there.
             let notes = String(repeating: "n", count: 4096)
-            let body = #"{"list":"Groceries","title":"Buy milk","notes":"\#(notes)"}"#
+            let body = #"{"title":"Buy milk","notes":"\#(notes)"}"#
             #expect(body.utf8.count < 16 * 1024)
 
             let response = try exchange(

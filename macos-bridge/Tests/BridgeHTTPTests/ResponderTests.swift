@@ -229,12 +229,12 @@ struct ResponderTests {
     // MARK: - Step 7: strict decode
 
     @Test("the body is decoded strictly", arguments: [
-        #"{"list":"Groceries","title":"t","calendarId":"ABC"}"#,   // unknown key
-        #"{"list":"Groceries"}"#,                                  // missing title
-        #"{"list":"Groceries","title":42}"#,                       // wrong type
-        #"{"list":"","title":"t"}"#,                               // unusable list name
-        #"{"list":"Groceries","title":"t","priority":10}"#,        // priority out of range
-        #"{"list":"Groceries","title":"t","dueAt":"2026-07-31T09:00:00"}"#,  // no offset
+        #"{"title":"t","calendarId":"ABC"}"#,                // unknown key
+        #"{}"#,                                              // missing title
+        #"{"title":42}"#,                                    // wrong type
+        #"{"list":"Groceries","title":"t"}"#,                // a list key, which this route no longer takes
+        #"{"title":"t","priority":10}"#,                     // priority out of range
+        #"{"title":"t","dueAt":"2026-07-31T09:00:00"}"#,     // no offset
         #"not json"#,
     ])
     func decodesStrictly(body: String) async throws {
@@ -291,7 +291,7 @@ struct ResponderTests {
             to: harness.request(
                 .POST,
                 "/v1/reminders",
-                body: #"{"list":"Groceries","title":"Something else"}"#,
+                body: #"{"title":"Something else"}"#,
                 idempotencyKey: key
             )
         )
@@ -329,25 +329,29 @@ struct ResponderTests {
 
     // MARK: - Step 9: the domain, failing closed
 
-    @Test("a name that matches no list is refused, never defaulted")
-    func unknownListFailsClosed() async throws {
-        let harness = try TestHarness()
+    @Test("with no list pinned, a create is a 503 that names the fix, never a default")
+    func unpinnedCreateFailsClosed() async throws {
+        let harness = try TestHarness(writeList: nil)
         let response = await harness.responder.respond(
-            to: harness.request(.POST, "/v1/reminders", body: #"{"list":"Personal","title":"t"}"#)
+            to: harness.request(.POST, "/v1/reminders", body: createBody)
         )
-        #expect(response.status == 404)
-        #expect(try harness.errorCode(response) == "no_such_list")
+        #expect(response.status == 503)
+        #expect(try harness.errorCode(response) == "list_not_configured")
 
         // Nothing was written into the lists that do exist.
         let listed = await harness.responder.respond(to: harness.request(.GET, "/v1/reminders"))
         #expect(try harness.jsonItems(listed).isEmpty)
     }
 
-    @Test("a read-only list is a 409 that names the conflict")
+    @Test("a read-only pinned list is a 409 that names the conflict")
     func readOnlyListIs409() async throws {
-        let harness = try TestHarness(lists: ["Groceries", "Shared"], readOnly: ["Shared"])
+        let harness = try TestHarness(
+            lists: ["Groceries", "Shared"],
+            writeList: "Shared",
+            readOnly: ["Shared"]
+        )
         let response = await harness.responder.respond(
-            to: harness.request(.POST, "/v1/reminders", body: #"{"list":"Shared","title":"t"}"#)
+            to: harness.request(.POST, "/v1/reminders", body: createBody)
         )
         #expect(response.status == 409)
         #expect(try harness.errorCode(response) == "list_read_only")

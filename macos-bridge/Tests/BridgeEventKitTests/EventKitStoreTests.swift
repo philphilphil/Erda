@@ -14,10 +14,12 @@ import Testing
 struct EventKitStoreTests {
     private func service(
         identity: MemoryReminderIdentityStore = .init(),
+        writeList: MemoryWriteListStore = .init(),
         writeCalendar: MemoryWriteCalendarStore = .init()
     ) -> EventKitStore {
         EventKitStore(
             identity: identity,
+            writeList: writeList,
             writeCalendar: writeCalendar,
             clock: ManualClock(),
             timeZone: TimeZone(identifier: "Europe/Berlin")!,
@@ -54,9 +56,10 @@ struct EventKitStoreTests {
         await #expect(throws: ApiError.self) { try await self.service().complete(id: .generate()) }
     }
 
-    /// A name no list on this Mac wears must fail, whatever else is here. The string is not one
-    /// anybody would call a list, so this holds on a granted Mac too.
-    @Test("a name that matches no list is refused, never defaulted")
+    /// A name no list on this Mac wears must fail a *read filter*, whatever else is here. The string
+    /// is not one anybody would call a list, so this holds on a granted Mac too. Creates no longer
+    /// name a list at all — that is the pinning tests' job below.
+    @Test("a filter naming no list is refused, never widened to all of them")
     func unknownNameIsRefused() async throws {
         let service = service()
         let missing = try listName("erdabridge-no-such-list-\(UUID().uuidString)")
@@ -64,19 +67,72 @@ struct EventKitStoreTests {
         await #expect(throws: ApiError.self) {
             try await service.list(try ListRemindersQuery(lists: [missing]))
         }
-        await #expect(throws: ApiError.self) {
-            try await service.create(
-                CreateReminderCommand(
-                    id: .generate(),
-                    list: missing,
-                    title: "[erdabridge-test] must not be created",
-                    notes: nil,
-                    dueAt: nil,
-                    priority: 0
-                )
-            )
+    }
+
+    /// The write side, and the important one: with no binding stored, a create must refuse rather
+    /// than reach for a default list. This runs on a Mac with **real, granted lists** — that is the
+    /// whole point, since a fallback would happily find one.
+    @Test("with nothing pinned, a create refuses instead of finding a default list")
+    func unpinnedCreateRefuses() async throws {
+        let service = service()
+        await #expect(throws: Self.expectedReminderCreateFailure) {
+            try await service.create(Self.reminderCommand)
         }
     }
+
+    /// A binding whose identifier resolves to nothing — what a deleted list or a signed-out account
+    /// leaves behind. Same refusal, and specifically **not** a re-bind onto a list wearing the
+    /// stored title.
+    @Test("a stored list binding that no longer resolves refuses rather than re-binding by title")
+    func danglingListBindingRefuses() async throws {
+        // A title every Mac with lists has, paired with an identifier no Mac has: if the resolver
+        // ever consulted the title, this would find something.
+        let store = MemoryWriteListStore(
+            binding: ListBinding(
+                listId: "00000000-0000-0000-0000-000000000000",
+                titleAtBind: try listName(RemindersAccess.lists().first?.title ?? "Reminders")
+            )
+        )
+        await #expect(throws: Self.expectedReminderCreateFailure) {
+            try await self.service(writeList: store).create(Self.reminderCommand)
+        }
+    }
+
+    /// A store that cannot be read is treated as "nothing pinned", never as licence to pick.
+    @Test("an unreadable list binding store fails closed")
+    func unreadableListBindingStoreRefuses() async throws {
+        let store = MemoryWriteListStore()
+        store.setReadFailure(ApiError.internal)
+        let service = service(writeList: store)
+
+        await #expect(throws: Self.expectedReminderCreateFailure) {
+            try await service.create(Self.reminderCommand)
+        }
+        #expect(await service.writeList() == .notConfigured)
+    }
+
+    /// On a test host without the reminder grant the refusal comes one step earlier, at the
+    /// authorization gate. Either way it is a refusal, and either way nothing is written.
+    private static var expectedReminderCreateFailure: ApiError {
+        RemindersAccess.status().isUsable ? .listNotConfigured : .remindersUnavailable
+    }
+
+    /// The readout has to answer even when there is nothing to report — `GET /v1/status` cannot
+    /// throw.
+    @Test("the write-list readout never throws, whatever the grant is")
+    func writeListReadoutNeverThrows() async {
+        #expect(await service().writeList() == .notConfigured)
+    }
+
+    /// Tagged, so that if a fallback ever *did* fire, the debris it left behind would be obvious
+    /// rather than mixed in with real reminders.
+    private static let reminderCommand = CreateReminderCommand(
+        id: .generate(),
+        title: "[erdabridge-test] must not be created",
+        notes: nil,
+        dueAt: nil,
+        priority: 0
+    )
 
     /// The seam's whole point: `EventKitStore` is substitutable for `FakeReminders` in
     /// `BridgeServices` without the request layer knowing which it got.

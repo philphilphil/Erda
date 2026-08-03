@@ -47,10 +47,11 @@ struct BridgeEnvironment: Sendable {
 
         // Every reminder list and every calendar on this Mac is *readable*; the actor resolves names
         // against EventKit per request, so one created or renamed in Reminders.app or Calendar.app
-        // takes effect without a restart and nothing here needs to be re-read. Calendar **writes**
-        // are narrower: they go to the single calendar pinned in the setup window, read back through
-        // `StoreWriteCalendar` on every create — so re-pinning it takes effect at once, and an
-        // unpinned bridge refuses to create events rather than guessing at one.
+        // takes effect without a restart and nothing here needs to be re-read. **Writes** are
+        // narrower on both halves: a reminder goes to the single list pinned in the setup window
+        // (`StoreWriteList`) and an event to the single calendar pinned there (`StoreWriteCalendar`),
+        // each read back on every create — so re-pinning takes effect at once, and an unpinned
+        // bridge refuses to create rather than guessing at a target.
         //
         // **One instance, wired in twice.** `EKEventStore` is a one-per-process object whose
         // `reset()` invalidates every fetched reminder *and* event at once, so the two seams are
@@ -58,6 +59,7 @@ struct BridgeEnvironment: Sendable {
         // store would be a second uncoordinated writer rather than an isolated one.
         let eventKit = EventKitStore(
             identity: StoreReminderIdentity(reminderMap: store.reminderMap),
+            writeList: StoreWriteList(bindings: store.listBinding),
             writeCalendar: StoreWriteCalendar(bindings: store.calendarBinding)
         )
 

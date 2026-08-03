@@ -85,9 +85,16 @@ struct EventKitIntegrationTests {
         let list = try #require(candidates.first)
         try #require(list.isWritable, "\(title) cannot hold reminders")
 
-        self.scratch = try #require(ListName(rawValue: title), "\(title) is not a usable list name")
+        let scratch = try #require(ListName(rawValue: title), "\(title) is not a usable list name")
+        self.scratch = scratch
         self.service = EventKitStore(
             identity: identity,
+            // Pinned to the throwaway list's own identifier. Everything this suite creates lands
+            // there because that is the only place a create *can* land — there is no per-request
+            // list left to pass.
+            writeList: MemoryWriteListStore(
+                binding: ListBinding(listId: list.calendarId, titleAtBind: scratch)
+            ),
             timeZone: TimeZone(identifier: "Europe/Berlin")!
         )
     }
@@ -95,7 +102,6 @@ struct EventKitIntegrationTests {
     private func command(_ title: String, dueAt: Date? = nil, priority: Int = 0) -> CreateReminderCommand {
         CreateReminderCommand(
             id: .generate(),
-            list: scratch,
             // Tagged so anything left behind is obviously test debris.
             title: "[erdabridge-test] \(title) \(UUID().uuidString.prefix(8))",
             notes: "written by EventKitIntegrationTests",
@@ -200,27 +206,59 @@ struct EventKitIntegrationTests {
         await #expect(throws: ApiError.notFound) { try await service.complete(id: ghost) }
     }
 
-    /// A name nobody's list wears fails, on a Mac full of real lists — no default, no nearest
-    /// match, no "the first writable one".
+    /// A name nobody's list wears fails a **read filter**, on a Mac full of real lists — no default,
+    /// no nearest match, no "the first writable one". Creates no longer name a list, so the write
+    /// side is covered by the pinning tests below instead.
     @Test("a name that matches no list fails closed against the real database")
     func unknownNameFailsClosed() async throws {
         let missing = try #require(ListName(rawValue: "erdabridge-no-such-list-\(UUID().uuidString)"))
         await #expect(throws: ApiError.noSuchList) {
-            try await service.create(
-                CreateReminderCommand(
-                    id: .generate(),
-                    list: missing,
-                    title: "[erdabridge-test] must not be created",
-                    notes: nil,
-                    dueAt: nil,
-                    priority: 0
-                )
-            )
-        }
-        await #expect(throws: ApiError.noSuchList) {
             try await service.list(try ListRemindersQuery(lists: [missing], limit: 200))
         }
         #expect(identity.mappingCount == 0)
+    }
+
+    /// The write side, against real lists: with nothing pinned there is a whole Mac full of writable
+    /// lists to fall into, and the bridge must fall into none of them.
+    @Test("with nothing pinned, a create refuses on a Mac full of real lists")
+    func unpinnedCreateRefusesAgainstRealLists() async throws {
+        let unpinned = EventKitStore(
+            identity: MemoryReminderIdentityStore(),
+            timeZone: TimeZone(identifier: "Europe/Berlin")!
+        )
+
+        await #expect(throws: ApiError.listNotConfigured) {
+            try await unpinned.create(self.command("must not be created"))
+        }
+        #expect(await unpinned.writeList() == .notConfigured)
+    }
+
+    /// A binding that points at nothing, paired with the throwaway list's real **title**. If
+    /// resolution ever consulted the title, this would find the scratch list and write into it — so
+    /// the assertion is both "it refused" and "it did not quietly re-bind".
+    @Test("a dangling list binding refuses rather than re-binding by title")
+    func danglingListBindingRefusesAgainstRealLists() async throws {
+        let dangling = EventKitStore(
+            identity: MemoryReminderIdentityStore(),
+            writeList: MemoryWriteListStore(
+                binding: ListBinding(
+                    listId: "00000000-0000-0000-0000-000000000000",
+                    titleAtBind: scratch
+                )
+            ),
+            timeZone: TimeZone(identifier: "Europe/Berlin")!
+        )
+
+        await #expect(throws: ApiError.listNotConfigured) {
+            try await dangling.create(self.command("must not be created"))
+        }
+        #expect(await dangling.writeList() == .unresolvable(scratch))
+    }
+
+    /// The status readout, against the real list this suite writes to.
+    @Test("the write-list readout names the pinned list")
+    func writeListReportsTheScratchList() async {
+        #expect(await service.writeList() == .configured(scratch))
     }
 
     /// A filtered list stays inside the list it named. (The unfiltered case deliberately spans
@@ -292,8 +330,20 @@ struct EventKitCalendarIntegrationTests {
 
         let scratch = try #require(CalendarName(rawValue: title), "\(title) is not a usable calendar name")
         self.scratch = scratch
+
+        // The interleave test also writes a reminder, and creates no longer name a list — so pin the
+        // throwaway reminder list too when ERDA_BRIDGE_TEST_LIST resolves. Absent or unresolved
+        // leaves it unpinned, which is fine: the interleave test is gated on that variable.
+        let listStore = MemoryWriteListStore()
+        if let listTitle = EventKitEnvironment.listTitle,
+           let info = RemindersAccess.lists().first(where: { $0.title == listTitle }),
+           let listName = ListName(rawValue: listTitle) {
+            listStore.set(ListBinding(listId: info.calendarId, titleAtBind: listName))
+        }
+
         self.service = EventKitStore(
             identity: MemoryReminderIdentityStore(),
+            writeList: listStore,
             writeCalendar: MemoryWriteCalendarStore(
                 binding: CalendarBinding(calendarId: calendar.calendarId, titleAtBind: scratch)
             ),
@@ -482,10 +532,10 @@ struct EventKitCalendarIntegrationTests {
         try #require(RemindersAccess.status().isUsable, "needs Reminders access as well")
 
         let created = try await service.create(command("interleaved"))
+        // The reminder lands in the pinned throwaway list — no per-request list to pass.
         _ = try await service.create(
             CreateReminderCommand(
                 id: .generate(),
-                list: list,
                 title: "[erdabridge-test] interleaved \(UUID().uuidString.prefix(8))",
                 notes: nil,
                 dueAt: nil,

@@ -123,7 +123,7 @@ struct AuditTests {
 
             let body = try String(
                 decoding: JSONSerialization.data(
-                    withJSONObject: ["list": "Groceries", "title": title, "notes": secret]
+                    withJSONObject: ["title": title, "notes": secret]
                 ),
                 as: UTF8.self
             )

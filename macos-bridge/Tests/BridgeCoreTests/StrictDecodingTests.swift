@@ -9,26 +9,39 @@ struct StrictDecodingTests {
     func decodesValidBody() throws {
         let request = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"  Buy milk  ","notes":"2%","dueAt":"2026-07-31T09:00:00+02:00","priority":3}"#)
+            from: json(#"{"title":"  Buy milk  ","notes":"2%","dueAt":"2026-07-31T09:00:00+02:00","priority":3}"#)
         )
 
-        #expect(request.list.rawValue == "Groceries")
         #expect(request.title == "Buy milk")
         #expect(request.notes == "2%")
         #expect(request.priority == 3)
         #expect(request.dueAt == Date(timeIntervalSince1970: 1_785_481_200))
     }
 
-    @Test("only list and title are required")
+    @Test("only the title is required")
     func decodesMinimalBody() throws {
         let request = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"Buy milk"}"#)
+            from: json(#"{"title":"Buy milk"}"#)
         )
 
+        #expect(request.title == "Buy milk")
         #expect(request.notes == nil)
         #expect(request.dueAt == nil)
         #expect(request.priority == nil)
+    }
+
+    /// The crux of pinning the write list: a `list` on the wire is not obeyed and not ignored — it
+    /// is a 400, exactly as a stale client's `calendar` is on the calendar route. A key that no
+    /// longer exists is the only "never guess" that cannot be argued around.
+    @Test("a list key — which this route no longer takes — is rejected, not obeyed")
+    func rejectsListKey() {
+        #expect(throws: ApiError.invalidRequest) {
+            try StrictJSON.decode(
+                CreateReminderRequest.self,
+                from: json(#"{"list":"Groceries","title":"Buy milk"}"#)
+            )
+        }
     }
 
     @Test("an unknown key is rejected rather than ignored")
@@ -36,7 +49,7 @@ struct StrictDecodingTests {
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":"Buy milk","calendarId":"ABC-123"}"#)
+                from: json(#"{"title":"Buy milk","calendarId":"ABC-123"}"#)
             )
         }
     }
@@ -46,14 +59,14 @@ struct StrictDecodingTests {
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","titel":"Buy milk"}"#)
+                from: json(#"{"titel":"Buy milk"}"#)
             )
         }
     }
 
-    @Test("a missing required key is rejected", arguments: [
-        #"{"title":"Buy milk"}"#,
-        #"{"list":"Groceries"}"#,
+    @Test("a missing title is rejected", arguments: [
+        #"{"notes":"2%"}"#,
+        #"{"priority":3}"#,
         #"{}"#,
     ])
     func rejectsMissingRequiredKey(body: String) {
@@ -63,12 +76,11 @@ struct StrictDecodingTests {
     }
 
     @Test("a wrong type is rejected", arguments: [
-        #"{"list":"Groceries","title":42}"#,
-        #"{"list":7,"title":"Buy milk"}"#,
-        #"{"list":"Groceries","title":"Buy milk","priority":"3"}"#,
-        #"{"list":"Groceries","title":"Buy milk","priority":1.5}"#,
-        #"{"list":"Groceries","title":"Buy milk","notes":["a"]}"#,
-        #"{"list":"Groceries","title":"Buy milk","dueAt":12345}"#,
+        #"{"title":42}"#,
+        #"{"title":"Buy milk","priority":"3"}"#,
+        #"{"title":"Buy milk","priority":1.5}"#,
+        #"{"title":"Buy milk","notes":["a"]}"#,
+        #"{"title":"Buy milk","dueAt":12345}"#,
         #"[]"#,
         #"not json at all"#,
     ])
@@ -85,27 +97,27 @@ struct StrictDecodingTests {
 
         let accepted = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"\#(atCap)"}"#)
+            from: json(#"{"title":"\#(atCap)"}"#)
         )
         #expect(accepted.title.count == Limits.titleMaxLength)
 
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":"\#(overCap)"}"#)
+                from: json(#"{"title":"\#(overCap)"}"#)
             )
         }
         // Whitespace does not buy extra room, and a whitespace-only title is empty.
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":"   "}"#)
+                from: json(#"{"title":"   "}"#)
             )
         }
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":""}"#)
+                from: json(#"{"title":""}"#)
             )
         }
     }
@@ -117,14 +129,14 @@ struct StrictDecodingTests {
 
         let accepted = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"t","notes":"\#(atCap)"}"#)
+            from: json(#"{"title":"t","notes":"\#(atCap)"}"#)
         )
         #expect(accepted.notes?.count == Limits.notesMaxLength)
 
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":"t","notes":"\#(overCap)"}"#)
+                from: json(#"{"title":"t","notes":"\#(overCap)"}"#)
             )
         }
     }
@@ -134,7 +146,7 @@ struct StrictDecodingTests {
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":"t","priority":\#(priority)}"#)
+                from: json(#"{"title":"t","priority":\#(priority)}"#)
             )
         }
     }
@@ -143,38 +155,31 @@ struct StrictDecodingTests {
     func acceptsValidPriority(priority: Int) throws {
         let request = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"t","priority":\#(priority)}"#)
+            from: json(#"{"title":"t","priority":\#(priority)}"#)
         )
         #expect(request.priority == priority)
     }
 
-    /// A list name is the user's own title, so nearly everything is legal — what the decoder still
+    /// A list name is the user's own title, so nearly everything is legal — what `ListName` still
     /// refuses is an empty name, and anything that could not survive a log line or a database row.
-    @Test("an unusable list name is rejected by the decoder", arguments: [
+    /// It is validated directly now that the create body no longer carries one: `ListName` still
+    /// gates the `?list=` read filter and the pinned write-list binding.
+    @Test("an unusable list name is rejected by ListName", arguments: [
         "",
         "   ",
-        #"in\u0000box"#,  // an escaped NUL, which SQLite would truncate on
-        #"in\nbox"#,      // a newline would break the JSONL audit log
+        "in\u{0000}box",  // a NUL, which SQLite would truncate on
+        "in\nbox",        // a newline would break the JSONL audit log
         String(repeating: "a", count: Limits.listNameMaxLength + 1),
     ])
     func rejectsInvalidListName(candidate: String) {
-        #expect(throws: ApiError.invalidRequest) {
-            try StrictJSON.decode(
-                CreateReminderRequest.self,
-                from: json(#"{"list":"\#(candidate)","title":"t"}"#)
-            )
-        }
+        #expect(ListName(rawValue: candidate) == nil)
     }
 
-    @Test("a list name people actually use survives the decoder verbatim", arguments: [
+    @Test("a list name people actually use survives ListName verbatim", arguments: [
         "Groceries", "Einkaufsliste", "To Do", "Café ☕️", "Work / Admin",
     ])
     func acceptsRealListNames(candidate: String) throws {
-        let request = try StrictJSON.decode(
-            CreateReminderRequest.self,
-            from: json(#"{"list":"\#(candidate)","title":"t"}"#)
-        )
-        #expect(request.list.rawValue == candidate)
+        #expect(ListName(rawValue: candidate)?.rawValue == candidate)
     }
 
     @Test("a timestamp without an explicit offset is rejected", arguments: [
@@ -190,7 +195,7 @@ struct StrictDecodingTests {
         #expect(throws: ApiError.invalidRequest) {
             try StrictJSON.decode(
                 CreateReminderRequest.self,
-                from: json(#"{"list":"Groceries","title":"t","dueAt":"\#(candidate)"}"#)
+                from: json(#"{"title":"t","dueAt":"\#(candidate)"}"#)
             )
         }
     }
@@ -206,7 +211,7 @@ struct StrictDecodingTests {
     func acceptsOffsetBearingTimestamp(candidate: String) throws {
         let request = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"t","dueAt":"\#(candidate)"}"#)
+            from: json(#"{"title":"t","dueAt":"\#(candidate)"}"#)
         )
         #expect(request.dueAt != nil)
     }
@@ -215,7 +220,7 @@ struct StrictDecodingTests {
     func treatsNullAsAbsent() throws {
         let request = try StrictJSON.decode(
             CreateReminderRequest.self,
-            from: json(#"{"list":"Groceries","title":"t","notes":null,"dueAt":null,"priority":null}"#)
+            from: json(#"{"title":"t","notes":null,"dueAt":null,"priority":null}"#)
         )
         #expect(request.notes == nil)
         #expect(request.dueAt == nil)

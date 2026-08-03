@@ -11,13 +11,11 @@ enum SetupWindow {
 /// reachable over HTTP — the remote API has no route that can change any of these, which is why
 /// this window exists at all.
 ///
-/// There is no reminder-list picker: the bridge reaches every list on this Mac, so there is nothing
-/// to choose, and that section is a read-only inventory whose job is to show the exact spelling Erda
-/// has to send.
-///
-/// There **is** a calendar picker, and it is the one asymmetry in this window. Erda can read every
-/// calendar but writes to exactly one, chosen here — which is the only place it can be chosen, since
-/// no route can set it any more than one can set the token or the bind address.
+/// Both the reminder-list and the calendar section carry a picker, and they are the same asymmetry:
+/// Erda can *read* every list and every calendar on this Mac but *writes* to exactly one of each,
+/// chosen here — which is the only place either can be chosen, since no route can set them any more
+/// than one can set the token or the bind address. Below each picker the section is also a read-only
+/// inventory, whose job is to show the exact spelling Erda has to send to *filter* a read.
 struct SetupView: View {
     @Bindable var model: AppModel
 
@@ -61,6 +59,7 @@ private struct StatusSection: View {
             LabeledContent("Calendar access", value: model.calendarAuthorization.displayText)
             LabeledContent("Listener", value: model.listenerText)
             LabeledContent("Scope", value: model.scopeText)
+            LabeledContent("Write list", value: model.writeListText)
             LabeledContent("Write calendar", value: model.writeCalendarText)
             LabeledContent("Last request", value: model.lastRequestText)
         }
@@ -187,8 +186,15 @@ private struct ListenerSection: View {
 
 // MARK: - Lists
 
-/// Read-only on purpose. Erda addresses a list by the name shown here, so the one job of this
-/// section is to show the exact spelling — there is nothing to allow, bind or unbind.
+/// Half inventory, half the write-target choice — the exact mirror of `CalendarsSection`.
+///
+/// Reads span every list, so the inventory below is informational: the titles it shows are what a
+/// `?list=` filter has to say. Writes do not: every reminder Erda creates goes into the single list
+/// picked here, because letting an agent choose a list per request was more machinery than the job
+/// needs and more room to land a task somewhere it does not belong.
+///
+/// Only writable lists are offered. Pinning a read-only shared list would make every create fail
+/// with `409 list_read_only` and there would be nothing at this screen to say so.
 private struct ListsSection: View {
     @Bindable var model: AppModel
 
@@ -196,9 +202,9 @@ private struct ListsSection: View {
         Section("Reminder lists") {
             Text(
                 """
-                ErdaBridge can read and write **all** of these — macOS grants Reminders access \
-                all-or-nothing, and this app no longer pretends otherwise with a list of its own. \
-                Erda names a list by its title, exactly as it reads here.
+                ErdaBridge can **read all** of these, and **writes only to the one you pick**. Erda \
+                is not told the name of a list to write to and cannot choose one — it names a list \
+                only to narrow a listing, by the title exactly as it reads here.
                 """
             )
             .font(.caption)
@@ -213,6 +219,36 @@ private struct ListsSection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else {
+                Picker("Write reminders to", selection: $model.draftWriteListId) {
+                    Text("Choose a list…").tag("")
+                    ForEach(model.writableLists, id: \.calendarId) { list in
+                        Text("\(list.title) — \(list.source)").tag(list.calendarId)
+                    }
+                }
+
+                Text(
+                    """
+                    Nothing is picked for you, and there is no fallback to a default list: until you \
+                    choose one, creating a reminder answers 503 rather than guessing. If the list you \
+                    picked is later deleted, the bridge stops writing rather than finding another one \
+                    with the same name — come back here and pick again.
+                    """
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if let error = model.writeListError {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+
+                HStack {
+                    Button("Save write list") { model.saveWriteList() }
+                        .disabled(!model.canSaveWriteList)
+                    Button("Reload lists") { model.reloadLists() }
+                }
+
+                LabeledContent("Writing to", value: model.writeListText)
+
                 ForEach(model.lists, id: \.calendarId) { list in
                     HStack(alignment: .firstTextBaseline) {
                         Text(list.title).textSelection(.enabled)
@@ -222,7 +258,6 @@ private struct ListsSection: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Button("Reload lists") { model.reloadLists() }
             }
         }
     }

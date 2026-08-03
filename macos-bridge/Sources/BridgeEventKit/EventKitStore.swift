@@ -48,15 +48,16 @@ import Foundation
 ///
 /// Every reminder list and every calendar on this Mac is **readable**. There is no allowlist — a
 /// deliberate decision, not an oversight: Apple grants access all-or-nothing per entity type, and
-/// the alias table that used to sit here bounded nothing Phil wanted bounded. A reminder list is
-/// addressed by name, and a name that matches nothing (or matches two) fails rather than falling
-/// back to a default.
+/// the alias table that used to sit here bounded nothing Phil wanted bounded. A read may filter by
+/// name, and a name that matches nothing (or matches two) fails rather than falling back to a
+/// default.
 ///
-/// **Calendar writes are narrower than calendar reads**, and that asymmetry is deliberate: an event
-/// is created in the one calendar pinned in the setup window (`CalendarBinding`) and nowhere else,
-/// resolved by `calendarIdentifier` at every write. Nothing on the wire chooses a calendar to write
-/// to, and an unpinned or unresolvable binding is a refusal, never a fallback. Events can be created
-/// and read; there is no edit and no delete.
+/// **Writes are narrower than reads on both halves**, and that asymmetry is deliberate. A reminder
+/// is created in the one list pinned in the setup window (`ListBinding`), and an event in the one
+/// calendar pinned there (`CalendarBinding`) — each resolved by `calendarIdentifier` at every write.
+/// Nothing on the wire chooses where a create lands, and an unpinned or unresolvable binding is a
+/// refusal, never a fallback. Reminders can be created, read and completed; events can be created and
+/// read; there is no edit and no delete on either.
 public actor EventKitStore: RemindersService, CalendarService {
     // MARK: - Custom serial executor
 
@@ -72,6 +73,9 @@ public actor EventKitStore: RemindersService, CalendarService {
     /// one store cannot be used with another.
     private let store: EKEventStore
     private let identity: any ReminderIdentityStore
+    /// Read on every reminder write, never cached: re-pinning the target in the setup window has to
+    /// take effect at once, and a cached binding would keep writing into the old list.
+    private let writeListStore: any WriteListStore
     /// Read on every calendar write, never cached: re-pinning the target in the setup window has to
     /// take effect at once, and a cached binding would keep writing into the old calendar.
     private let writeCalendarStore: any WriteCalendarStore
@@ -94,12 +98,13 @@ public actor EventKitStore: RemindersService, CalendarService {
     private var lastReminderGrant = false
     private var lastCalendarGrant = false
 
-    /// `writeCalendar` defaults to an empty in-memory store, which means "nothing pinned" and so
-    /// makes every create answer `calendarNotConfigured`. That is the fail-closed default on
-    /// purpose: a reminder-only test that omits it cannot accidentally write into a real calendar,
-    /// and the composition root passes the real store explicitly.
+    /// `writeList`/`writeCalendar` each default to an empty in-memory store, which means "nothing
+    /// pinned" and so makes every create answer `listNotConfigured`/`calendarNotConfigured`. That is
+    /// the fail-closed default on purpose: a test that omits one cannot accidentally write into a
+    /// real list or calendar, and the composition root passes the real stores explicitly.
     public init(
         identity: any ReminderIdentityStore,
+        writeList: any WriteListStore = MemoryWriteListStore(),
         writeCalendar: any WriteCalendarStore = MemoryWriteCalendarStore(),
         clock: any BridgeClock = SystemClock(),
         timeZone: TimeZone = .current,
@@ -112,6 +117,7 @@ public actor EventKitStore: RemindersService, CalendarService {
         )
         self.store = EKEventStore()
         self.identity = identity
+        self.writeListStore = writeList
         self.writeCalendarStore = writeCalendar
         self.clock = clock
         self.timeZone = timeZone
@@ -142,6 +148,24 @@ public actor EventKitStore: RemindersService, CalendarService {
         // would suggest they are separately addressable when in fact the name is ambiguous and
         // resolves to neither.
         return Set(candidates().compactMap(ListLookup.canonicalName)).sorted()
+    }
+
+    /// The pinned write target, for `GET /v1/status`. Never throws, for the same reason
+    /// `availableLists()` does not: status has to answer even when the answer is bad news.
+    ///
+    /// Revoked access reports `.unresolvable` rather than `.ok`, and that is not a fudge — without
+    /// the grant this process genuinely cannot confirm the list is still there. The `availability`
+    /// field beside it in the same body is what separates "access revoked" from "list deleted". It
+    /// is the exact reminder counterpart of `writeCalendar()`.
+    public func writeList() async -> WriteListReport {
+        guard let binding = storedListBinding() else { return .notConfigured }
+        let usable = RemindersAccess.status().isUsable
+        adoptGrant(reminders: usable)
+        guard usable else { return .unresolvable(binding.titleAtBind) }
+        guard let calendar = liveList(for: binding) else { return .unresolvable(binding.titleAtBind) }
+        // The list's *current* title, so a rename shows up here rather than silently making the
+        // status report stale. The identifier is what resolved it — the title resolves nothing.
+        return .configured(ListLookup.canonicalName(candidate(calendar)) ?? binding.titleAtBind)
     }
 
     public func list(_ query: ListRemindersQuery) async throws -> [ReminderSnapshot] {
@@ -213,16 +237,19 @@ public actor EventKitStore: RemindersService, CalendarService {
     public func create(_ command: CreateReminderCommand) async throws -> ReminderSnapshot {
         try prepare()
 
-        let calendar = try resolveList(named: command.list)
+        // The command names no list. There is exactly one place a write can land, and it is the one
+        // a human pinned in the setup window.
+        let (calendar, binding) = try resolveWriteList()
         // A list that resolves but cannot hold a reminder — read-only, or an account that does not
-        // do reminders — is a 409 rather than an `EKErrorCalendarReadOnly` round trip. It is the
-        // caller's list choice that is wrong, and no retry against this list will ever work.
+        // do reminders — is a 409 rather than an `EKErrorCalendarReadOnly` round trip. The picker
+        // only offers writable lists, so reaching this means the list became read-only after it was
+        // pinned; no retry will help until it is re-pinned.
         guard calendar.allowsContentModifications, calendar.allowedEntityTypes.contains(.reminder) else {
             throw ApiError.listReadOnly
         }
-        // The list's own spelling, so a caller who matched case-insensitively is told which list
-        // it actually landed in.
-        let name = ListLookup.canonicalName(candidate(calendar)) ?? command.list
+        // The list's *current* spelling, so the caller can tell Phil where the task actually landed
+        // even if it has been renamed since it was pinned.
+        let name = ListLookup.canonicalName(candidate(calendar)) ?? binding.titleAtBind
 
         let reminder = EKReminder(eventStore: store)
         reminder.calendar = calendar
@@ -549,14 +576,33 @@ public actor EventKitStore: RemindersService, CalendarService {
         CalendarLookup.Candidate(calendarId: calendar.calendarIdentifier, title: calendar.title)
     }
 
-    /// Turns a name into a live reminder list, or fails closed. Never a default list.
-    private func resolveList(named name: ListName) throws -> EKCalendar {
-        let all = store.calendars(for: .reminder)
-        let match = try ListLookup.resolve(name, in: all.map(candidate) as [ListLookup.Candidate])
-        guard let calendar = all.first(where: { $0.calendarIdentifier == match.calendarId }) else {
-            throw ApiError.noSuchList
-        }
-        return calendar
+    /// The pinned reminder-list binding, or `nil` — including when the database cannot be read.
+    ///
+    /// Fails closed exactly as `storedBinding()` does for calendars: a read error is deliberately
+    /// indistinguishable from "nothing pinned", because both mean this process cannot name the list
+    /// it is supposed to write to, and the only safe response is to refuse.
+    private func storedListBinding() -> ListBinding? {
+        (try? writeListStore.writeList()).flatMap { $0 }
+    }
+
+    /// This Mac's live reminder list for a binding, matched on `calendarIdentifier` and nothing
+    /// else. A title match would be a re-bind, and re-binding is a human's decision — see
+    /// `ListBinding`.
+    private func liveList(for binding: ListBinding) -> EKCalendar? {
+        store.calendars(for: .reminder).first { $0.calendarIdentifier == binding.listId }
+    }
+
+    /// The write target, or a closed-set failure. **Never** falls back to a default list, never
+    /// re-binds by title, and answers the same `listNotConfigured` whether nothing was ever pinned
+    /// or the pinned list has gone — both are fixed the same way, by choosing one in the ErdaBridge
+    /// window. There is deliberately no `resolveList(named:)` counterpart: a name-to-list resolution
+    /// is only ever a *read* filter now, done inline in `list` where it also builds the id→name
+    /// table it needs, and a spare by-name resolver next to the write path would be an invitation to
+    /// route a create through it.
+    private func resolveWriteList() throws -> (calendar: EKCalendar, binding: ListBinding) {
+        guard let binding = storedListBinding() else { throw ApiError.listNotConfigured }
+        guard let calendar = liveList(for: binding) else { throw ApiError.listNotConfigured }
+        return (calendar, binding)
     }
 
     /// The pinned binding, or `nil` — including when the database cannot be read.
@@ -585,10 +631,10 @@ public actor EventKitStore: RemindersService, CalendarService {
         return (calendar, binding)
     }
 
-    // There is deliberately no `resolveCalendar(named:)` counterpart to `resolveList(named:)`. A
-    // name-to-calendar resolution is only ever a *read* filter now, and `upcoming` does it inline
-    // where it also builds the id→name table it needs; a spare by-name resolver sitting next to the
-    // write path would be an invitation to route a create through it.
+    // There is deliberately no `resolveCalendar(named:)` — nor a `resolveList(named:)` — write
+    // resolver. On both halves a name-to-target resolution is only ever a *read* filter now, done
+    // inline in `upcoming`/`list` where it also builds the id→name table it needs; a spare by-name
+    // resolver sitting next to a write path would be an invitation to route a create through it.
 
     /// The id a fetched reminder should be reported under.
     ///
