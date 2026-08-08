@@ -238,8 +238,13 @@ struct WireFormatTests {
     /// No route takes an event id — no complete, no edit, no delete — so one would be a handle to
     /// nothing, and shipping it would imply an operation the bridge does not have.
     static let eventKeys: Set<String> = [
-        "calendar", "title", "notes", "startAt", "endAt", "isAllDay", "timeZone",
+        "calendar", "title", "notes", "startAt", "endAt", "isAllDay", "startDay", "endDay",
+        "timeZone",
     ]
+
+    /// `startDay`/`endDay` are stated **only** for an all-day event, whose instants cannot carry
+    /// the anchoring zone. Every timed response omits them, so most assertions below subtract them.
+    static let dayKeys: Set<String> = ["startDay", "endDay"]
 
     /// A create carrying every optional the request can express — which no longer includes a
     /// calendar. The response still reports one, because the caller has to be able to tell Phil
@@ -257,7 +262,9 @@ struct WireFormatTests {
 
         #expect(response.status == 201)
         let payload = try harness.json(response)
-        #expect(Set(payload.keys) == Self.eventKeys, "got \(payload.keys)")
+        // A create is always timed — the bridge writes no all-day events — so the two day keys are
+        // absent here.
+        #expect(Set(payload.keys) == Self.eventKeys.subtracting(Self.dayKeys), "got \(payload.keys)")
         #expect(payload["calendar"] as? String == "Privat")
         #expect(payload["title"] as? String == "Dentist")
         #expect(payload["notes"] as? String == "bring the referral")
@@ -281,7 +288,10 @@ struct WireFormatTests {
         let payload = try harness.json(response)
         // `notes` was absent; `timeZone` still appears, because the handler resolves the absent
         // one to the bridge's own zone rather than leaving the event floating.
-        #expect(Set(payload.keys) == Self.eventKeys.subtracting(["notes"]), "got \(payload.keys)")
+        #expect(
+            Set(payload.keys) == Self.eventKeys.subtracting(["notes"]).subtracting(Self.dayKeys),
+            "got \(payload.keys)"
+        )
     }
 
     /// `calendar` was a **required** request key before writes were pinned, so a client built
@@ -326,7 +336,7 @@ struct WireFormatTests {
         let items = try #require(payload["items"] as? [[String: Any]])
         #expect(items.count == 1)
         let item = try #require(items.first)
-        #expect(Set(item.keys) == Self.eventKeys, "got \(item.keys)")
+        #expect(Set(item.keys) == Self.eventKeys.subtracting(Self.dayKeys), "got \(item.keys)")
         #expect(item["title"] as? String == "Dentist")
         #expect(item["startAt"] as? String == "2026-05-29T07:00:00Z")
     }
@@ -352,8 +362,10 @@ struct WireFormatTests {
                 calendar: try calendarName("Privat"),
                 title: "Birthday",
                 startAt: Date(timeIntervalSince1970: 1_780_012_800),
-                endAt: Date(timeIntervalSince1970: 1_780_099_200),
+                endAt: Date(timeIntervalSince1970: 1_780_099_199),
                 isAllDay: true,
+                startDay: "2026-05-29",
+                endDay: "2026-05-29",
                 timeZone: nil
             )
         )
@@ -365,5 +377,49 @@ struct WireFormatTests {
         // `timeZone` is genuinely nil for a floating event, so it is omitted rather than invented.
         #expect(Set(item.keys) == Self.eventKeys.subtracting(["notes", "timeZone"]), "got \(item.keys)")
         #expect(item["isAllDay"] as? Bool == true)
+    }
+
+    /// The two day keys are the whole answer to "which day is this birthday on?", which the
+    /// instants cannot give: an all-day event is floating, so its `startAt` is midnight in a zone
+    /// the wire never names. They appear exactly when `isAllDay` is true, and never otherwise.
+    @Test("an all-day event states its local days; a timed one carries neither key")
+    func allDayEventsCarryLocalDays() async throws {
+        let harness = try TestHarness()
+        await harness.calendar.seed(
+            CalendarEventSnapshot(
+                calendar: try calendarName("Privat"),
+                title: "Opa’s 85th Birthday",
+                // 2026-05-30 00:00:00 → 23:59:59 in Europe/Berlin. The start instant reads
+                // 2026-05-**29** in UTC: deriving the day from it is exactly the bug.
+                startAt: Date(timeIntervalSince1970: 1_780_092_000),
+                endAt: Date(timeIntervalSince1970: 1_780_178_399),
+                isAllDay: true,
+                startDay: "2026-05-30",
+                endDay: "2026-05-30",
+                timeZone: nil
+            )
+        )
+
+        let allDay = try #require(
+            try harness.jsonItems(
+                await harness.responder.respond(to: harness.request(.GET, "/v1/calendar-events"))
+            ).first
+        )
+        #expect(allDay["startDay"] as? String == "2026-05-30")
+        #expect(allDay["endDay"] as? String == "2026-05-30")
+        // The instants are still there, unchanged: the days are stated alongside them.
+        #expect(allDay["startAt"] as? String == "2026-05-29T22:00:00Z")
+
+        let timed = try TestHarness()
+        _ = await timed.responder.respond(
+            to: timed.request(.POST, "/v1/calendar-events", body: Self.fullEventBody)
+        )
+        let item = try #require(
+            try timed.jsonItems(
+                await timed.responder.respond(to: timed.request(.GET, "/v1/calendar-events"))
+            ).first
+        )
+        #expect(item["startDay"] == nil, "a timed event must not claim a calendar day")
+        #expect(item["endDay"] == nil, "a timed event must not claim a calendar day")
     }
 }

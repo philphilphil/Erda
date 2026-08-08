@@ -21,8 +21,10 @@ public class AppleCalendarToolsTests
         bool isAllDay = false,
         string? timeZone = "Europe/Berlin",
         DateTimeOffset? start = null,
-        DateTimeOffset? end = null) =>
-        new(calendar, title, null, start ?? Start, end ?? End, isAllDay, timeZone);
+        DateTimeOffset? end = null,
+        string? startDay = null,
+        string? endDay = null) =>
+        new(calendar, title, null, start ?? Start, end ?? End, isAllDay, timeZone, startDay, endDay);
 
     private static ValueTask<object?> Invoke(AIFunction tool, Dictionary<string, object?> args) =>
         tool.InvokeAsync(new AIFunctionArguments(args));
@@ -252,7 +254,8 @@ public class AppleCalendarToolsTests
     }
 
     // An all-day event has no meaningful clock time, and reporting one would put a birthday at
-    // midnight — or, east of London, on the wrong day.
+    // midnight. This is the fallback path: an older bridge sends no days, so the instant is all
+    // there is to go on.
     [Fact]
     public async Task List_names_an_all_day_event_as_such_rather_than_giving_it_a_time()
     {
@@ -266,6 +269,75 @@ public class AppleCalendarToolsTests
 
         Assert.Contains("all day on 2026-08-03", result);
         Assert.DoesNotContain("09:00", result);
+    }
+
+    // The bug the days exist for: an all-day event is floating, so EventKit anchors it to the Mac's
+    // zone and the wire carries only the instant behind it — 2026-08-10T22:00Z for a birthday
+    // Calendar.app draws on Tuesday the 11th. Rendering the instant reports it a day early, every
+    // time.
+    [Fact]
+    public async Task List_renders_an_all_day_event_on_the_day_the_bridge_states()
+    {
+        var fake = new FakeAppleBridgeClient
+        {
+            ListEventsResult = AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Ok(
+            [
+                Event(
+                    title: "Opa's 85th Birthday",
+                    isAllDay: true,
+                    timeZone: null,
+                    start: new DateTimeOffset(2026, 8, 10, 22, 0, 0, TimeSpan.Zero),
+                    end: new DateTimeOffset(2026, 8, 11, 21, 59, 59, TimeSpan.Zero),
+                    startDay: "2026-08-11",
+                    endDay: "2026-08-11"),
+            ]),
+        };
+
+        var result = (await Invoke(Tool(Make(fake), "list_calendar_events"), []))?.ToString();
+
+        Assert.Contains("all day on 2026-08-11", result);
+        Assert.DoesNotContain("2026-08-10", result);
+    }
+
+    // A multi-day all-day event used to lose its end entirely — a week's holiday read as a single
+    // day. The days are what make both ends sayable, and `endDay` is inclusive.
+    [Fact]
+    public async Task List_spans_both_days_of_a_multi_day_all_day_event()
+    {
+        var fake = new FakeAppleBridgeClient
+        {
+            ListEventsResult = AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Ok(
+            [
+                Event(
+                    title: "Urlaub",
+                    isAllDay: true,
+                    timeZone: null,
+                    start: new DateTimeOffset(2026, 8, 9, 22, 0, 0, TimeSpan.Zero),
+                    end: new DateTimeOffset(2026, 8, 14, 21, 59, 59, TimeSpan.Zero),
+                    startDay: "2026-08-10",
+                    endDay: "2026-08-14"),
+            ]),
+        };
+
+        var result = (await Invoke(Tool(Make(fake), "list_calendar_events"), []))?.ToString();
+
+        Assert.Contains("all day from 2026-08-10 to 2026-08-14", result);
+    }
+
+    // A create is always timed, and a timed event carries no days — so the day fields must not
+    // leak into the ordinary rendering path.
+    [Fact]
+    public async Task A_timed_event_is_unaffected_by_the_day_fields()
+    {
+        var fake = new FakeAppleBridgeClient
+        {
+            ListEventsResult = AppleBridgeResult<IReadOnlyList<AppleCalendarEvent>>.Ok([Event()]),
+        };
+
+        var result = (await Invoke(Tool(Make(fake), "list_calendar_events"), []))?.ToString();
+
+        Assert.Contains("2026-08-03 09:00–10:00 Europe/Berlin", result);
+        Assert.DoesNotContain("all day", result);
     }
 
     [Fact]

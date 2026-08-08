@@ -80,6 +80,11 @@ public actor EventKitStore: RemindersService, CalendarService {
     /// an event whose request named no zone. The wire format requires offset-bearing timestamps,
     /// so the instant is already unambiguous; this only decides which wall-clock time the user
     /// sees.
+    ///
+    /// It is also the zone an **all-day event's days are read in** on the way out, which is why it
+    /// defaults to `.current` and should stay that way: EventKit anchors a floating all-day event
+    /// to this Mac's zone, so any other value here would name a day Calendar.app does not draw the
+    /// event on.
     private let timeZone: TimeZone
     private let fetchTimeout: Duration
     private let changes: EventStoreChangeFlag
@@ -408,7 +413,9 @@ public actor EventKitStore: RemindersService, CalendarService {
             guard let calendarId = event.calendarId, let name = nameByCalendarId[calendarId] else {
                 continue
             }
-            guard let snapshot = event.snapshot(calendar: name) else { continue }
+            // `timeZone` is this Mac's zone, which is exactly the zone EventKit anchored any
+            // all-day event in this batch to — see the property's own documentation.
+            guard let snapshot = event.snapshot(calendar: name, dayZone: timeZone) else { continue }
             snapshots.append(snapshot)
         }
 

@@ -57,6 +57,21 @@ public class AppleBridgeClientTests
         timeZone = "Europe/Berlin",
     };
 
+    // What the bridge sends for an all-day event: no `timeZone` (it is floating), and the two
+    // calendar days it occupies — which the instants alone cannot express, since they are anchored
+    // to the Mac's zone and the wire never names it.
+    private static object AllDayEventBody() => new
+    {
+        calendar = "Geburtstage",
+        title = "Opa's 85th Birthday",
+        notes = (string?)null,
+        startAt = new DateTimeOffset(2026, 8, 10, 22, 0, 0, TimeSpan.Zero),
+        endAt = new DateTimeOffset(2026, 8, 11, 21, 59, 59, TimeSpan.Zero),
+        isAllDay = true,
+        startDay = "2026-08-11",
+        endDay = "2026-08-11",
+    };
+
     private static object ReminderBody(string list = "Groceries", string title = "Buy milk") => new
     {
         id = "rem_11111111-1111-1111-1111-111111111111",
@@ -536,6 +551,40 @@ public class AppleBridgeClientTests
 
     // Calendar names hold spaces and umlauts just like list names, and the bridge does not treat "+"
     // as a space — so a space has to go out as %20 and nothing else.
+    // The two fields that carry an all-day event's real dates. Without them the client is left with
+    // a floating instant and reports a birthday a day early for anyone east of London.
+    [Fact]
+    public async Task List_calendar_events_reads_the_local_days_of_an_all_day_event()
+    {
+        var handler = new CapturingHandler { ResponseBody = new { items = new[] { AllDayEventBody() } } };
+
+        var result = await Make(handler).ListCalendarEventsAsync();
+
+        Assert.True(result.Success);
+        var e = Assert.Single(result.Value!);
+        Assert.True(e.IsAllDay);
+        Assert.Equal("2026-08-11", e.StartDay);
+        Assert.Equal("2026-08-11", e.EndDay);
+        // The instants are unchanged — the days are stated alongside them, not instead of them.
+        Assert.Equal(new DateTimeOffset(2026, 8, 10, 22, 0, 0, TimeSpan.Zero), e.StartAt);
+        Assert.Null(e.TimeZone);
+    }
+
+    // A timed event omits both keys, and an older bridge omits them for an all-day event too — so
+    // absent has to deserialize as null rather than failing the whole body.
+    [Fact]
+    public async Task Calendar_event_days_are_null_when_the_bridge_omits_them()
+    {
+        var handler = new CapturingHandler { ResponseBody = new { items = new[] { EventBody() } } };
+
+        var result = await Make(handler).ListCalendarEventsAsync();
+
+        Assert.True(result.Success);
+        var e = Assert.Single(result.Value!);
+        Assert.Null(e.StartDay);
+        Assert.Null(e.EndDay);
+    }
+
     [Fact]
     public async Task List_calendar_events_percent_encodes_a_name_with_spaces_and_non_ascii()
     {

@@ -28,7 +28,16 @@ public sealed record AppleReminderCompletion(string Id, bool AlreadyCompleted);
 /// <c>Calendar</c> is the calendar's name as it reads in Calendar.app, and there is deliberately
 /// <b>no id</b> — the bridge has no route that takes one, since events cannot be edited or deleted
 /// through it. <see cref="TimeZone"/> is the event's own IANA zone and is null for a floating
-/// event.</summary>
+/// event.
+/// <para>
+/// <see cref="StartDay"/>/<see cref="EndDay"/> are <c>yyyy-MM-dd</c> calendar dates and are sent
+/// <b>only</b> for an all-day event, whose instants cannot express the day on their own: EventKit
+/// anchors an all-day event to whatever zone the Mac is in and leaves its zone null, so
+/// <c>2026-08-10T22:00:00Z</c> is a birthday Calendar.app draws on the 11th. Only the Mac knows the
+/// anchoring zone, so only the Mac can state the day — deriving one here reports every birthday a
+/// day early. <see cref="EndDay"/> is the <i>inclusive</i> last day. Both are null for a timed
+/// event, and both are null when talking to a bridge older than this field pair.
+/// </para></summary>
 public sealed record AppleCalendarEvent(
     string Calendar,
     string Title,
@@ -36,7 +45,9 @@ public sealed record AppleCalendarEvent(
     DateTimeOffset StartAt,
     DateTimeOffset EndAt,
     bool IsAllDay,
-    string? TimeZone);
+    string? TimeZone,
+    string? StartDay = null,
+    string? EndDay = null);
 
 /// <summary>The one calendar the bridge writes events to, picked by Phil in the ErdaBridge app on
 /// the Mac and settable nowhere else. <see cref="State"/> is <c>ok</c>, <c>not_configured</c> (he has

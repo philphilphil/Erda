@@ -592,7 +592,9 @@ again after any change to `BridgeEventKit`, the router, or the store.
 - [ ] `GET /v1/calendar-events?calendar=<title>` narrows to that calendar; a title with a space or
       an umlaut works when percent-encoded (`?calendar=Familie%20%2F%20Geteilt`).
 - [ ] An event further out than `?days=` is **not** returned, and appears once the window widens.
-- [ ] A real all-day event (a birthday) comes back with `isAllDay: true`, not as a timed event.
+- [ ] A real all-day event (a birthday) comes back with `isAllDay: true`, not as a timed event, and
+      its `startDay`/`endDay` name the day Calendar.app draws it on — **not** the day its `startAt`
+      reads as in UTC, which is the previous one for anyone east of London.
 - [ ] A naive `startAt` (no offset), an `endAt` before the `startAt`, and an event longer than seven
       days each → `400 invalid_request`, with nothing created.
 - [ ] `PUT`/`DELETE /v1/calendar-events` → `405` with `Allow: GET, POST`. There is no edit and no
@@ -739,6 +741,16 @@ and the **path** is still never decoded, so an encoded traversal stays a 404.
 An event carries **no id** on the wire. No route takes one — there is no complete, no edit and no
 delete — so an id would be a handle to nothing, and shipping one would imply an operation the bridge
 does not have.
+
+An **all-day** event additionally carries `startDay` and `endDay` (`yyyy-MM-dd`, the *inclusive*
+last day), and only an all-day one does. EventKit stores such an event as **floating**: its instants
+are anchored to whatever zone this Mac is in and `timeZone` is genuinely nil, so a birthday
+Calendar.app draws on Tuesday 11 August goes out as `2026-08-10T22:00:00Z` and a client deriving the
+day from that instant reports it — and every other birthday — one day early. The anchoring zone is
+knowledge only this Mac has, so this Mac states the days rather than leaving the client to guess at
+them; `timeZone` stays nil regardless, because that zone is the Mac's and not the event's. The days
+are read in the Mac's current zone through a Gregorian calendar and formatted by hand, so a Mac set
+to a Buddhist calendar or Arabic numerals still emits `2026-08-11`.
 
 Both `startAt` and `endAt` must carry an explicit UTC offset (the same rule `dueAt` has), `endAt`
 must be strictly after `startAt`, and an event may not exceed seven days. The optional `timeZone` is

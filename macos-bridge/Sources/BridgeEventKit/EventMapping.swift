@@ -65,7 +65,11 @@ struct RawEvent: Sendable, Equatable {
 
     /// The wire shape, once the caller has resolved the identifier it cannot resolve itself.
     /// `nil` for an event with no usable start or end.
-    func snapshot(calendar: CalendarName) -> CalendarEventSnapshot? {
+    ///
+    /// `dayZone` is the zone the all-day days are derived in, and it is a parameter rather than a
+    /// read of `TimeZone.current` for the usual two reasons: a test may not depend on the machine
+    /// it runs on, and the caller already holds this value. It has no effect on a timed event.
+    func snapshot(calendar: CalendarName, dayZone: TimeZone) -> CalendarEventSnapshot? {
         guard let startAt, let endAt else { return nil }
         return CalendarEventSnapshot(
             calendar: calendar,
@@ -74,7 +78,36 @@ struct RawEvent: Sendable, Equatable {
             startAt: startAt,
             endAt: endAt,
             isAllDay: isAllDay,
+            // Only for an all-day event: a timed one carries its own zone, so a day would add
+            // nothing and invite a client to read one off an appointment.
+            startDay: isAllDay ? LocalDay.string(for: startAt, in: dayZone) : nil,
+            endDay: isAllDay ? LocalDay.string(for: endAt, in: dayZone) : nil,
             timeZone: timeZoneIdentifier
+        )
+    }
+}
+
+/// The calendar day an instant falls on, as `yyyy-MM-dd`.
+///
+/// Built from Gregorian components and formatted by hand rather than through a `DateFormatter`,
+/// for the same reason `DueDate.components` constructs its own calendar and never reads
+/// `Calendar.current`: a formatter inherits the process's locale and calendar, so a Mac set to the
+/// Buddhist calendar would emit `2569-08-11` and one set to an Arabic-numerals locale
+/// `٢٠٢٦-٠٨-١١`. Neither is a date any client can parse, and neither would show up on a machine
+/// configured the way ours is.
+enum LocalDay {
+    static func string(for date: Date, in timeZone: TimeZone) -> String {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: date)
+        // `String(format:)` with no locale argument is unlocalised, so the digits are ASCII
+        // whatever the Mac's number formatting says. The zeros are unreachable — those three
+        // components are always present for a `Date` — and exist only so this cannot trap.
+        return String(
+            format: "%04d-%02d-%02d",
+            parts.year ?? 0,
+            parts.month ?? 0,
+            parts.day ?? 0
         )
     }
 }

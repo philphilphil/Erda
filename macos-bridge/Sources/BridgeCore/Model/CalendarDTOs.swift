@@ -153,8 +153,22 @@ public struct CalendarEventSnapshot: Sendable, Equatable, Codable {
     /// never *creates* one — a create always carries explicit times — but Calendar.app is full of
     /// them, and a caller told only "starts at 22:00Z" would report a birthday at the wrong time.
     public let isAllDay: Bool
+    /// The calendar day `startAt` falls on, `yyyy-MM-dd`, and the **inclusive** last day of the
+    /// event — set only when `isAllDay`, nil otherwise, and omitted from the JSON when nil.
+    ///
+    /// They exist because an all-day event is *floating*: EventKit anchors it to whatever zone the
+    /// Mac is in and leaves `timeZone` nil, so the instants alone say `2026-08-10T22:00:00Z` for
+    /// something Calendar.app draws on Tuesday 11 August. Only this Mac knows the anchoring zone,
+    /// so only this Mac can state the day — a client deriving one from the instant reports every
+    /// birthday a day early. A timed event needs neither: it has an instant and, usually, its own
+    /// zone, which is strictly more than a day.
+    public let startDay: String?
+    public let endDay: String?
     /// The event's own IANA zone, when it has one. `EKEvent.timeZone` is genuinely optional —
     /// a floating event has none — and inventing one here would be a claim the data does not make.
+    /// In particular the days above are **not** a licence to fill this in: the anchoring zone is
+    /// the Mac's, not the event's, and saying otherwise would be the same fabrication in a new
+    /// field.
     public let timeZone: String?
 
     public init(
@@ -164,6 +178,8 @@ public struct CalendarEventSnapshot: Sendable, Equatable, Codable {
         startAt: Date,
         endAt: Date,
         isAllDay: Bool = false,
+        startDay: String? = nil,
+        endDay: String? = nil,
         timeZone: String? = nil
     ) {
         self.calendar = calendar
@@ -172,6 +188,8 @@ public struct CalendarEventSnapshot: Sendable, Equatable, Codable {
         self.startAt = startAt
         self.endAt = endAt
         self.isAllDay = isAllDay
+        self.startDay = startDay
+        self.endDay = endDay
         self.timeZone = timeZone
     }
 }

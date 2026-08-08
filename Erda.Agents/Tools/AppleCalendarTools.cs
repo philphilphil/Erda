@@ -128,6 +128,14 @@ public sealed class AppleCalendarTools(IAppleBridgeClient client)
     /// Rendered in the event's own zone when it has one, so "09:00 Europe/Berlin" reads the way it
     /// does in Calendar.app rather than as the UTC instant behind it. An all-day event is named as
     /// such instead of being given a misleading midnight-to-midnight span.
+    /// <para>
+    /// An all-day event is rendered from the days the bridge states
+    /// (<see cref="AppleCalendarEvent.StartDay"/>), never from its instants: it is a floating event,
+    /// so the instants are anchored to the Mac's zone, that zone is not on the wire, and deriving a
+    /// day from them here puts every birthday one day early. Only when they are absent — an older
+    /// bridge — does this fall back to the instant, which is the behaviour that produced the bug and
+    /// is kept solely so an un-updated bridge still says something.
+    /// </para>
     /// </summary>
     private static string FormatRange(AppleCalendarEvent e)
     {
@@ -137,7 +145,17 @@ public sealed class AppleCalendarTools(IAppleBridgeClient client)
         var label = e.TimeZone ?? "UTC";
 
         if (e.IsAllDay)
-            return $"all day on {start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+        {
+            if (string.IsNullOrEmpty(e.StartDay))
+                return $"all day on {start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+
+            // `EndDay` is the inclusive last day, so a single-day event repeats `StartDay` and is
+            // named once. A multi-day one names both ends — the instant-based rendering dropped the
+            // end entirely, turning a week's holiday into one day.
+            return string.IsNullOrEmpty(e.EndDay) || e.EndDay == e.StartDay
+                ? $"all day on {e.StartDay}"
+                : $"all day from {e.StartDay} to {e.EndDay}";
+        }
 
         // Same day: don't repeat the date on the end.
         var endFormat = start.Date == end.Date ? "HH:mm" : "yyyy-MM-dd HH:mm";
@@ -147,7 +165,9 @@ public sealed class AppleCalendarTools(IAppleBridgeClient client)
 
     /// <summary>The bridge sends a canonical IANA identifier, but the host may not have that zone
     /// installed (or the event may be floating), so an unresolvable zone falls back to UTC rather
-    /// than throwing inside a tool call.</summary>
+    /// than throwing inside a tool call. A floating event is always an all-day one, and its day now
+    /// comes from <see cref="AppleCalendarEvent.StartDay"/> rather than from this fallback — which
+    /// is what stopped a birthday being reported a day early.</summary>
     private static TimeZoneInfo ResolveZone(string? identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
