@@ -25,9 +25,9 @@ const onRequest: Capability[] = [
   },
   {
     icon: 'globe',
-    title: 'Deep reasoning',
-    desc: 'Hands hard questions to a stronger model with live web search.',
-    tags: ['gpt-5.5', 'web search'],
+    title: 'Web search',
+    desc: 'Searches the live web itself and answers from what comes back.',
+    tags: ['native web search', 'Responses API'],
   },
   {
     icon: 'clock',
@@ -39,7 +39,7 @@ const onRequest: Capability[] = [
     icon: 'mic',
     title: 'Voice memos',
     desc: 'Turns a voice memo into a clean, structured note. Send it over WhatsApp, or upload it from an iOS Shortcut.',
-    tags: ['gpt-4o-transcribe → gpt-5.5', 'WhatsApp · iOS Shortcut'],
+    tags: ['transcribe → structured note', 'WhatsApp · iOS Shortcut'],
   },
   {
     icon: 'check',
