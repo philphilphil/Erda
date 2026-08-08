@@ -13,18 +13,21 @@
 # WhatsApp__…, OPENAI_API_KEY, …) so `dotnet watch` boots with them. Copy .env.example to .env first.
 # A missing required value stops the backend at startup with a clear error (by design).
 BRIDGE_DIR := whatsapp-bridge
+MAC_BRIDGE_DIR := macos-bridge
 WEB_DIR := web
 
 # Export every key in ./.env into the recipe's environment (no-op if .env is absent).
 LOAD_ENV := set -a; [ -f .env ] && . ./.env; set +a;
 
-.PHONY: help dev dev-all web deploy
+.PHONY: help dev dev-all web deploy mac-bridge mac-bridge-deploy
 
 help:
-	@echo "make dev      - run backend + SPA only, no bridge (Ctrl-C kills both)"
-	@echo "make dev-all  - run everything: backend + SPA + WhatsApp bridge (Ctrl-C kills all)"
-	@echo "make web      - run the control-panel SPA dev server (Vite at :5173, proxies /api to :5167)"
-	@echo "make deploy   - docker compose pull && docker compose up -d (prebuilt GHCR images)"
+	@echo "make dev               - run backend + SPA only, no bridge (Ctrl-C kills both)"
+	@echo "make dev-all           - run everything: backend + SPA + WhatsApp bridge (Ctrl-C kills all)"
+	@echo "make web               - run the control-panel SPA dev server (Vite at :5173, proxies /api to :5167)"
+	@echo "make deploy            - docker compose pull && docker compose up -d (prebuilt GHCR images)"
+	@echo "make mac-bridge        - build + codesign ErdaBridge.app (macOS only; does not install)"
+	@echo "make mac-bridge-deploy - build it, stop the running one, reinstall to /Applications, relaunch"
 
 # Backend + SPA only (no bridge): the common loop when WhatsApp isn't linked. Open the Vite URL
 # (http://localhost:5173) for the panel; the backend serves /api on :5167.
@@ -53,3 +56,12 @@ web:
 # file + ./.env. Komodo can run this same command instead (it owns the production deploy).
 deploy:
 	docker compose pull && docker compose up -d
+
+# ErdaBridge (macos-bridge/) — the signed menu-bar app that serves Apple Reminders + Calendar to
+# Erda over the LAN. It runs on this Mac, outside the Docker stack, so it has nothing to do with
+# `make deploy` above. These are passthroughs to macos-bridge/Makefile, which owns the real work.
+mac-bridge:
+	@$(MAKE) -C $(MAC_BRIDGE_DIR) bundle
+
+mac-bridge-deploy:
+	@$(MAKE) -C $(MAC_BRIDGE_DIR) deploy
