@@ -113,11 +113,17 @@ jobs:
               exit 1
             fi
           done
-          # `--fail-with-body` so a rejected key prints Komodo's own error rather than exit 22 alone.
-          curl --silent --show-error --fail-with-body \
-            --max-time 60 --retry 3 --retry-connrefused \
+          # `--fail-with-body` so a rejected key prints Komodo's own error rather than exit 22
+          # alone. No `--retry`: curl counts a 500 as transient, and Komodo answers 500 for a name
+          # that matches no stack, so a typo here was reported four identical times. Only the
+          # connection is worth retrying, and `--retry-connrefused` needs `--retry` to do anything,
+          # so a refused connection simply fails — Komodo being down is not this job's problem to
+          # paper over.
+          #
+          # The stack is matched by its name exactly as it reads in Komodo, lowercase included.
+          curl --silent --show-error --fail-with-body --max-time 60 \
             -X POST "${KOMODO_URL%/}/execute" \
             -H 'content-type: application/json' \
             -H "x-api-key: ${KOMODO_API_KEY}" \
             -H "x-api-secret: ${KOMODO_API_SECRET}" \
-            -d '{"type":"DeployStack","params":{"stack":"Erda"}}'
+            -d '{"type":"DeployStack","params":{"stack":"erda"}}'
