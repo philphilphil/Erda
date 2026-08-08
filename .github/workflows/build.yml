@@ -5,6 +5,11 @@
 # linux/amd64 (the homeserver's arch) and pushes them to ghcr.io/philphilphil/<name>. The server
 # (or Komodo) then just `docker compose pull && up -d` against those prebuilt images. The compose
 # `build:` blocks are kept only for local dev. workflow_dispatch allows a manual rebuild.
+#
+# The `deploy` job then tells Komodo to redeploy. It lives here, at the end of the build, rather
+# than as a git webhook on the repo, because those fire on *different* events: a git webhook fires
+# the moment a commit lands, minutes before the images it describes exist, so Komodo would redeploy
+# the previous `:latest` and then sit on it. "The images are ready" is only knowable here.
 name: build
 
 on:
@@ -79,3 +84,40 @@ jobs:
             BUILD_TIME=${{ steps.now.outputs.time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: Redeploy the Komodo stack
+    # Every image, or nothing: a partial deploy would run a new erda against an old bridge.
+    needs: images
+    # Only `main` moves `:latest`, which is what the stack's compose pulls. A v* tag publishes
+    # version tags nothing on the server refers to, so deploying on one would redeploy the
+    # unchanged `:latest` and say it did something.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # `DeployStack` is `docker compose up` on the Komodo side, so the stack needs "Pre Pull
+      # Images" enabled — without it compose reuses the `:latest` it already has and the deploy
+      # is a no-op that reports success.
+      - name: Deploy
+        env:
+          KOMODO_URL: ${{ secrets.KOMODO_URL }}
+          KOMODO_API_KEY: ${{ secrets.KOMODO_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_API_SECRET }}
+        run: |
+          set -euo pipefail
+          # Checked by hand: an unset secret otherwise reaches curl as an empty URL and fails as
+          # something that reads like a network problem.
+          for v in KOMODO_URL KOMODO_API_KEY KOMODO_API_SECRET; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::$v is not set — add it under Settings ▸ Secrets and variables ▸ Actions."
+              exit 1
+            fi
+          done
+          # `--fail-with-body` so a rejected key prints Komodo's own error rather than exit 22 alone.
+          curl --silent --show-error --fail-with-body \
+            --max-time 60 --retry 3 --retry-connrefused \
+            -X POST "${KOMODO_URL%/}/execute" \
+            -H 'content-type: application/json' \
+            -H "x-api-key: ${KOMODO_API_KEY}" \
+            -H "x-api-secret: ${KOMODO_API_SECRET}" \
+            -d '{"type":"DeployStack","params":{"stack":"Erda"}}'
