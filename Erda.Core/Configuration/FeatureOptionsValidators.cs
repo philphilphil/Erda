@@ -54,19 +54,6 @@ public sealed class UploadOptionsValidator : IValidateOptions<UploadOptions>
     }
 }
 
-/// <summary>Requires the browser profile/output dirs whenever the agentic browser is enabled.</summary>
-public sealed class BrowserOptionsValidator : IValidateOptions<BrowserOptions>
-{
-    public ValidateOptionsResult Validate(string? name, BrowserOptions o)
-    {
-        if (!o.Enabled) return ValidateOptionsResult.Success;
-        // Env-var form of the nested section: Erda:Browser -> Erda__Browser__<Key>.
-        return RequiredWhenEnabled.Check("Erda__Browser",
-            (nameof(o.UserDataDir), RequiredWhenEnabled.Str(o.UserDataDir)),
-            (nameof(o.OutputDir), RequiredWhenEnabled.Str(o.OutputDir)));
-    }
-}
-
 /// <summary>Requires the poll interval / level / cap whenever the error-watch scheduler is enabled.</summary>
 public sealed class ErrorWatchOptionsValidator : IValidateOptions<ErrorWatchOptions>
 {

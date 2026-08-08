@@ -8,8 +8,8 @@ namespace Erda.Tests;
 
 /// <summary>
 /// Config is env-only and fail-fast: required values have no default and are validated at startup.
-/// Credentials are validated by DataAnnotations; feature settings (WhatsApp, Browser) only when the
-/// feature is enabled.
+/// Credentials are validated by DataAnnotations; feature settings (WhatsApp, Upload, ...) only when
+/// the feature is enabled.
 /// </summary>
 public class ConfigValidationTests
 {
@@ -67,21 +67,6 @@ public class ConfigValidationTests
             MediaTempDir = "/media",
         });
         Assert.True(result.Succeeded);
-    }
-
-    [Fact]
-    public void Browser_enabled_requires_its_dirs()
-    {
-        var result = new BrowserOptionsValidator().Validate(null, new BrowserOptions { Enabled = true });
-        Assert.True(result.Failed);
-        Assert.Contains("UserDataDir", result.FailureMessage);
-        Assert.Contains("OutputDir", result.FailureMessage);
-    }
-
-    [Fact]
-    public void Browser_disabled_needs_nothing()
-    {
-        Assert.True(new BrowserOptionsValidator().Validate(null, new BrowserOptions { Enabled = false }).Succeeded);
     }
 
     [Fact]

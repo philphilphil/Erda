@@ -22,7 +22,6 @@ public class ConfigPanelServiceTests
             Options.Create(new ErrorWatchOptions()),
             Options.Create(new ReminderOptions()),
             Options.Create(new ObservabilityOptions()),
-            Options.Create(new BrowserOptions()),
             Options.Create(new UploadOptions()),
             Options.Create(new AppleBridgeOptions()));
 

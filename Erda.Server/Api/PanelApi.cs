@@ -1,5 +1,4 @@
 using Erda.Core.Configuration;
-using Erda.Server.Api.Capabilities;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 
@@ -69,7 +68,6 @@ public static class PanelApi
         data.MapConfigEndpoints();
         data.MapSystemScheduleEndpoints();
         data.MapStatusEndpoints();
-        data.MapCapabilitiesEndpoints();
         data.MapChatEndpoints();
     }
 }

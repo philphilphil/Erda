@@ -27,6 +27,7 @@ const PATHS: Record<string, string[]> = {
   check: ['M5 13l4 4 10-11'],
   power: ['M12 4v8', 'M7 6a8 8 0 1 0 10 0'],
   inbox: ['M4 13h5l1 3h4l1-3h5', 'M4 13 7 5h10l3 8v6H4z'],
+  calendar: ['M4 6h16v14H4z', 'M4 10h16', 'M8 3v4', 'M16 3v4'],
   cpu: ['M7 7h10v10H7z', 'M10 10h4v4h-4z', 'M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2'],
   globe: ['circle::12,12,9', 'M3 12h18', 'M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18'],
   mic: ['M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z', 'M5 11a7 7 0 0 0 14 0', 'M12 18v3'],

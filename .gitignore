@@ -31,12 +31,11 @@ docs/notes.md
 web/node_modules/
 web/dist/
 web/*.local
-# Playwright MCP verification artifacts
-.playwright-mcp/
+# Control-panel screenshots taken while verifying a change
 panel-*.png
 
 # Docker stack persistent state now lives in named volumes (not host dirs), so nothing to ignore there.
-# Kept: the dev browser OutputDir writes to project-root media/.
+# Kept: the dev WhatsApp MediaTempDir writes to project-root media/.
 /media/
 
 # macOS Reminders bridge (Swift): build products and the assembled app bundle

@@ -8,7 +8,8 @@ namespace Erda.Agents.Tools;
 
 /// <summary>
 /// Exposes the agent's proactive WhatsApp tools: <c>message_me</c> (send Phil a text) and
-/// <c>send_image</c> (send Phil an image file, e.g. a browser screenshot). This is the agent-facing
+/// <c>send_image</c> (send Phil an image file, e.g. a card image the card_price tool downloaded).
+/// This is the agent-facing
 /// side of the outbound path; the error-watch scheduler uses the same <see cref="IWhatsAppSender"/>
 /// directly.
 /// </summary>
@@ -37,9 +38,9 @@ public sealed class NotifyTools(IWhatsAppSender sender, IOptions<WhatsAppOptions
     }
 
     [Description(
-        "Send an image file to Phil (the owner) on WhatsApp — e.g. a screenshot the browser captured. " +
-        "Provide the absolute file path (the browser writes screenshots to the media directory) and an " +
-        "optional caption. Returns whether it was delivered.")]
+        "Send an image file to Phil (the owner) on WhatsApp — e.g. a card image from the card_price " +
+        "tool. Provide the absolute file path and an optional caption. Returns whether it was " +
+        "delivered.")]
     private async Task<string> SendImage(
         [Description("Absolute path to the image file to send.")] string filePath,
         [Description("Optional caption to send with the image.")] string? caption = null)

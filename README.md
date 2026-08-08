@@ -35,8 +35,6 @@ an Obsidian vault.
   separately deniable and the reminder half keeps working without it.
 - **Error watch** — polls a Seq log server, deduplicates errors by signature, has the model
   analyze them, and pings me on WhatsApp.
-- **Agentic browsing** (optional) — a Playwright-driven browser with 1Password-backed logins the
-  model never sees the credentials for.
 
 ## How it's put together
 
@@ -56,7 +54,7 @@ flowchart LR
     panel["Control panel · Vue SPA"] <--> api["/api"]
 
     subgraph erda["erda · .NET 10 / MAF"]
-      agent["erda agent · gpt-5.5<br/>vault · web_search · reminders · voice memo · browser"]
+      agent["erda agent · gpt-5.5<br/>vault · web_search · reminders · voice memo"]
       sched["Schedulers<br/>reminders · error-watch"]
       api
     end

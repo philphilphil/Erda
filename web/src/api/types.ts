@@ -164,31 +164,6 @@ export interface SystemSchedulesResponse {
   schedules: SystemScheduleDto[]
 }
 
-// MCP capabilities
-export interface McpToolDto {
-  name: string
-  description: string | null
-}
-
-export interface McpServerDto {
-  name: string
-  transport: string
-  connected: boolean
-  tools: McpToolDto[]
-}
-
-export interface McpCapabilitiesResponse {
-  servers: McpServerDto[]
-}
-
-export interface AccountDto {
-  title: string
-  sites: string[]
-}
-export interface AccountsResponse {
-  accounts: AccountDto[]
-}
-
 // Chat
 export interface ChatMessage {
   role: 'user' | 'assistant'

@@ -16,7 +16,6 @@ public sealed class ConfigPanelService(
     IOptions<ErrorWatchOptions> errorWatch,
     IOptions<ReminderOptions> reminders,
     IOptions<ObservabilityOptions> observability,
-    IOptions<BrowserOptions> browser,
     IOptions<UploadOptions> upload,
     IOptions<AppleBridgeOptions> appleBridge)
 {
@@ -32,7 +31,6 @@ public sealed class ConfigPanelService(
         var ew = errorWatch.Value;
         var r = reminders.Value;
         var o = observability.Value;
-        var b = browser.Value;
         var up = upload.Value;
         var ab = appleBridge.Value;
 
@@ -65,9 +63,6 @@ public sealed class ConfigPanelService(
 
             new("Observability", "Tracing enabled", Show(o.Enabled)),
             new("Observability", "Capture message content", Show(o.CaptureMessageContent)),
-
-            new("Browser", "Enabled", Show(b.Enabled)),
-            new("Browser", "Show window", Show(b.ShowWindow)),
 
             new("Upload", "Enabled", Show(up.Enabled)),
             new("Upload", "Bearer token", Secret(up.ApiKey)),

@@ -143,11 +143,6 @@ app.MapWhatsAppChannel();
 // HTTP audio upload (iOS Shortcut → same voice-memo pipeline; only mapped when Upload:Enabled).
 app.MapUploadEndpoint();
 
-// Connect the browser MCP before the host starts. The orchestrator agent is built when the
-// background services (e.g. ReminderScheduler) are constructed during host start, and it reads
-// IBrowserMcp.Tools at that moment — so the MCP must be connected first. No-op when disabled.
-await app.Services.GetRequiredService<Erda.Agents.Tools.IBrowserMcp>().EnsureStartedAsync();
-
 app.Run();
 
 // Print the resolved (non-secret) config. Credentials are validated at startup (ValidateOnStart),

@@ -2,7 +2,6 @@ using Erda.Core.Configuration;
 using Erda.Core.Data;
 using Erda.Core.Scheduling;
 using Erda.Core.Services;
-using Erda.Core.Services.OnePassword;
 using Erda.Core.Services.Seq;
 using Erda.Core.Upload;
 using Erda.Core.WhatsApp;
@@ -25,8 +24,8 @@ public static class ServiceCollectionExtensions
         // --- Options ---
         // Env vars are the single source. Required settings carry no default and are validated at
         // startup (ValidateOnStart) so a missing value stops the app with a clear, aggregated error
-        // instead of failing later. Feature settings (WhatsApp, Browser) are only required when their
-        // Enabled switch is on — see the IValidateOptions validators below.
+        // instead of failing later. Feature settings (WhatsApp, Upload, ...) are only required when
+        // their Enabled switch is on — see the IValidateOptions validators below.
 
         // Credentials are flat env vars (OPENAI_API_KEY for transcription), so bind the config root.
         services.AddOptions<CredentialsOptions>()
@@ -49,11 +48,6 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(WhatsAppOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<WhatsAppOptions>, WhatsAppOptionsValidator>();
-
-        services.AddOptions<BrowserOptions>()
-            .Bind(configuration.GetSection(BrowserOptions.SectionName))
-            .ValidateOnStart();
-        services.AddSingleton<IValidateOptions<BrowserOptions>, BrowserOptionsValidator>();
 
         services.AddOptions<UploadOptions>()
             .Bind(configuration.GetSection(UploadOptions.SectionName))
@@ -89,9 +83,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITranscriber>(sp => sp.GetRequiredService<Transcriber>());
         services.AddSingleton<PreScriptRunner>();
         services.AddSingleton<IPreScriptRunner>(sp => sp.GetRequiredService<PreScriptRunner>());
-        // --- 1Password (op CLI + secret resolver) ---
-        services.AddSingleton<IOpCli, OpCli>();
-        services.AddSingleton<IOpSecretResolver, OpSecretResolver>();
         // URL fetcher for the recipe-importer workflow (creates clients via the factory per fetch).
         services.AddHttpClient(nameof(UrlFetcher));
         services.AddSingleton<IUrlFetcher, UrlFetcher>();

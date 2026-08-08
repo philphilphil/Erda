@@ -44,11 +44,10 @@ services:
   # Chown the (root-owned) named volumes so the 1000:1000 services can write, then exit.
   init-perms:
     image: alpine:3.21
-    command: ["chown", "1000:1000", "/data/erda", "/media", "/data/browser", "/vault", "/config"]
+    command: ["chown", "1000:1000", "/data/erda", "/media", "/vault", "/config"]
     volumes:
       - erda-data:/data/erda
       - media:/media
-      - browser-data:/data/browser
       - vault:/vault
       - obsidian-config:/config
 
@@ -79,7 +78,6 @@ services:
       - vault:/vault
       - erda-data:/data/erda
       - media:/media
-      - browser-data:/data/browser
     networks: [erdanet]
 
 networks:
@@ -91,6 +89,5 @@ volumes:
   bridge-data:
   erda-data:
   media:
-  browser-data:
   vault:
   obsidian-config:

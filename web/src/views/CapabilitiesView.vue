@@ -1,9 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
-import { getMcpCapabilities, getAccounts } from '../api/client'
-import type { McpServerDto, AccountDto } from '../api/types'
 
 interface Capability {
   icon: string
@@ -21,6 +18,12 @@ const onRequest: Capability[] = [
     tags: ['read · write · search', 'vault-confined'],
   },
   {
+    icon: 'pencil',
+    title: 'Note editing',
+    desc: 'Rewrites an existing note from an instruction in your own words.',
+    tags: ['instruction-driven', 'vault-confined'],
+  },
+  {
     icon: 'globe',
     title: 'Deep reasoning',
     desc: 'Hands hard questions to a stronger model with live web search.',
@@ -35,25 +38,28 @@ const onRequest: Capability[] = [
   {
     icon: 'mic',
     title: 'Voice memos',
-    desc: 'Turns an Apple Voice Memo into a clean, structured note.',
-    tags: ['gpt-4o-transcribe → gpt-5.5'],
+    desc: 'Turns a voice memo into a clean, structured note. Send it over WhatsApp, or upload it from an iOS Shortcut.',
+    tags: ['gpt-4o-transcribe → gpt-5.5', 'WhatsApp · iOS Shortcut'],
   },
   {
-    icon: 'globe',
-    title: 'Web browsing',
-    desc: 'Drives a real browser to read sites and complete tasks, like a person would.',
-    tags: ['Playwright MCP', 'agentic'],
+    icon: 'check',
+    title: 'Apple Reminders',
+    desc: 'Adds, lists and completes reminders in any of your lists on the Mac.',
+    tags: ['create · list · complete', 'macOS bridge'],
+  },
+  {
+    icon: 'calendar',
+    title: 'Apple Calendar',
+    desc: 'Lists what is coming up across every calendar, and creates events in the one calendar you pick in the bridge. No edit, no delete.',
+    tags: ['create · list', 'macOS bridge'],
+  },
+  {
+    icon: 'search',
+    title: 'Card prices',
+    desc: 'Looks up a Magic card price and hands you a ready-made Cardmarket link, in English or German.',
+    tags: ['Scryfall', 'Cardmarket'],
   },
 ]
-
-const mcpServers = ref<McpServerDto[]>([])
-const accounts = ref<AccountDto[]>([])
-onMounted(async () => {
-  // Independent so one endpoint failing (or 1Password being unconfigured) still renders the other card.
-  const [mcp, accts] = await Promise.allSettled([getMcpCapabilities(), getAccounts()])
-  if (mcp.status === 'fulfilled') mcpServers.value = mcp.value.servers
-  if (accts.status === 'fulfilled') accounts.value = accts.value.accounts
-})
 
 // Things Erda does in the background, without being prompted.
 const automatic: Capability[] = [
@@ -66,8 +72,8 @@ const automatic: Capability[] = [
   {
     icon: 'chat',
     title: 'WhatsApp',
-    desc: 'Talk to Erda by text, voice or image — and it messages you proactively.',
-    tags: ['text · voice · image'],
+    desc: 'Talk to Erda by text, voice or image — and it messages you first, with text or a picture.',
+    tags: ['text · voice · image', 'proactive send'],
   },
 ]
 </script>
@@ -95,41 +101,6 @@ const automatic: Capability[] = [
             <div class="cap-desc">{{ cap.desc }}</div>
             <div class="cap-tags">
               <span v-for="tag in cap.tags" :key="tag" class="badge sq b-muted">{{ tag }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
-
-    <Card v-if="mcpServers.length" flush title="Connected MCPs" sub="tool servers Erda is wired to">
-      <div class="cap-list">
-        <div v-for="s in mcpServers" :key="s.name" class="cap-row">
-          <div class="cap-name">
-            <span class="ci"><Icon name="globe" /></span>
-            <span>{{ s.name }}</span>
-            <span class="badge" :class="s.connected ? 'b-green' : 'b-muted'">
-              <span class="dot" />{{ s.connected ? 'connected' : 'disconnected' }}
-            </span>
-          </div>
-          <div class="cap-detail">
-            <div class="cap-tags">
-              <span v-for="t in s.tools" :key="t.name" class="badge sq b-muted">{{ t.name }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
-
-    <Card v-if="accounts.length" flush title="Logins Erda can use" sub="read-only — curated in 1Password">
-      <div class="cap-list">
-        <div v-for="a in accounts" :key="a.title" class="cap-row">
-          <div class="cap-name">
-            <span class="ci"><Icon name="globe" /></span>
-            <span>{{ a.title }}</span>
-          </div>
-          <div class="cap-detail">
-            <div class="cap-tags">
-              <span v-for="s in a.sites" :key="s" class="badge sq b-muted">{{ s }}</span>
             </div>
           </div>
         </div>

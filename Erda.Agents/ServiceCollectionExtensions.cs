@@ -26,9 +26,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AppleReminderTools>();
         services.AddSingleton<AppleCalendarTools>();
 
-        // Browser MCP: Playwright stdio child process, connected once at startup.
-        services.AddSingleton<IBrowserMcp, PlaywrightMcp>();
-
         // The in-process reasoner — the streamed Responses replacement for the old codex subprocess.
         // Lives in this (MAF) layer, not Core, because it builds AIAgents; every former Codex consumer
         // (voice-memo, recipe, error-watch) takes the Erda.Core.Services.IReasoner seam.

@@ -16,8 +16,8 @@ namespace Erda.Agents;
 /// Builds the Erda chat agent (the orchestrator): gpt-5.5 on the Responses API, reached via the
 /// OpenAI SDK pointed at a local OpenAI-compatible endpoint. Tools = the Obsidian vault tools, the
 /// process_voice_memo tool (the voice-memo MAF workflow exposed via AsAIFunction, agent-as-tool),
-/// notify + reminder tools, the optional browser tool, and a native HostedWebSearchTool so Erda
-/// browses the live web itself (the capability Codex used to provide).
+/// notify + reminder tools, the optional Apple bridge tools, and a native HostedWebSearchTool so
+/// Erda browses the live web itself (the capability Codex used to provide).
 /// </summary>
 public static class ErdaAgent
 {
@@ -52,20 +52,17 @@ public static class ErdaAgent
         // card_price is pure HTTP (Scryfall + a prebuilt Cardmarket link) — always available.
         tools.AddRange(services.GetRequiredService<CardPriceTool>().AsTools());
 
-        // Apple Reminders and Apple Calendar (macOS ErdaBridge), only when configured — same
-        // null-when-disabled posture as BrowserAgent.TryCreateTool, so a Phil without the bridge
-        // running never sees these tools. One switch for both: they are the same app, the same token
-        // and the same LAN address. (The two macOS *permissions* are separate, but that is the
-        // bridge's problem — an ungranted one surfaces as a readable 503 through the tool.)
+        // Apple Reminders and Apple Calendar (macOS ErdaBridge), only when configured, so a Phil
+        // without the bridge running never sees these tools. One switch for both: they are the same
+        // app, the same token and the same LAN address. (The two macOS *permissions* are separate,
+        // but that is the bridge's problem — an ungranted one surfaces as a readable 503 through the
+        // tool.)
         var appleBridge = services.GetRequiredService<IOptions<AppleBridgeOptions>>().Value;
         if (appleBridge.Enabled)
         {
             tools.AddRange(services.GetRequiredService<AppleReminderTools>().AsTools());
             tools.AddRange(services.GetRequiredService<AppleCalendarTools>().AsTools());
         }
-
-        var browseTool = BrowserAgent.TryCreateTool(services);
-        if (browseTool is not null) tools.Add(browseTool);
 
         // The active system prompt lives in the SQLite DB (authored in the control panel). There is
         // no code-baked default: a fresh DB has no system prompt until one is saved. Read once at

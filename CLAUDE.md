@@ -86,7 +86,7 @@ A single-user, LAN-only web UI replaces the former Blazor Server panel. The back
 
 ### Production deployment
 
-Self-contained Docker Compose stack on an amd64 homeserver: `erda` + `whatsapp-bridge` + `obsidian-sync` containers (the arch default is an amd64 build ARG — `OP_ARCH` — overridable for ARM64). The chat/reasoning model is reached over HTTP at `Erda__ChatBaseUrl` (a local OpenAI-compatible proxy), so the container needs no codex CLI or `~/.codex` mount. All persistent state is held in **Docker-managed named volumes** (`vault`, `erda-data`, `media`, `browser-data`, `bridge-data`, `obsidian-config`, at `/var/lib/docker/volumes/erda_<name>/_data` — backed up directly); they are created root-owned and chowned to `1000:1000` by the `init-perms` one-shot on first `up`. The vault is kept synced **inside the stack** by the `obsidian-sync` sidecar — Obsidian's official headless Sync client (`obsidian-headless`, Node 22+); auth is injected via `OBSIDIAN_AUTH_TOKEN` or a one-time `docker compose run --rm obsidian-sync setup` that persists into the `obsidian-config` dir (no host-side Syncthing/obsidian-git anymore; requires an Obsidian Sync subscription). In `Production` (`ASPNETCORE_ENVIRONMENT=Production`), the interaction surfaces are WhatsApp and the LAN control panel (published on port 5167). The Dockerfile has a Node build stage that compiles the `web/` SPA and copies `dist` into `wwwroot`.
+Self-contained Docker Compose stack on an amd64 homeserver: `erda` + `whatsapp-bridge` + `obsidian-sync` containers. The chat/reasoning model is reached over HTTP at `Erda__ChatBaseUrl` (a local OpenAI-compatible proxy), so the container needs no codex CLI or `~/.codex` mount. All persistent state is held in **Docker-managed named volumes** (`vault`, `erda-data`, `media`, `bridge-data`, `obsidian-config`, at `/var/lib/docker/volumes/erda_<name>/_data` — backed up directly); they are created root-owned and chowned to `1000:1000` by the `init-perms` one-shot on first `up`. The vault is kept synced **inside the stack** by the `obsidian-sync` sidecar — Obsidian's official headless Sync client (`obsidian-headless`, Node 22+); auth is injected via `OBSIDIAN_AUTH_TOKEN` or a one-time `docker compose run --rm obsidian-sync setup` that persists into the `obsidian-config` dir (no host-side Syncthing/obsidian-git anymore; requires an Obsidian Sync subscription). In `Production` (`ASPNETCORE_ENVIRONMENT=Production`), the interaction surfaces are WhatsApp and the LAN control panel (published on port 5167). The Dockerfile has a Node build stage that compiles the `web/` SPA and copies `dist` into `wwwroot`.
 
 **Images are built by CI, not on the server.** `.github/workflows/build.yml` (push to `main`, `v*` tags, or manual dispatch) builds all three images for `linux/amd64` and pushes them to GHCR as `ghcr.io/philphilphil/{erda,whatsapp-bridge,obsidian-sync}` (`latest` on `main`, plus `sha-<short>` and semver tags on `v*`). The server runs compose + `.env` only — no source checkout, no build — and pulls those prebuilt images: `make deploy` is now `docker compose pull && docker compose up -d` (Komodo runs the same). The compose `image:` refs point at the GHCR `:latest` tags; the `build:` blocks are kept **only** so local dev still works with `docker compose up -d --build`. One-time setup done outside this repo: make the 3 GHCR packages public (anonymous pulls) or give the server/Komodo a `read:packages` login; and point a Komodo **Stack** at this compose with env managed in Komodo, redeploying via webhook or the Komodo API.
 
@@ -99,11 +99,9 @@ default — required values are validated at startup** (`ValidateOnStart`) and a
 app naming the key. Always-required: `CredentialsOptions` (flat `OPENAI_API_KEY`, `[Required]`) + all
 of `ErdaOptions` (`VaultPath`, `DbPath`, the chat-endpoint/model settings — `[Required]`; optional
 `ChatApiKey` defaults to `"local"`). Feature settings are required only when the feature's `Enabled` switch is on,
-via per-feature `IValidateOptions` (`WhatsApp`/`Browser`/`ErrorWatch`/`Reminder` `OptionsValidator`).
-Bool switches are off when absent (default-true behaviours like `AnalyzeWithCodex`/`NotifyOnError`/
-`IngestToErda` are now switches you set in `.env`). The only non-config values are fixed mechanics
-expressed as read-only constants on `BrowserOptions` (`McpCommand`, `McpArgs`, `MaxSteps`, `OpCommand`,
-`OnePasswordVault`). Key settings:
+via per-feature `IValidateOptions` (`WhatsApp`/`Upload`/`ErrorWatch`/`Reminder`/`AppleBridge`
+`OptionsValidator`). Bool switches are off when absent (default-true behaviours like
+`AnalyzeWithCodex`/`NotifyOnError`/`IngestToErda` are now switches you set in `.env`). Key settings:
 
 | Section | Key | Purpose |
 |---|---|---|
@@ -115,6 +113,5 @@ expressed as read-only constants on `BrowserOptions` (`McpCommand`, `McpArgs`, `
 | `Reminders` | `Enabled`, `TimeZone`, `PollInterval`, `OverdueGrace`, `PreScript*` | Reminder scheduler (zone/intervals required when `Enabled`; pre-script limits when `PreScriptEnabled`) |
 | `Seq` | `ServerUrl`, `ApiKey`, `IngestToErda` | Seq sink for Serilog + OTLP target (optional; blank ⇒ off) |
 | `Observability` | `Enabled`, `CaptureMessageContent` | OTel master switch; content capture gate |
-| `Erda:Browser` | `Enabled`, `ShowWindow`, `UserDataDir`, `OutputDir` | Agentic browser (`UserDataDir`/`OutputDir` required when `Enabled`; absent `ShowWindow` ⇒ headless) |
 | `AppleBridge` | `Enabled`, `BaseUrl`, `ApiKey`, `TimeoutSeconds` | macOS ErdaBridge client (`BaseUrl`/`ApiKey`/`TimeoutSeconds` required when `Enabled`) — Apple Reminders create/list/complete **and** Apple Calendar create/list tools; one switch for both, see `macos-bridge/` |
 | `Panel` | `Username`, `Password` | Control-panel cookie login; blank `Password` = open (auth off) on the LAN |
