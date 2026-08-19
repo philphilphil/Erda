@@ -14,6 +14,7 @@ public sealed class ConfigPanelService(
     IOptions<WhatsAppOptions> whatsApp,
     IOptions<SeqOptions> seq,
     IOptions<ErrorWatchOptions> errorWatch,
+    IOptions<ChatHealthOptions> chatHealth,
     IOptions<ReminderOptions> reminders,
     IOptions<ObservabilityOptions> observability,
     IOptions<UploadOptions> upload,
@@ -29,6 +30,7 @@ public sealed class ConfigPanelService(
         var w = whatsApp.Value;
         var s = seq.Value;
         var ew = errorWatch.Value;
+        var ch = chatHealth.Value;
         var r = reminders.Value;
         var o = observability.Value;
         var up = upload.Value;
@@ -56,6 +58,11 @@ public sealed class ConfigPanelService(
             new("Error watch", "Poll interval", Show(ew.PollInterval)),
             new("Error watch", "Min level", Show(ew.MinLevel)),
             new("Error watch", "Max alerts/poll", Show(ew.MaxAlertsPerPoll)),
+
+            new("Chat health", "Enabled", Show(ch.Enabled)),
+            new("Chat health", "Check interval", Show(ch.CheckInterval)),
+            new("Chat health", "Probe timeout", Show(ch.Timeout)),
+            new("Chat health", "Re-alert after", Show(ch.ReAlertAfter)),
 
             new("Reminders", "Enabled", Show(r.Enabled)),
             new("Reminders", "Poll interval", Show(r.PollInterval)),

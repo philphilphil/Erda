@@ -35,6 +35,10 @@ an Obsidian vault.
   separately deniable and the reminder half keeps working without it.
 - **Error watch** — polls a Seq log server, deduplicates errors by signature, has the model
   analyze them, and pings me on WhatsApp.
+- **Chat health** — hourly probe of the local OpenAI proxy through the same reasoning path a real
+  request takes, so an endpoint that shut down, logged itself out, or answers with nothing gets me a
+  WhatsApp message right away instead of surfacing as a silently failed voice memo hours later. One
+  alert per outage, one notice when it comes back.
 
 ## How it's put together
 
@@ -55,7 +59,7 @@ flowchart LR
 
     subgraph erda["erda · .NET 10 / MAF"]
       agent["erda agent · gpt-5.5<br/>vault · web_search · reminders · voice memo"]
-      sched["Schedulers<br/>reminders · error-watch"]
+      sched["Schedulers<br/>reminders · error-watch · chat-health"]
       api
     end
 

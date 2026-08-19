@@ -20,6 +20,7 @@ public class ConfigPanelServiceTests
             Options.Create(whatsApp ?? new WhatsAppOptions()),
             Options.Create(seq ?? new SeqOptions()),
             Options.Create(new ErrorWatchOptions()),
+            Options.Create(new ChatHealthOptions()),
             Options.Create(new ReminderOptions()),
             Options.Create(new ObservabilityOptions()),
             Options.Create(new UploadOptions()),

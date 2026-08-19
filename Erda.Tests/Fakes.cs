@@ -189,6 +189,28 @@ public sealed class FakeWhatsAppSender : IWhatsAppSender
     }
 }
 
+public sealed class FakeChatHealthProbe : IChatHealthProbe
+{
+    public List<TimeSpan> Timeouts { get; } = [];
+
+    /// <summary>Per-probe results consumed before falling back to <see cref="Result"/> (for retry tests).</summary>
+    public Queue<ChatProbeResult> ResultQueue { get; } = new();
+
+    public ChatProbeResult Result { get; set; } = new(true, null, TimeSpan.FromMilliseconds(200));
+
+    public int Calls => Timeouts.Count;
+
+    public Task<ChatProbeResult> ProbeAsync(TimeSpan timeout, CancellationToken ct = default)
+    {
+        Timeouts.Add(timeout);
+        return Task.FromResult(ResultQueue.Count > 0 ? ResultQueue.Dequeue() : Result);
+    }
+
+    public void Fail(string error = "boom") => Result = new ChatProbeResult(false, error, TimeSpan.FromSeconds(1));
+
+    public void Succeed() => Result = new ChatProbeResult(true, null, TimeSpan.FromMilliseconds(200));
+}
+
 public sealed class FakeTranscriber : ITranscriber
 {
     public string Transcript { get; set; } = "hello world";

@@ -21,6 +21,7 @@ const KIND_TYPES: { kind: string; color: string; label: string }[] = [
   { kind: 'tool_call', color: 'blue', label: 'tool_call' },
   { kind: 'scheduled_fire', color: 'cyan', label: 'scheduled_fire' },
   { kind: 'error_alert', color: 'red', label: 'error_alert' },
+  { kind: 'chat_health', color: 'amber', label: 'chat_health' },
 ]
 const KNOWN_KINDS = KIND_TYPES.map((t) => t.kind)
 

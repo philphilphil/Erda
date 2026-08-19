@@ -9,6 +9,7 @@ const KIND_COLOR: Record<string, string> = {
   tool_call: 'b-blue',
   scheduled_fire: 'b-cyan',
   error_alert: 'b-red',
+  chat_health: 'b-amber',
 }
 
 const cls = computed(() => KIND_COLOR[props.kind] ?? 'b-muted')

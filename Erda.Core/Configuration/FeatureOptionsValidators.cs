@@ -102,3 +102,15 @@ public sealed class ReminderOptionsValidator : IValidateOptions<ReminderOptions>
         return RequiredWhenEnabled.Check(ReminderOptions.SectionName, checks.ToArray());
     }
 }
+
+/// <summary>Requires the check interval / probe timeout whenever the chat-health watch is enabled.</summary>
+public sealed class ChatHealthOptionsValidator : IValidateOptions<ChatHealthOptions>
+{
+    public ValidateOptionsResult Validate(string? name, ChatHealthOptions o)
+    {
+        if (!o.Enabled) return ValidateOptionsResult.Success;
+        return RequiredWhenEnabled.Check(ChatHealthOptions.SectionName,
+            (nameof(o.CheckInterval), RequiredWhenEnabled.Pos(o.CheckInterval)),
+            (nameof(o.Timeout), RequiredWhenEnabled.Pos(o.Timeout)));
+    }
+}

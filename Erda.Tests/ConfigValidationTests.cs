@@ -80,6 +80,34 @@ public class ConfigValidationTests
     }
 
     [Fact]
+    public void ChatHealth_disabled_needs_nothing()
+    {
+        var result = new ChatHealthOptionsValidator().Validate(null, new ChatHealthOptions { Enabled = false });
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public void ChatHealth_enabled_requires_interval_and_timeout()
+    {
+        var result = new ChatHealthOptionsValidator().Validate(null, new ChatHealthOptions { Enabled = true });
+        Assert.True(result.Failed);
+        Assert.Contains("ChatHealth__CheckInterval", result.FailureMessage);   // unset TimeSpan = 00:00:00
+        Assert.Contains("ChatHealth__Timeout", result.FailureMessage);
+    }
+
+    [Fact]
+    public void ChatHealth_enabled_and_complete_passes_without_the_optional_cooldown()
+    {
+        var result = new ChatHealthOptionsValidator().Validate(null, new ChatHealthOptions
+        {
+            Enabled = true,
+            CheckInterval = TimeSpan.FromHours(1),
+            Timeout = TimeSpan.FromMinutes(2),
+        });
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
     public void Reminders_enabled_requires_core_settings_and_prescript_limits_only_when_prescript_on()
     {
         var noPreScript = new ReminderOptionsValidator().Validate(null, new ReminderOptions { Enabled = true });

@@ -12,7 +12,7 @@ namespace Erda.Core;
 
 /// <summary>
 /// DI wiring for the host-agnostic core: configuration options, the SQLite store, the shared
-/// services, and the three background workers (WhatsApp inbound, error-watch, reminders). The host
+/// services, and the background workers (WhatsApp inbound, error-watch, chat-health, reminders). The host
 /// supplies the resolved <paramref name="dbPath"/> (it also needs it before the container exists,
 /// for the SQLite config-override provider).
 /// </summary>
@@ -58,6 +58,11 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(ErrorWatchOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<ErrorWatchOptions>, ErrorWatchOptionsValidator>();
+
+        services.AddOptions<ChatHealthOptions>()
+            .Bind(configuration.GetSection(ChatHealthOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ChatHealthOptions>, ChatHealthOptionsValidator>();
 
         services.AddOptions<ReminderOptions>()
             .Bind(configuration.GetSection(ReminderOptions.SectionName))
@@ -124,6 +129,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IErrorAnalyzer, CodexErrorAnalyzer>();
         services.AddSingleton<ErrorWatchStateStore>();
         services.AddHostedService<ErrorWatchScheduler>();
+
+        // --- Chat-health watch (probe the OpenAI proxy -> WhatsApp) ---
+        // Probes through IReasoner (supplied by the MAF layer's AddErdaAgents, which the server always
+        // wires alongside Core), so a passing probe means real model work would go through too.
+        services.AddSingleton<IChatHealthProbe, ReasonerChatHealthProbe>();
+        services.AddHostedService<ChatHealthScheduler>();
 
         // --- Reminder scheduler (DB row -> WhatsApp / agent prompt) ---
         services.AddSingleton<ReminderStore>();
