@@ -26,7 +26,7 @@ EF migrations: `dotnet ef migrations add <Name> --project Erda.Core --startup-pr
 
 ## Architecture
 
-Erda is a **.NET 10 solution** built on the **Microsoft Agent Framework (MAF) 1.8.0**. It runs as a single orchestrator agent (`erda`) that routes to tools and a workflow.
+Erda is a **.NET 10 solution** built on the **Microsoft Agent Framework (MAF) 1.20.0**. It runs as a single orchestrator agent (`erda`) that routes to tools and a workflow.
 
 ### Solution layout (`Erda.slnx`)
 

@@ -43,7 +43,7 @@ services:
 
   # Chown the (root-owned) named volumes so the 1000:1000 services can write, then exit.
   init-perms:
-    image: alpine:3.21
+    image: alpine:3.24
     command: ["chown", "1000:1000", "/data/erda", "/media", "/vault", "/config"]
     volumes:
       - erda-data:/data/erda

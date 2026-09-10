@@ -11,7 +11,7 @@ FROM node:22-slim
 # Pin the client. It is an OPEN BETA — breaking changes are possible, so bump deliberately to upgrade.
 # >= 0.0.3 is REQUIRED for headless E2E-encrypted vaults: earlier versions store the vault key via the
 # OS keyring (libsecret/D-Bus), which isn't present in a container and fails sync-setup.
-ARG OBSIDIAN_HEADLESS_VERSION=0.0.12
+ARG OBSIDIAN_HEADLESS_VERSION=0.0.14
 RUN npm install -g "obsidian-headless@${OBSIDIAN_HEADLESS_VERSION}" \
  && ob --version
 
