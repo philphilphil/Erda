@@ -41,13 +41,7 @@ public class VaultEditorWiringTests
     private static VaultEditorTool MakeEditor() =>
         new(
             MakeVault(),
-            Options.Create(new ErdaOptions
-            {
-                VaultPath = Path.GetTempPath(),
-                ChatBaseUrl = "http://localhost:1234/v1",
-                ChatModel = "gpt-5.5",
-                ChatApiKey = "local",
-            }),
+            TestChat.Factory(),
             Options.Create(new ObservabilityOptions()),
             new FakeActivityRecorder(),
             NullLogger<VaultEditorTool>.Instance);
@@ -72,7 +66,7 @@ public class VaultEditorWiringTests
     }
 
     [Fact]
-    public void SubAgent_excludes_reminder_notify_and_browser_tools()
+    public void SubAgent_excludes_reminder_and_notify_tools()
     {
         var names = MakeEditor().BuildSubAgentTools().OfType<AIFunction>().Select(f => f.Name).ToList();
 
@@ -82,7 +76,6 @@ public class VaultEditorWiringTests
         {
             Assert.DoesNotContain("remind", name, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("notify", name, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("browser", name, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -101,13 +94,7 @@ public class VaultEditorWiringTests
 
         var editor = new VaultEditorTool(
             new VaultService(Options.Create(new ErdaOptions { VaultPath = dir })),
-            Options.Create(new ErdaOptions
-            {
-                VaultPath = dir,
-                ChatBaseUrl = "http://localhost:1234/v1",
-                ChatModel = "gpt-5.5",
-                ChatApiKey = "local",
-            }),
+            TestChat.Factory(),
             Options.Create(new ObservabilityOptions()),
             new FakeActivityRecorder(),
             NullLogger<VaultEditorTool>.Instance);

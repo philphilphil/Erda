@@ -1,5 +1,3 @@
-using System.ClientModel;
-using OpenAI.Responses;
 using Erda.Core.Configuration;
 using Erda.Core.Data;
 using Erda.Core.Services;
@@ -13,11 +11,10 @@ using Erda.Agents.Workflows;
 namespace Erda.Agents;
 
 /// <summary>
-/// Builds the Erda chat agent (the orchestrator): gpt-5.5 on the Responses API, reached via the
-/// OpenAI SDK pointed at a local OpenAI-compatible endpoint. Tools = the Obsidian vault tools, the
-/// process_voice_memo tool (the voice-memo MAF workflow exposed via AsAIFunction, agent-as-tool),
-/// notify + reminder tools, the optional Apple bridge tools, and a native HostedWebSearchTool so
-/// Erda browses the live web itself (the capability Codex used to provide).
+/// Builds the Erda chat agent (the orchestrator) over <see cref="ChatClientFactory"/>, i.e. the
+/// configured model on the LiteLLM endpoint. Tools = the Obsidian vault tools, the process_voice_memo
+/// tool (the voice-memo MAF workflow exposed via AsAIFunction, agent-as-tool), notify + reminder tools,
+/// the vault editor, card prices, the optional Apple bridge tools, and hosted web search.
 /// </summary>
 public static class ErdaAgent
 {
@@ -30,16 +27,7 @@ public static class ErdaAgent
         var recorder = services.GetRequiredService<IActivityRecorder>();
         var toolLog = services.GetRequiredService<ILoggerFactory>().CreateLogger("Erda.ToolCalls");
 
-        // Base URL + model are validated at startup, so they are guaranteed present here. Erda runs on
-        // the Responses API against a local OpenAI-compatible endpoint (Erda__ChatBaseUrl / Erda__ChatModel)
-        // so it can web-search natively via HostedWebSearchTool — the capability Codex used to provide.
-        // The loopback proxy needs no real credential, so the key defaults to "local" (the SDK still
-        // requires a non-empty string).
-#pragma warning disable OPENAI001 // Responses surface is [Experimental]
-        OpenAI.Responses.ResponsesClient responses = new OpenAI.Responses.ResponsesClient(
-            credential: new ApiKeyCredential(string.IsNullOrWhiteSpace(options.ChatApiKey) ? "local" : options.ChatApiKey),
-            options: new ResponsesClientOptions { Endpoint = new Uri(options.ChatBaseUrl) });
-#pragma warning restore OPENAI001
+        var factory = services.GetRequiredService<ChatClientFactory>();
 
         var tools = new List<AITool>();
         tools.AddRange(services.GetRequiredService<ObsidianTools>().AsTools());
@@ -47,7 +35,6 @@ public static class ErdaAgent
         tools.AddRange(services.GetRequiredService<NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
         tools.Add(services.GetRequiredService<VaultEditorTool>().AsTool());
-        tools.Add(new HostedWebSearchTool());
 
         // card_price is pure HTTP (Scryfall + a prebuilt Cardmarket link) — always available.
         tools.AddRange(services.GetRequiredService<CardPriceTool>().AsTools());
@@ -69,31 +56,24 @@ public static class ErdaAgent
         // agent-build time; a panel edit applies on restart.
         var instructions = services.GetRequiredService<IPromptStore>().GetActiveContent(PromptKind.System);
 
-        // The agent's name MUST equal the registration key (see Program.cs AddAIAgent). We build via
-        // ChatClientAgentOptions (not the simple overload) so we can set the default reasoning effort
-        // (Erda__ChatReasoningEffort) for every run — WhatsApp and web chat. The value is [Required] and
-        // validated against ValidReasoningEfforts at startup, so there is no in-code default here; we
-        // only normalize for the wire. Effort has no first-class MEAI ChatOptions field, so it rides on
-        // the raw Responses request via RawRepresentationFactory.
-        var effort = ResponsesReasoner.NormalizeReasoningEffort(null, options.ChatReasoningEffort);
-#pragma warning disable OPENAI001 // ResponsesClient.AsAIAgent + Responses surface are [Experimental]
-        var agent = responses.AsAIAgent(new ChatClientAgentOptions
+        // The agent's name MUST equal the registration key (see Program.cs AddAIAgent). Web search is
+        // always on for the orchestrator; effort is the startup-validated Erda__ChatReasoningEffort.
+        //
+        // History: the agent keeps each session's conversation in memory and replays it every turn
+        // (Chat Completions is stateless), so the long-lived WhatsApp session would grow without bound.
+        // MessageCountingChatReducer keeps the newest ChatHistoryMaxMessages non-system messages and
+        // drops tool-call/result messages from the replayed history. They belong to finished turns.
+        var agent = factory.CreateChatClient().AsAIAgent(new ChatClientAgentOptions
         {
             Name = Name,
-            ChatOptions = new ChatOptions
+            ChatOptions = ChatClientFactory.BuildOptions(instructions, tools, webSearch: true, factory.DefaultEffort),
+            ChatHistoryProvider = new InMemoryChatHistoryProvider(new InMemoryChatHistoryProviderOptions
             {
-                Instructions = instructions,
-                Tools = tools,
-                RawRepresentationFactory = _ => new CreateResponseOptions
-                {
-                    ReasoningOptions = new ResponseReasoningOptions
-                    {
-                        ReasoningEffortLevel = new ResponseReasoningEffortLevel(effort),
-                    },
-                },
-            },
-        }, options.ChatModel);
-#pragma warning restore OPENAI001
+#pragma warning disable MEAI001 // MessageCountingChatReducer is [Experimental] in MEAI 11.
+                ChatReducer = new MessageCountingChatReducer(options.ChatHistoryMaxMessages!.Value),
+#pragma warning restore MEAI001
+            }),
+        });
 
         // Instrument with OpenTelemetry (MAF builder): spans for the agent run, the model call
         // (token usage), and each tool/function invocation, emitted on ActivitySourceName.

@@ -13,10 +13,9 @@ public sealed class CurrentTimeContext(IClock clock, IOptions<ReminderOptions> o
 {
     /// <summary>
     /// The current-time context as a <see cref="ChatMessage"/> for an agent turn. Uses the
-    /// <see cref="ChatRole.User"/> role on purpose: the chat endpoint (codex-oauth proxy) rejects
-    /// <c>system</c>-role items in a Responses request's input ("System messages are not allowed") —
-    /// the agent's system prompt rides the top-level <c>instructions</c> field instead. The "[Context]"
-    /// prefix keeps it distinct from the user's own text.
+    /// <see cref="ChatRole.User"/> role on purpose: it rides in the turn's own messages, so the
+    /// system prompt (and the cached prefix it anchors) stays byte-identical across turns while the
+    /// time changes every minute. The "[Context]" prefix keeps it distinct from the user's own text.
     /// </summary>
     public ChatMessage Message() => new(ChatRole.User, Text());
 

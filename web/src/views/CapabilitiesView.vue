@@ -27,7 +27,7 @@ const onRequest: Capability[] = [
     icon: 'globe',
     title: 'Web search',
     desc: 'Searches the live web itself and answers from what comes back.',
-    tags: ['native web search', 'Responses API'],
+    tags: ['native web search', 'hosted tool'],
   },
   {
     icon: 'clock',

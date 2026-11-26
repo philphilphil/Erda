@@ -6,7 +6,7 @@ using Erda.Core.Abstractions;
 namespace Erda.Agents;
 
 /// <summary>
-/// Drives the registered <c>erda</c> agent (the same keyed instance the OpenAI endpoints use) with
+/// Drives the registered (keyed) <c>erda</c> agent with
 /// a single long-lived <see cref="AgentSession"/>, so the WhatsApp conversation keeps context
 /// across messages. The session is created lazily (the factory is async) and runs are serialized
 /// by a semaphore because an <see cref="AgentSession"/> is not safe for concurrent use (v1 has a
@@ -25,9 +25,8 @@ public sealed class ErdaAgentResponder(
         try
         {
             _session ??= await agent.CreateSessionAsync(cancellationToken);
-            // Stream the run and aggregate it back to a single AgentResponse: the Responses endpoint
-            // only returns a usable result in streaming mode (its non-streamed surface is broken),
-            // and aggregating keeps token usage + ToolsUsed intact for ToReply.
+            // Stream the run and aggregate it back to a single AgentResponse: a long tool-using turn stays
+            // inside HTTP timeouts, and aggregating keeps token usage + ToolsUsed intact for ToReply.
             var response = await agent.RunStreamingAsync(messages, _session, null, cancellationToken)
                 .ToAgentResponseAsync(cancellationToken);
             var reply = ToReply(response);

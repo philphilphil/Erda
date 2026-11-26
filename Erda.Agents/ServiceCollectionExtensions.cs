@@ -17,6 +17,9 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddErdaAgents(this IServiceCollection services)
     {
+        // The one chat client (LiteLLM endpoint + key + model); every LLM consumer goes through it.
+        services.AddSingleton<ChatClientFactory>();
+
         // Tools — the agent's capability surface.
         services.AddSingleton<ObsidianTools>();
         services.AddSingleton<NotifyTools>();
@@ -26,10 +29,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AppleReminderTools>();
         services.AddSingleton<AppleCalendarTools>();
 
-        // The in-process reasoner — the streamed Responses replacement for the old codex subprocess.
-        // Lives in this (MAF) layer, not Core, because it builds AIAgents; every former Codex consumer
-        // (voice-memo, recipe, error-watch) takes the Erda.Core.Services.IReasoner seam.
-        services.AddSingleton<IReasoner, ResponsesReasoner>();
+        // The in-process reasoner. Lives in this (MAF) layer, not Core, because it builds AIAgents;
+        // voice-memo, recipe import and error-watch take the Erda.Core.Services.IReasoner seam.
+        services.AddSingleton<IReasoner, ChatReasoner>();
 
         // Voice-memo workflow, exposed to the WhatsApp channel via IMemoProcessor.
         services.AddSingleton<MemoProcessor>();

@@ -40,8 +40,10 @@ public sealed class ConfigPanelService(
             new("Vault & data", "Database path", Show(e.DbPath)),
 
             new("Model & reasoning", "Chat base URL", Show(e.ChatBaseUrl)),
+            new("Model & reasoning", "Chat API key", Secret(e.ChatApiKey)),
             new("Model & reasoning", "Chat model", Show(e.ChatModel)),
             new("Model & reasoning", "Chat reasoning effort", Show(e.ChatReasoningEffort)),
+            new("Model & reasoning", "Chat history (messages)", Show(e.ChatHistoryMaxMessages)),
             new("Model & reasoning", "Transcribe model", Show(e.TranscribeModel)),
 
             new("WhatsApp", "Enabled", Show(w.Enabled)),

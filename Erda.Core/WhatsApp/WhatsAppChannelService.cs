@@ -294,7 +294,7 @@ public sealed class WhatsAppChannelService(
         }
         catch (Exception ex)
         {
-            // The reasoner is down/overloaded (see ResponsesReasoner). We already have the transcript, so
+            // The reasoner is down/overloaded (see ChatReasoner). We already have the transcript, so
             // don't lose the memo — save it raw to the inbox and tell the owner it wasn't formatted.
             var saved = await memoProcessor.SaveRawAsync(transcript, cancellationToken);
             logger.LogWarning(ex, "Memo formatting failed; saved raw transcript to {Path}.", saved);

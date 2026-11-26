@@ -12,9 +12,9 @@ public sealed record AgentReply(
 {
     /// <summary>
     /// True when the turn is not an answer at all but an upstream model failure: empty text with no
-    /// token usage AND no tool calls. That combination only happens when the streamed Responses
-    /// backend fails (e.g. <c>response.failed</c>/overloaded), which the aggregation surfaces as empty
-    /// text with null usage — a model that genuinely chose to say nothing still reports usage.
+    /// token usage AND no tool calls. That combination only happens when the model backend fails
+    /// mid-stream (e.g. overloaded), which the aggregation surfaces as empty text with null usage — a
+    /// model that genuinely chose to say nothing still reports usage.
     /// </summary>
     public bool IsUpstreamFailure => string.IsNullOrWhiteSpace(Text) && TotalTokens is null && ToolsUsed.Count == 0;
 }

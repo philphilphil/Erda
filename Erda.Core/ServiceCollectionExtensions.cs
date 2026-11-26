@@ -37,8 +37,8 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(ErdaOptions.SectionName))
             .ValidateDataAnnotations()
             // ChatReasoningEffort is [Required] (handled above); also fail fast on a present-but-invalid
-            // value so a typo (or the now-disallowed "minimal") stops the app at startup naming the key,
-            // rather than 400ing on every model call later.
+            // value so a typo stops the app at startup naming the key, rather than 400ing on every
+            // model call later.
             .Validate(
                 o => ErdaOptions.ValidReasoningEfforts.Contains(o.ChatReasoningEffort),
                 $"Erda:ChatReasoningEffort must be one of: {string.Join(", ", ErdaOptions.ValidReasoningEfforts)}.")

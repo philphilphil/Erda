@@ -148,5 +148,36 @@ public class ConfigValidationTests
         Assert.Contains(nameof(ErdaOptions.ChatBaseUrl), failures);
         Assert.Contains(nameof(ErdaOptions.ChatModel), failures);
         Assert.Contains(nameof(ErdaOptions.ChatReasoningEffort), failures);
+        // No more dummy "local" key: the LiteLLM key is required, as is the history cap.
+        Assert.Contains(nameof(ErdaOptions.ChatApiKey), failures);
+        Assert.Contains(nameof(ErdaOptions.ChatHistoryMaxMessages), failures);
+    }
+
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("litellm.lan:4000")]
+    public void Erda_options_reject_a_chat_base_url_that_is_not_an_absolute_url(string url)
+    {
+        var options = TestChat.Options();
+        options.ChatBaseUrl = url;
+        var results = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+
+        var valid = System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+            options, new System.ComponentModel.DataAnnotations.ValidationContext(options), results, validateAllProperties: true);
+
+        Assert.False(valid);
+        Assert.Contains(results, r => r.MemberNames.Contains(nameof(ErdaOptions.ChatBaseUrl)));
+    }
+
+    [Fact]
+    public void Erda_options_reject_a_history_cap_below_two()
+    {
+        var options = TestChat.Options();
+        options.ChatHistoryMaxMessages = 1;
+        var results = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+
+        Assert.False(System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+            options, new System.ComponentModel.DataAnnotations.ValidationContext(options), results, validateAllProperties: true));
+        Assert.Contains(results, r => r.MemberNames.Contains(nameof(ErdaOptions.ChatHistoryMaxMessages)));
     }
 }

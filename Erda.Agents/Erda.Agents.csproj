@@ -19,6 +19,7 @@
     <!-- Stock OpenAI SDK, pointed at the OpenAI-compatible LiteLLM endpoint (see ChatClientFactory). -->
     <PackageReference Include="OpenAI" />
     <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
   </ItemGroup>
 
   <ItemGroup>

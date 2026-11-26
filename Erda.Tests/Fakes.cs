@@ -117,18 +117,18 @@ public sealed class FakeClock : IClock
 
 public sealed class FakeReasoner : IReasoner
 {
-    public List<(string Prompt, bool WebSearch, string? ReasoningEffort, string? LogLabel)> Calls { get; } = [];
+    public List<(string Prompt, bool WebSearch, string? LogLabel)> Calls { get; } = [];
     public string Result { get; set; } = "reasoner says hi";
     public Exception? Throw { get; set; }
 
     public Task<string> ReasonAsync(string prompt, bool webSearch = false,
-        CancellationToken cancellationToken = default, string? logLabel = null, string? reasoningEffort = null)
+        CancellationToken cancellationToken = default, string? logLabel = null)
     {
-        Calls.Add((prompt, webSearch, reasoningEffort, logLabel));
+        Calls.Add((prompt, webSearch, logLabel));
         return Throw is not null ? Task.FromException<string>(Throw) : Task.FromResult(Result);
     }
 
-    // Mirrors ResponsesReasoner.RunAsync: webSearch ON, the voice-memo log label.
+    // Mirrors ChatReasoner.RunAsync: webSearch ON, the voice-memo log label.
     public Task<string> RunAsync(string developerInstruction, string transcript, CancellationToken cancellationToken = default)
         => ReasonAsync($"{developerInstruction}\n\nTranscript:\n{transcript}",
             webSearch: true, cancellationToken, logLabel: "voice-memo processing");

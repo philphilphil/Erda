@@ -27,35 +27,42 @@ public sealed class ErdaOptions
     [Required(AllowEmptyStrings = false)]
     public string DbPath { get; set; } = "";
 
-    /// <summary>OpenAI-compatible base URL for the chat/reasoning model (e.g. the local proxy's
-    /// <c>http://127.0.0.1:10531/v1</c>). The OpenAI SDK is pointed here for both the Erda agent and the
-    /// in-process reasoner; any OpenAI-compatible provider's base URL works.</summary>
+    /// <summary>OpenAI-compatible base URL of the LiteLLM endpoint that fronts the chat model (e.g.
+    /// <c>http://litellm.lan:4000/v1</c>). Every chat/reasoning call goes here: the Erda agent, the
+    /// in-process reasoner and the vault editor.</summary>
     [Required(AllowEmptyStrings = false)]
+    [Url]
     public string ChatBaseUrl { get; set; } = "";
 
-    /// <summary>Model id for the chat/reasoning calls against <see cref="ChatBaseUrl"/> (e.g. <c>gpt-5.5</c>).</summary>
+    /// <summary>API key for <see cref="ChatBaseUrl"/> (the LiteLLM virtual key).</summary>
+    [Required(AllowEmptyStrings = false)]
+    public string ChatApiKey { get; set; } = "";
+
+    /// <summary>Model id served by <see cref="ChatBaseUrl"/> for every chat/reasoning call (e.g. <c>claude-opus-5-5</c>).</summary>
     [Required(AllowEmptyStrings = false)]
     public string ChatModel { get; set; } = "";
 
     /// <summary>
     /// The reasoning-effort levels accepted for <see cref="ChatReasoningEffort"/>. The single source of
-    /// truth: startup validation checks the configured value against this set, and the reasoner
-    /// normalizes against it. <c>minimal</c> is intentionally excluded — Erda always attaches the hosted
-    /// <c>web_search</c> tool, and the Responses API rejects minimal effort combined with hosted tools.
+    /// truth: startup validation checks the configured value against it. These three are the levels
+    /// every provider behind LiteLLM understands.
     /// </summary>
     public static readonly IReadOnlySet<string> ValidReasoningEfforts =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "low", "medium", "high" };
 
     /// <summary>Reasoning effort for the chat/reasoning model (low/medium/high). Required, no default —
     /// it must be set in <c>.env</c> and is validated against <see cref="ValidReasoningEfforts"/> at
-    /// startup. The same value drives both the orchestrator and the in-process reasoner.</summary>
+    /// startup. The same value drives the orchestrator and the in-process reasoner; the vault editor
+    /// always runs at high.</summary>
     [Required(AllowEmptyStrings = false)]
     public string ChatReasoningEffort { get; set; } = "";
 
-    /// <summary>Optional API key for <see cref="ChatBaseUrl"/>. The loopback proxy needs no real auth,
-    /// but the OpenAI SDK still requires a non-empty credential string — blank falls back to the dummy
-    /// <c>"local"</c>. Not required.</summary>
-    public string ChatApiKey { get; set; } = "local";
+    /// <summary>How many recent non-system messages a long-lived chat session (WhatsApp, web chat)
+    /// replays to the model each turn. Older messages are dropped, which caps per-turn cost.
+    /// Required, no default.</summary>
+    [Required]
+    [Range(2, 10_000)]
+    public int? ChatHistoryMaxMessages { get; set; }
 
     /// <summary>OpenAI-platform model used for speech-to-text (e.g. <c>gpt-4o-transcribe</c>).</summary>
     [Required(AllowEmptyStrings = false)]

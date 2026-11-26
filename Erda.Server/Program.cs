@@ -105,7 +105,7 @@ builder.Services.Configure<PanelOptions>(builder.Configuration.GetSection(PanelO
 builder.Services.AddPanelApi();
 
 // --- Agent ----------------------------------------------------------------
-// Erda is the single orchestrator agent (gpt-5-mini on Azure Foundry, key auth). The agent's name
+// Erda is the single orchestrator agent (Erda__ChatModel on the LiteLLM endpoint). The agent's name
 // MUST equal the registration key; it's resolved by keyed DI (ErdaAgentResponder, WebChatService).
 builder.AddAIAgent(ErdaAgent.Name, (sp, _) => ErdaAgent.Create(sp));
 
@@ -153,6 +153,6 @@ static void LogStartupConfig(WebApplication app)
     var opts = app.Services.GetRequiredService<IOptions<ErdaOptions>>().Value;
 
     log.LogInformation(
-        "Erda config: vault={Vault}, db={Db}, chatBaseUrl={ChatBaseUrl}, chatModel={ChatModel}/{Effort}, transcribeModel={Transcribe}, voiceMemoSubfolder={Sub}",
-        opts.VaultPath, opts.DbPath, opts.ChatBaseUrl, opts.ChatModel, opts.ChatReasoningEffort, opts.TranscribeModel, opts.VoiceMemoSubfolder);
+        "Erda config: vault={Vault}, db={Db}, chatBaseUrl={ChatBaseUrl}, chatModel={ChatModel}/{Effort}, historyMax={History}, transcribeModel={Transcribe}, voiceMemoSubfolder={Sub}",
+        opts.VaultPath, opts.DbPath, opts.ChatBaseUrl, opts.ChatModel, opts.ChatReasoningEffort, opts.ChatHistoryMaxMessages, opts.TranscribeModel, opts.VoiceMemoSubfolder);
 }
