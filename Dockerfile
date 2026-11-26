@@ -1,4 +1,4 @@
-# Erda (.NET 10) image for the homeserver (amd64) deployment.
+# Erda (.NET 11) image for the homeserver (amd64) deployment.
 #
 # Three stages:
 #   build   – restore + publish the Erda web app
@@ -9,13 +9,13 @@
 # over HTTP, plus OpenAI transcription).
 
 # ---- build ------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
-# Restore first (cached unless a project file changes). Copy just the shared props + the three
-# project files the server needs, so the restore layer is reused when only source changes. No
-# custom NuGet feed: the MAF preview/alpha packages resolve from nuget.org.
-COPY Directory.Build.props ./
+# Restore first (cached unless a project file changes). Copy just the shared props (incl. the central
+# package versions + SDK pin) and the three project files the server needs, so the restore layer is
+# reused when only source changes. No custom NuGet feed: the MAF preview packages resolve from nuget.org.
+COPY Directory.Build.props Directory.Packages.props global.json ./
 COPY Erda.Core/Erda.Core.csproj     Erda.Core/
 COPY Erda.Agents/Erda.Agents.csproj Erda.Agents/
 COPY Erda.Server/Erda.Server.csproj Erda.Server/
@@ -29,7 +29,7 @@ RUN dotnet publish Erda.Server/Erda.Server.csproj -c Release -o /app/publish /p:
 # Build the Vite SPA. `npm ci` uses the committed package-lock.json for a reproducible install.
 # Its dist/ is copied into the runtime image's wwwroot and served as static files with an
 # index.html SPA fallback (see Program.cs). Pure Node build — no .NET, no GPU.
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /web
 COPY web/package*.json ./
 RUN npm ci
@@ -37,7 +37,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- runtime ----------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
 WORKDIR /app
 
 # Image identity, baked in by CI (see .github/workflows/build.yml) and reported in the WhatsApp

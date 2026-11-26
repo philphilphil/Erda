@@ -14,7 +14,7 @@ let package = Package(
         // Sole dependency. NOT Hummingbird: it pulls async-http-client (outbound
         // HTTP — the one primitive this process must not have), swift-nio-ssl and
         // swift-nio-http2.
-        .package(url: "https://github.com/apple/swift-nio", from: "2.101.3")
+        .package(url: "https://github.com/apple/swift-nio", from: "2.105.2")
     ],
     targets: [
         // Pure logic: DTOs, strict decoding, the error set, token/rate-limit/idempotency

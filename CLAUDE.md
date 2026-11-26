@@ -11,22 +11,24 @@ make web          # control-panel SPA dev server only (Vite at :5173, proxies /a
 make deploy       # git pull && docker compose up -d --build (server only)
 
 dotnet build Erda.slnx                     # build the whole solution
-dotnet test Erda.Tests/Erda.Tests.csproj   # run all tests (point at the test project, not the repo root)
-dotnet test Erda.Tests/Erda.Tests.csproj --filter "ClassName=ErrorSignatureTests"  # one test class
+dotnet test --project Erda.Tests/Erda.Tests.csproj                                  # run all tests
+dotnet test --project Erda.Tests/Erda.Tests.csproj --filter-class '*ErrorSignatureTests'  # one test class
 
 cd web && npm ci && npm run build   # build the SPA (vue-tsc type-check + vite build)
 ```
 
-Tests live in `Erda.Tests/` (xUnit) and reference all three code projects. Always pass the test
-project explicitly: `dotnet test Erda.Tests/Erda.Tests.csproj` (or `dotnet test Erda.slnx`) — a bare
-`dotnet test`/`dotnet run` at the repo root is ambiguous across the solution's projects.
+Tests live in `Erda.Tests/` (xunit.v3 on Microsoft.Testing.Platform — `global.json` sets
+`test.runner`, so `dotnet test` takes `--project`, not a positional path) and reference all three code
+projects. Always pass the test project explicitly: a bare `dotnet test`/`dotnet run` at the repo root
+is ambiguous across the solution's projects. Package versions are central in `Directory.Packages.props`
+(csproj `PackageReference`s carry no `Version`); the SDK is pinned in `global.json`.
 
 EF migrations: `dotnet ef migrations add <Name> --project Erda.Core --startup-project Erda.Server`
 (the `ErdaDbContext` + migrations live in `Erda.Core/Data`).
 
 ## Architecture
 
-Erda is a **.NET 10 solution** built on the **Microsoft Agent Framework (MAF) 1.20.0**. It runs as a single orchestrator agent (`erda`) that routes to tools and a workflow.
+Erda is a **.NET 11 solution** built on the **Microsoft Agent Framework (MAF) 1.28.0**. It runs as a single orchestrator agent (`erda`) that routes to tools and a workflow.
 
 ### Solution layout (`Erda.slnx`)
 
@@ -36,7 +38,7 @@ Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 - **`Erda.Core`** (`Microsoft.NET.Sdk`) — host-agnostic business logic: `Configuration/`, `Data/` (EF + migrations), `Services/` (Vault, Reasoner, Transcriber, ActivityRecorder, clock, `Seq/`), `Scheduling/` (`Reminders/` + `ErrorWatch/`), `WhatsApp/` (channel/sender/queue/worker), and `Abstractions/` (the `IAgentResponder`/`IMemoProcessor` seams that keep Core free of any MAF/ASP.NET dependency). `AddErdaCore()` wires it all.
 - **`Erda.Agents`** (`Microsoft.NET.Sdk`) — the MAF layer: `Orchestration/` (the `erda` agent + responder), `Tools/`, `Workflows/`. `AddErdaAgents()` wires it.
 - **`Erda.Server`** (`Microsoft.NET.Sdk.Web`) — the only runnable app: `Program.cs`, `Api/`, `WhatsApp/WhatsAppEndpoints.cs`, `Hosting/`. Serves the SPA from `wwwroot`.
-- **`Erda.Tests`** (xUnit) — references all three.
+- **`Erda.Tests`** (xunit.v3) — references all three.
 
 ### The two-credential model
 

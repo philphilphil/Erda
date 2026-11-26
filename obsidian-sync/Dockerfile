@@ -3,10 +3,10 @@
 # OFFICIAL client: https://github.com/obsidianmd/obsidian-headless (npm `obsidian-headless`, Node 22+,
 # Obsidian Sync 1.12+). Same end-to-end encryption as the desktop app; runs fully headless.
 #
-# Auth is injected much like codex: either OBSIDIAN_AUTH_TOKEN from .env (non-interactive), or a
+# Auth is injected one of two ways: either OBSIDIAN_AUTH_TOKEN from .env (non-interactive), or a
 # one-time `docker compose run --rm obsidian-sync setup` that logs in + links the vault and persists
 # the session into the /config volume (mirrors the WhatsApp-bridge QR bootstrap).
-FROM node:22-slim
+FROM node:26-slim
 
 # Pin the client. It is an OPEN BETA — breaking changes are possible, so bump deliberately to upgrade.
 # >= 0.0.3 is REQUIRED for headless E2E-encrypted vaults: earlier versions store the vault key via the

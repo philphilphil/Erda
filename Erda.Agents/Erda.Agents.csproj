@@ -13,13 +13,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Agents.AI" Version="1.20.0" />
-    <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.20.0" />
-    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.20.0" />
-    <!-- Stock OpenAI SDK pointed at Azure's /openai/v1 surface (see ErdaAgent). Replaces
-         Azure.AI.OpenAI: no dated api-version, provider-portable. Version matches Erda.Core + MAF. -->
-    <PackageReference Include="OpenAI" Version="2.13.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <PackageReference Include="Microsoft.Agents.AI" />
+    <PackageReference Include="Microsoft.Agents.AI.OpenAI" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" />
+    <!-- Stock OpenAI SDK, pointed at the OpenAI-compatible LiteLLM endpoint (see ChatClientFactory). -->
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
   </ItemGroup>
 
   <ItemGroup>

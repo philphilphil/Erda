@@ -1,6 +1,6 @@
 # Erda
 
-A personal AI assistant built on the **Microsoft Agent Framework** (.NET 10). You talk to it
+A personal AI assistant built on the **Microsoft Agent Framework** (.NET 11). You talk to it
 over **WhatsApp** or a small **web control panel**; it lives on a homeserver and works against
 an Obsidian vault.
 
@@ -53,7 +53,7 @@ flowchart LR
     wa["WhatsApp"] <--> bridge["whatsapp-bridge · Go"]
     panel["Control panel · Vue SPA"] <--> api["/api"]
 
-    subgraph erda["erda · .NET 10 / MAF"]
+    subgraph erda["erda · .NET 11 / MAF"]
       agent["erda agent · gpt-5.5<br/>vault · web_search · reminders · voice memo"]
       sched["Schedulers<br/>reminders · error-watch"]
       api
@@ -93,7 +93,7 @@ fill it in; missing required values fail at startup naming the key.
 ```bash
 make dev          # backend (:5167) + control-panel SPA (:5173)
 make dev-all      # …plus the WhatsApp bridge
-dotnet test Erda.Tests/Erda.Tests.csproj
+dotnet test --project Erda.Tests/Erda.Tests.csproj
 ```
 
 Production is a Docker Compose stack with images built by CI ([`build.yml`](.github/workflows/build.yml))
