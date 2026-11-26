@@ -7,14 +7,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-IDENTITY="Apple Development: philipp.baum@me.com (397C268TA6)"
+IDENTITY="Apple Development: Philipp Baum (397C268TA6)"
 BUNDLE_ID="de.philippbaum.erdabridge"
 APP=".build/ErdaBridge.app"
 
 # The designated requirement decides what TCC and the Keychain ACL pin the app to.
 #
 # codesign's DEFAULT DR pins the leaf certificate's CN — including the
-# "(397C268TA6)" suffix, which changes when the cert is renewed on 2027-03-24.
+# "(397C268TA6)" suffix, which can change when the cert is renewed (current cert expires 2027-11-26).
 # That would silently re-prompt for Reminders and can hang a login-item start on
 # a Keychain ACL prompt. So we default to the TEAM-ID-pinned DR, which is stable
 # across cert renewals. Set ERDA_BRIDGE_DR=default to fall back to codesign's.

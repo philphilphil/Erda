@@ -166,7 +166,7 @@ the moment the listener binds — a further, independent one-time approval from 
 
 **The team-ID-pinned designated requirement is the default** (`scripts/bundle.sh`).
 `ERDA_BRIDGE_DR=default make bundle` falls back to codesign's own DR. **Use the default** — it is
-what M0's decisive rebuild test validated, and it is the one stable across the 2027-03-24
+what M0's decisive rebuild test validated, and it is the one stable across the 2027-11-26
 certificate renewal (below).
 
 ### Default (what we ship) — team-ID pinned
@@ -182,12 +182,12 @@ designated => identifier "de.philippbaum.erdabridge" and anchor apple generic an
 ### The escape hatch — codesign's default, which pins the leaf CN
 
 ```
-designated => identifier "de.philippbaum.erdabridge" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: philipp.baum@me.com (397C268TA6)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
+designated => identifier "de.philippbaum.erdabridge" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Philipp Baum (397C268TA6)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
 ```
 
 M0 measured this and it confirms the design dossier's *inferred* claim: codesign's default DR for
 an Apple Development identity pins the leaf certificate's **common name including the
-`(397C268TA6)` suffix**. That suffix is per-certificate and **the cert expires 2027-03-24**; a
+`(397C268TA6)` suffix**. That suffix is per-certificate and **the cert expires 2027-11-26**; a
 renewal issuing a different suffix would change the app's code identity under this DR, silently
 orphaning the Reminders grant and potentially hanging a login-item start on a Keychain ACL prompt.
 That measurement is why the team-ID DR became the default — it does not embed the suffix, so a
@@ -202,10 +202,10 @@ Keep both texts above for comparison after any future re-sign or cert renewal: r
 `--requirements '=designated => …'`. The `@file` form given in the dossier does **not** work — it
 fails with `invalid requirement specification`.
 
-### Certificate renewal — February/March 2027 reminder
+### Certificate renewal — October/November 2027 reminder
 
-The signing cert (`Apple Development: philipp.baum@me.com (397C268TA6)`, team `6CR38F5CRX`) expires
-**2027-03-24**. `--timestamp` keeps existing signatures valid past expiry, but a renewal changes the
+The signing cert (`Apple Development: Philipp Baum (397C268TA6)`, team `6CR38F5CRX`) expires
+**2027-11-26** (re-issued 2026-11-26 for the Mac Studio; the CN changed from `philipp.baum@me.com` to `Philipp Baum`, the suffix and team did not). `--timestamp` keeps existing signatures valid past expiry, but a renewal changes the
 leaf CN. With the team-ID DR that should be a non-event; verify anyway when it happens
 (`make bundle` then `codesign -d -r-` and diff against the text above), and confirm the Reminders
 grant survives without a re-prompt.
