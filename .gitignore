@@ -3,6 +3,7 @@ appsettings.Development.json
 
 # Stack deploy secrets (docker-compose reads ./.env)
 /.env
+/.env.komodo
 
 bin/
 obj/
