@@ -3,7 +3,7 @@
 # CI owns the build (the homeserver never builds): on every push to main — and on pushed v* tags —
 # this builds erda, whatsapp-bridge, and obsidian-sync for linux/amd64 (the homeserver's arch) and
 # pushes them to ghcr.io/philphilphil/<name>. Komodo's Git-sourced stack then checks out main and
-# runs `compose.yml` against those prebuilt images (pull + up). The compose `build:` blocks are kept
+# runs `compose.yaml` against those prebuilt images (pull + up). The compose `build:` blocks are kept
 # only for local dev. workflow_dispatch allows a manual rebuild.
 #
 # The `deploy` job then tells Komodo to redeploy. It lives here, at the end of the build, rather

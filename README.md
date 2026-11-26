@@ -97,4 +97,4 @@ dotnet test --project Erda.Tests/Erda.Tests.csproj
 ```
 
 Production is a Docker Compose stack with images built by CI ([`build.yml`](.github/workflows/build.yml))
-— see [`compose.yml`](compose.yml) if you're curious.
+— see [`compose.yaml`](compose.yaml) if you're curious.
