@@ -73,3 +73,52 @@ public class SeedFlatVaultToolsSystemPromptMigrationTests
         }
     }
 }
+
+/// <summary>Verifies <c>SeedVoiceMemoPrompt</c>: seeds a fresh DB, never touches an existing voice prompt.</summary>
+public class SeedVoiceMemoPromptMigrationTests
+{
+    private const string BeforeSeed = "20261126093014_SeedFlatVaultToolsSystemPrompt";
+    private const string Seed = "20261126094344_SeedVoiceMemoPrompt";
+
+    private static DbContextOptions<ErdaDbContext> NewOptions()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "erda-mig-" + Guid.NewGuid().ToString("N") + ".db");
+        return new DbContextOptionsBuilder<ErdaDbContext>().UseSqlite($"Data Source={path}").Options;
+    }
+
+    [Fact]
+    public void Fresh_db_gets_an_active_voice_prompt()
+    {
+        var options = NewOptions();
+        using (var db = new ErdaDbContext(options))
+            db.Database.Migrate();
+
+        using var check = new ErdaDbContext(options);
+        var voice = check.PromptVersions.Single(p => p.Kind == PromptKind.Voice && p.IsActive);
+        Assert.StartsWith("You process transcribed Apple Voice Memos", voice.Content);
+        Assert.Contains("## Transcript", voice.Content);
+    }
+
+    [Fact]
+    public void Existing_voice_prompt_is_left_alone()
+    {
+        var options = NewOptions();
+        using (var db = new ErdaDbContext(options))
+        {
+            db.GetService<IMigrator>().Migrate(BeforeSeed);
+            db.PromptVersions.Add(new PromptVersion
+            {
+                Kind = PromptKind.Voice, Content = "MY OWN VOICE PROMPT", IsActive = true, CreatedAtUtc = DateTimeOffset.UtcNow,
+            });
+            db.SaveChanges();
+        }
+
+        using (var db = new ErdaDbContext(options))
+            db.GetService<IMigrator>().Migrate(Seed);
+
+        using var check = new ErdaDbContext(options);
+        var voice = Assert.Single(check.PromptVersions.Where(p => p.Kind == PromptKind.Voice));
+        Assert.Equal("MY OWN VOICE PROMPT", voice.Content);
+        Assert.True(voice.IsActive);
+    }
+}
