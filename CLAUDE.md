@@ -44,10 +44,10 @@ Shared TFM/`Nullable`/`ImplicitUsings` live in `Directory.Build.props`.
 
 | Capability | Client | Key |
 |---|---|---|
-| Chat agent, reasoner, vault editor (`claude-opus-5-5`) | OpenAI SDK → **LiteLLM** (OpenAI-compatible) over **Chat Completions**, via `ChatClientFactory` | `Erda__ChatBaseUrl` + `Erda__ChatApiKey` (LiteLLM virtual key) + model `Erda__ChatModel` |
+| Chat agent, reasoner, vault editor (Opus 5.5, LiteLLM alias `ant/opus-5-5`) | OpenAI SDK → **LiteLLM** (OpenAI-compatible) over **Chat Completions**, via `ChatClientFactory` | `Erda__ChatBaseUrl` + `Erda__ChatApiKey` (LiteLLM virtual key) + model `Erda__ChatModel` |
 | Transcription (`gpt-4o-transcribe`) | OpenAI SDK | `OPENAI_API_KEY` |
 
-Every LLM call goes to one LiteLLM endpoint with one key and, for now, one model (`Erda__ChatModel`, `claude-opus-5-5`). Per-task model routing (e.g. Qwen for cheap tasks) is planned and plugs into `ChatClientFactory`. Web search is MEAI's `HostedWebSearchTool`, which the OpenAI adapter sends as `web_search_options` and LiteLLM maps to the provider's hosted search. Transcription uses `OPENAI_API_KEY` directly (LiteLLM is not in that path).
+Every LLM call goes to one LiteLLM endpoint with one key and, for now, one model (`Erda__ChatModel`, the LiteLLM alias `ant/opus-5-5` — not the provider id). Per-task model routing (e.g. Qwen for cheap tasks) is planned and plugs into `ChatClientFactory`. Web search is MEAI's `HostedWebSearchTool`, which the OpenAI adapter sends as `web_search_options` and LiteLLM maps to the provider's hosted search. Transcription uses `OPENAI_API_KEY` directly (LiteLLM is not in that path).
 
 ### Key source files
 
