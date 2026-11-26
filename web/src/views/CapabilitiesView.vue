@@ -20,8 +20,8 @@ const onRequest: Capability[] = [
   {
     icon: 'pencil',
     title: 'Note editing',
-    desc: 'Rewrites an existing note from an instruction in your own words.',
-    tags: ['instruction-driven', 'vault-confined'],
+    desc: 'Edits notes in place, creates new ones and moves or renames them, rewriting the [[wikilinks]] that point at them. Follows each folder\'s AGENTS.md conventions. Never deletes.',
+    tags: ['edit · write · move', 'CriticMarkup edits'],
   },
   {
     icon: 'globe',
