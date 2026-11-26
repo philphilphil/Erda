@@ -127,6 +127,13 @@ public enum RemindersAccess {
     public static func reminderListCount() -> Int {
         lists().count
     }
+
+    /// Diagnostic only: what a *fresh* store can see, bypassing the status gate. Used to tell a
+    /// stale `authorizationStatus(for:)` (lists still visible) from a real loss of access (none).
+    /// Returns a count and nothing else, so no list content can leak through it.
+    public static func ungatedProbeCount() -> Int {
+        EKEventStore().calendars(for: .reminder).count
+    }
 }
 
 /// The calendar authorization surface. Deliberately the mirror image of `RemindersAccess`,
@@ -199,6 +206,11 @@ public enum CalendarAccess {
     /// How many calendars are visible right now — a "did the grant actually take" readout.
     public static func calendarCount() -> Int {
         calendars().count
+    }
+
+    /// Diagnostic only — the calendar mirror of `RemindersAccess.ungatedProbeCount()`.
+    public static func ungatedProbeCount() -> Int {
+        EKEventStore().calendars(for: .event).count
     }
 }
 

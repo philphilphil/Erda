@@ -99,6 +99,12 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(5))
 
                 let status = RemindersAccess.status()
+                if status != authorization {
+                    AuthorizationLog.write(
+                        "reminders: poll saw \(authorization) -> \(status) "
+                            + "(fresh store sees \(RemindersAccess.ungatedProbeCount()) lists)"
+                    )
+                }
                 let remindersChanged = status.isUsable != authorization.isUsable
                 authorization = status
                 // Access granted (or revoked) in System Settings while the app runs. Only that
@@ -106,6 +112,12 @@ final class AppModel {
                 if remindersChanged { reloadLists() }
 
                 let calendarStatus = CalendarAccess.status()
+                if calendarStatus != calendarAuthorization {
+                    AuthorizationLog.write(
+                        "calendar: poll saw \(calendarAuthorization) -> \(calendarStatus) "
+                            + "(fresh store sees \(CalendarAccess.ungatedProbeCount()) calendars)"
+                    )
+                }
                 let calendarChanged = calendarStatus.isUsable != calendarAuthorization.isUsable
                 calendarAuthorization = calendarStatus
                 if calendarChanged { reloadCalendars() }
