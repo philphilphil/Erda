@@ -30,9 +30,10 @@ public sealed class AppleReminderTools(IAppleBridgeClient client)
 
     [Description(
         "Create a task in Apple Reminders (the Reminders app on Phil's Mac/iPhone, synced via iCloud). " +
-        "This is NOT Erda's own scheduler — do not use this for 'remind me to call mom at 5pm' (that's " +
-        "schedule_message); use this for actual to-do items Phil wants tracked in Reminders, e.g. 'add " +
-        "milk to my groceries list'. Name the list by its real title as it appears in Reminders.app " +
+        "This is the DEFAULT for anything Phil has to do or be reminded of — 'remind me to call mom at " +
+        "5pm' (set dueAt), 'erinner mich an X', 'add milk to my groceries list'. Apple delivers the alert " +
+        "on his devices even when Erda is unreachable. Use Erda's own schedule_message instead only when " +
+        "Phil explicitly asks for a message from Erda / on WhatsApp. Name the list by its real title as it appears in Reminders.app " +
         "(e.g. 'Groceries', 'Einkaufsliste') — capitalisation does not have to match exactly. There is " +
         "no default list, so ask Phil which list if unsure, or call list_apple_reminders with no list to " +
         "see what is there. A name that matches no list fails; never guess or fall back to a different " +

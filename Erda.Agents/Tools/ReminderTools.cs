@@ -32,8 +32,10 @@ public sealed class ReminderTools(ReminderStore store, VaultService vault, IOpti
         AIFunctionFactory.Create(ResumeScheduled, "resume_scheduled"),
     ];
 
-    [Description("Schedule a message to be sent to Phil verbatim at a time (no AI at send time). " +
-                 "Use for plain reminders like 'remind me to call mom'.")]
+    [Description("Schedule a WhatsApp message from Erda to Phil, sent verbatim at a time (no AI at send time). " +
+                 "NOT for ordinary reminders: when create_apple_reminder is available, 'remind me to call mom' " +
+                 "goes there. Use this only when Phil explicitly asks for a message from Erda / on WhatsApp, " +
+                 "or when create_apple_reminder is not available.")]
     public string ScheduleMessage(
         [Description("When to send it: " + WhenHelp)] string when,
         [Description("The exact text to send to Phil.")] string message,
