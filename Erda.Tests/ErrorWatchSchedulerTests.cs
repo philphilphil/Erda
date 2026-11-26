@@ -58,7 +58,7 @@ public class ErrorWatchSchedulerTests
     public async Task New_errors_alert_once_per_signature_then_dedup()
     {
         var (scheduler, seq, analyzer, sender) = Make();
-        var opts = new ErrorWatchOptions { AnalyzeWithCodex = true, MaxAlertsPerPoll = 5 };
+        var opts = new ErrorWatchOptions { AnalyzeErrors = true, MaxAlertsPerPoll = 5 };
         var store = TempStore();
         var state = StateFrom();
 
@@ -84,12 +84,12 @@ public class ErrorWatchSchedulerTests
         var sender = new FakeWhatsAppSender();
         var scheduler = Build(seq, sender, analyzer, new FakeClock());
 
-        var opts = new ErrorWatchOptions { AnalyzeWithCodex = false, MaxAlertsPerPoll = 2 };
+        var opts = new ErrorWatchOptions { AnalyzeErrors = false, MaxAlertsPerPoll = 2 };
         seq.Responses.Enqueue([Err("e1", "A"), Err("e2", "B"), Err("e3", "C"), Err("e4", "D")]);
 
         await scheduler.PollOnceAsync(opts, TempStore(), StateFrom(), OwnerJid, default);
 
-        // 2 alerts + 1 "more suppressed" summary, no Codex calls.
+        // 2 alerts + 1 "more suppressed" summary, no analyzer calls.
         Assert.Equal(3, sender.Sent.Count);
         Assert.Equal(0, analyzer.Calls);
         Assert.Contains("more new error", sender.Sent[^1].Text);
@@ -99,7 +99,7 @@ public class ErrorWatchSchedulerTests
     public async Task Watermark_advances_to_newest_event()
     {
         var (scheduler, seq, _, _) = Make();
-        var opts = new ErrorWatchOptions { AnalyzeWithCodex = false };
+        var opts = new ErrorWatchOptions { AnalyzeErrors = false };
         var state = StateFrom();
         var t1 = DateTimeOffset.UtcNow.AddMinutes(-5);
         var t2 = DateTimeOffset.UtcNow.AddMinutes(-1);

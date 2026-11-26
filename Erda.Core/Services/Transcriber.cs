@@ -13,8 +13,8 @@ public interface ITranscriber
 }
 
 /// <summary>
-/// Speech-to-text via the OpenAI platform API. Uses the OPENAI_API_KEY (pay-per-token),
-/// which is a DIFFERENT credential from the Azure/Foundry key used by the chat agent.
+/// Speech-to-text via the OpenAI platform API. Uses OPENAI_API_KEY, a DIFFERENT credential from
+/// the LiteLLM key (Erda__ChatApiKey) used by the chat agent.
 /// </summary>
 public sealed class Transcriber(
     IOptions<ErdaOptions> options,

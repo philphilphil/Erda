@@ -130,7 +130,7 @@ public sealed class WhatsAppChannelService(
         }
 
         // Keep the "typing…" indicator alive while Erda generates. WhatsApp's composing presence
-        // auto-expires (~25s) and a gpt-5.5 streamed run can take longer, so renew it on a cadence;
+        // auto-expires (~25s) and a streamed model run can take longer, so renew it on a cadence;
         // the finally cancels the loop and clears back to "paused".
         using var typingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task? typing = null;
@@ -223,7 +223,7 @@ public sealed class WhatsAppChannelService(
 
     /// <summary>
     /// Re-sends the "composing" (typing…) presence on a fixed cadence until cancelled — WhatsApp
-    /// expires it after ~25s, so a long gpt-5.5 turn needs it refreshed. Best-effort: the sender
+    /// expires it after ~25s, so a long model turn needs it refreshed. Best-effort: the sender
     /// swallows errors and cancellation ends the loop quietly.
     /// </summary>
     private async Task KeepComposingAsync(string target, CancellationToken ct)
@@ -279,7 +279,7 @@ public sealed class WhatsAppChannelService(
     /// <summary>The user-facing reply, the vault note it produced (if any), and a terminal archive status.</summary>
     private readonly record struct MemoOutcome(string Reply, string? NotePath, VoiceMemoStatus Status);
 
-    /// <summary>Transcribe the audio and run it through the memo pipeline (Codex → 1 Inbox/).</summary>
+    /// <summary>Transcribe the audio and run it through the memo pipeline (reasoner → 1 Inbox/).</summary>
     private async Task<MemoOutcome> ProcessAsMemoAsync(InboundMessage message, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(message.MediaPath) || !File.Exists(message.MediaPath))

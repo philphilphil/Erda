@@ -14,7 +14,7 @@ internal sealed class RecipeWorkflowProvider : IWorkflowProvider
         "Paste a recipe link; Erda fetches the page and returns a clean Markdown recipe — ingredients " +
         "up top, then easy step-by-step preparation. Run it here; it isn't a chat tool.";
 
-    public IReadOnlyList<string> Tags { get; } = ["web only", "fetches a URL", "Codex"];
+    public IReadOnlyList<string> Tags { get; } = ["web only", "fetches a URL", "reasoner"];
 
     public bool RunnableFromPanel => true;
 

@@ -3,7 +3,7 @@ using Erda.Core.Services.Seq;
 
 namespace Erda.Core.Scheduling;
 
-/// <summary>Formats a Seq error (plus optional Codex analysis) into a WhatsApp-friendly message.</summary>
+/// <summary>Formats a Seq error (plus optional model analysis) into a WhatsApp-friendly message.</summary>
 public static class ErrorAlert
 {
     private const int MaxLength = 3500; // WhatsApp hard limit is ~4096; leave headroom.
@@ -37,7 +37,7 @@ public static class ErrorAlert
         sb.Append("\n🕒 ").Append(error.Timestamp.ToString("u"));
 
         if (!string.IsNullOrWhiteSpace(analysis))
-            sb.Append("\n\n— Codex —\n").Append(analysis.Trim());
+            sb.Append("\n\n— Analysis —\n").Append(analysis.Trim());
 
         return Truncate(sb.ToString(), MaxLength);
     }

@@ -28,7 +28,7 @@ public static class SystemScheduleEndpoints
         Key: "errorwatch",
         Name: "Error watch",
         Icon: "alert",
-        Description: "Polls Seq for new errors, diagnoses each with Codex, and alerts you on WhatsApp.",
+        Description: "Polls Seq for new errors, diagnoses each with the reasoner, and alerts you on WhatsApp.",
         Enabled: o.Enabled,
         Status: o.Enabled ? "Running" : "Disabled",
         Tags:

@@ -8,7 +8,7 @@ namespace Erda.Server.Api;
 /// <summary>
 /// JSON + Server-Sent-Events endpoints over <see cref="IActivityRecorder"/> for the panel's Activity
 /// screen. The SPA fetches a snapshot from <c>GET /api/activity</c>, then opens <c>/api/activity/stream</c>
-/// to receive new entries live (replacing the Blazor Server circuit push).
+/// to receive new entries live.
 /// </summary>
 public static class ActivityEndpoints
 {

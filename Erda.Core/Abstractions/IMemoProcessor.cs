@@ -3,7 +3,7 @@ namespace Erda.Core.Abstractions;
 /// <summary>Outcome of processing a voice memo: the user-facing reply plus the vault-relative note path.</summary>
 public sealed record MemoResult(string Reply, string NotePath);
 
-/// <summary>Processes an already-transcribed text as a Voice Memo (Codex → "1 Inbox/").</summary>
+/// <summary>Processes an already-transcribed text as a Voice Memo (reasoner → "1 Inbox/").</summary>
 public interface IMemoProcessor
 {
     Task<MemoResult> ProcessAsync(string transcript, CancellationToken cancellationToken = default);

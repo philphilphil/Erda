@@ -3,7 +3,7 @@ namespace Erda.Core.Configuration;
 /// <summary>
 /// Settings for the HTTP upload endpoint (bound from the "Upload" config section). An iOS Shortcut
 /// (or any client) POSTs an audio file to <c>/upload</c> with a bearer token; the file is fed into the
-/// SAME Apple-Voice-Memo pipeline as a WhatsApp share (transcribe → Codex → 1 Inbox/), and the result
+/// SAME Apple-Voice-Memo pipeline as a WhatsApp share (transcribe → reasoner → 1 Inbox/), and the result
 /// is delivered back over WhatsApp to the owner. The pipeline + reply therefore require the WhatsApp
 /// channel to be enabled (enforced at startup when this feature is on).
 /// </summary>

@@ -8,7 +8,7 @@ namespace Erda.Core.Scheduling;
 
 /// <summary>
 /// Background loop: every <c>ErrorWatch:PollInterval</c>, query Seq for new errors (≥ MinLevel),
-/// dedup by signature, analyze each new one with Codex, and push the analysis to Phil on WhatsApp.
+/// dedup by signature, analyze each new one with the reasoner, and push the analysis to Phil on WhatsApp.
 /// Watermark + dedup memory are persisted so restarts don't replay or double-alert.
 /// </summary>
 public sealed class ErrorWatchScheduler(
@@ -113,7 +113,7 @@ public sealed class ErrorWatchScheduler(
                 continue;
             }
 
-            var analysis = opts.AnalyzeWithCodex ? await analyzer.AnalyzeAsync(g.Latest, ct) : null;
+            var analysis = opts.AnalyzeErrors ? await analyzer.AnalyzeAsync(g.Latest, ct) : null;
             var text = ErrorAlert.Format(g.Latest, analysis, g.Count, sigProps);
 
             if (string.IsNullOrEmpty(ownerJid))

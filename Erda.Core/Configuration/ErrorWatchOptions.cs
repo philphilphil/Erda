@@ -2,7 +2,7 @@ namespace Erda.Core.Configuration;
 
 /// <summary>
 /// Settings for the error-watch scheduler (bound from the "ErrorWatch" config section). On an
-/// interval it polls Seq for new errors, asks Codex to analyze each new one, and pushes the
+/// interval it polls Seq for new errors, asks the reasoner to analyze each new one, and pushes the
 /// analysis to Phil over WhatsApp. The settings below are required (no default) only when
 /// <see cref="Enabled"/> is true — see <c>ErrorWatchOptionsValidator</c>.
 /// </summary>
@@ -28,8 +28,8 @@ public sealed class ErrorWatchOptions
     /// <summary>Safety cap: at most this many alerts per poll (prevents a storm on first/large batches). Required when enabled.</summary>
     public int MaxAlertsPerPoll { get; set; }
 
-    /// <summary>Run each new error through Codex for analysis; when off, send the raw error. Absent ⇒ off.</summary>
-    public bool AnalyzeWithCodex { get; set; }
+    /// <summary>Run each new error through the reasoner for analysis; when off, send the raw error. Absent ⇒ off.</summary>
+    public bool AnalyzeErrors { get; set; }
 
     /// <summary>
     /// How long after alerting on a signature to stay quiet before an ongoing recurrence re-alerts.

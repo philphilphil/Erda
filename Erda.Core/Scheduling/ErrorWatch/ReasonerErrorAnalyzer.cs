@@ -11,22 +11,22 @@ public interface IErrorAnalyzer
 }
 
 /// <summary>
-/// Analyzes a Seq error with Codex (gpt-5.5, ChatGPT subscription — no API key). Web search is off
-/// by default; this is local reasoning over the error text. Failures degrade to a short note rather
+/// Analyzes a Seq error with the in-process reasoner (the configured chat model). Web search is off:
+/// this is reasoning over the error text alone. Failures degrade to a short note rather
 /// than throwing, so one bad analysis never stops the scheduler.
 /// </summary>
-public sealed class CodexErrorAnalyzer(IReasoner reasoner, ILogger<CodexErrorAnalyzer> logger) : IErrorAnalyzer
+public sealed class ReasonerErrorAnalyzer(IReasoner reasoner, ILogger<ReasonerErrorAnalyzer> logger) : IErrorAnalyzer
 {
     public async Task<string> AnalyzeAsync(SeqError error, CancellationToken cancellationToken = default)
     {
         try
         {
-            return (await reasoner.ReasonAsync(BuildPrompt(error), webSearch: false, cancellationToken)).Trim();
+            return (await reasoner.ReasonAsync(BuildPrompt(error), webSearch: false, cancellationToken, logLabel: "error analysis")).Trim();
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Codex analysis failed for error {Id}.", error.Id);
-            return $"(Codex analysis unavailable: {ex.Message})";
+            logger.LogWarning(ex, "Error analysis failed for error {Id}.", error.Id);
+            return $"(Analysis unavailable: {ex.Message})";
         }
     }
 

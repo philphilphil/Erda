@@ -39,9 +39,9 @@ an Obsidian vault.
 ## How it's put together
 
 Three containers: **erda** (the .NET app), a Go **whatsapp-bridge** owning the WhatsApp socket,
-and an **obsidian-sync** sidecar keeping the vault synced. The chat model (`gpt-5.5`) is reached
-over a local OpenAI-compatible endpoint via the **Responses API** (streamed); an OpenAI platform
-key is used only for transcription.
+and an **obsidian-sync** sidecar keeping the vault synced. The chat model (Claude Opus 5.5) is
+reached through a **LiteLLM** endpoint, which is OpenAI-compatible and called over Chat Completions
+with one key. An OpenAI platform key is used only for transcription.
 
 One component lives outside the stack: **ErdaBridge**, a macOS app on my Mac that Erda reaches over
 the LAN to touch Apple Reminders and Apple Calendar. It can't be containerised — EventKit only
@@ -54,7 +54,7 @@ flowchart LR
     panel["Control panel · Vue SPA"] <--> api["/api"]
 
     subgraph erda["erda · .NET 11 / MAF"]
-      agent["erda agent · gpt-5.5<br/>vault · web_search · reminders · voice memo"]
+      agent["erda agent · Opus 5.5<br/>vault · web_search · reminders · voice memo"]
       sched["Schedulers<br/>reminders · error-watch"]
       api
     end
@@ -66,7 +66,7 @@ flowchart LR
     mac --> cal[("Apple Calendar")]
     agent <--> vault[("Obsidian vault")]
     sync["obsidian-sync"] <--> vault
-    agent --> endpoint{{"Local OpenAI-compatible endpoint<br/>Responses API · web_search"}}
+    agent --> endpoint{{"LiteLLM · OpenAI-compatible<br/>Chat Completions · web_search"}}
 ```
 
 Two ways to the model: the **agent** (conversations — system prompt, session, full toolbox) and

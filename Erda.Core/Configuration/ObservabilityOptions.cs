@@ -19,7 +19,7 @@ public sealed class ObservabilityOptions
 
     /// <summary>
     /// When true, prompt / completion / tool-argument <b>content</b> is captured in spans (and in
-    /// the Codex launch log). When false (the default, and the production posture) only metadata is
+    /// the reasoner call log). When false (the default, and the production posture) only metadata is
     /// recorded — tool names, durations, token counts, success/failure — never message text.
     /// Translated at startup into the standard env var
     /// <c>OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT</c>.

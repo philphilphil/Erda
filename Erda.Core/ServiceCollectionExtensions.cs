@@ -119,9 +119,9 @@ public static class ServiceCollectionExtensions
         // reply goes back over the bridge); enforced where POST /upload is mapped.
         services.AddSingleton<UploadIntake>();
 
-        // --- Error-watch scheduler (Seq -> Codex -> WhatsApp) ---
+        // --- Error-watch scheduler (Seq -> reasoner -> WhatsApp) ---
         services.AddSingleton<ISeqClient, SeqClient>();
-        services.AddSingleton<IErrorAnalyzer, CodexErrorAnalyzer>();
+        services.AddSingleton<IErrorAnalyzer, ReasonerErrorAnalyzer>();
         services.AddSingleton<ErrorWatchStateStore>();
         services.AddHostedService<ErrorWatchScheduler>();
 

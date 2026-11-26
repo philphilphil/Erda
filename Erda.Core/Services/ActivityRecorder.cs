@@ -20,7 +20,7 @@ public interface IActivityRecorder
     /// <param name="max">Maximum number of entries to return; clamped to the range 1..1000.</param>
     IReadOnlyList<ActivityEntry> Recent(int max = 100);
 
-    /// <summary>Raised after an entry is persisted, for live UI push (Blazor Server).</summary>
+    /// <summary>Raised after an entry is persisted, for live UI push (the panel's SSE feed).</summary>
     event Action<ActivityEntry>? Recorded;
 }
 

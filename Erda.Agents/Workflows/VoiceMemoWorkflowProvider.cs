@@ -11,7 +11,7 @@ internal sealed class VoiceMemoWorkflowProvider : IWorkflowProvider
 
     public string Description =>
         "Transcribe an Apple Voice Memo (.m4a), structure the transcript into a Markdown note with " +
-        "Codex, and save it to the Obsidian vault.";
+        "the reasoner, and save it to the Obsidian vault.";
 
     public IReadOnlyList<string> Tags { get; } = ["tool: process_voice_memo", "WhatsApp voice"];
 

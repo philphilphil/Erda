@@ -5,8 +5,7 @@ namespace Erda.Server.Api;
 /// <summary>
 /// Pure presentation helpers for reminders, lifted verbatim from the old <c>Reminders.razor</c> so
 /// the next-fire formatting and the slug / unique-id generation are unit-testable without rendering.
-/// The JSON API endpoints call these; behavior (including the UTC fallback for an unknown timezone)
-/// must match what the Blazor panel produced.
+/// The JSON API endpoints call these (including the UTC fallback for an unknown timezone).
 /// </summary>
 public static class ReminderView
 {

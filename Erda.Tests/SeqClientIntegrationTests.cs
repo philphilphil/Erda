@@ -10,7 +10,7 @@ namespace Erda.Tests;
 /// <summary>
 /// Live integration check against a real Seq instance. Runs only when ERDA_SEQ_IT_URL is set
 /// (e.g. the local docker-compose Seq); otherwise it's a no-op so the normal suite stays offline.
-/// Ingest some Error events first (see scripts/seq-smoke or MORNING.md).
+/// Ingest some Error events into that Seq first.
 /// </summary>
 public class SeqClientIntegrationTests
 {

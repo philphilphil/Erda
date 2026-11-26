@@ -12,7 +12,7 @@ namespace Erda.Agents.Workflows;
 /// <summary>
 /// The "voice-memo" MAF workflow: a chat-protocol input adapter plus a three-step chain.
 ///
-///   Input (chat -> path) -> Transcribe (.m4a -> text) -> Codex (text -> note) -> ObsidianWrite (note -> ChatMessage)
+///   Input (chat -> path) -> Transcribe (.m4a -> text) -> FormatMemo (text -> note) -> ObsidianWrite (note -> ChatMessage)
 ///
 /// The three middle steps are plain string executors (the reasoner makes an in-process HTTP call,
 /// not an AIAgent node). But when a workflow is hosted as an AIAgent (here: wrapped as the process_voice_memo
@@ -30,18 +30,18 @@ public static class VoiceMemoWorkflow
     {
         var input = new VoiceMemoInputExecutor();
         var transcribe = new TranscribeExecutor(services.GetRequiredService<Transcriber>());
-        var codex = new CodexExecutor(
+        var format = new FormatMemoExecutor(
             services.GetRequiredService<IReasoner>(),
             services.GetRequiredService<IPromptStore>(),
-            services.GetRequiredService<ILogger<CodexExecutor>>());
+            services.GetRequiredService<ILogger<FormatMemoExecutor>>());
         var write = new ObsidianWriteExecutor(
             services.GetRequiredService<VaultService>(),
             services.GetRequiredService<IOptions<ErdaOptions>>().Value);
 
         return new WorkflowBuilder(input)
             .AddEdge(input, transcribe)
-            .AddEdge(transcribe, codex)
-            .AddEdge(codex, write)
+            .AddEdge(transcribe, format)
+            .AddEdge(format, write)
             .WithOutputFrom(write)
             .WithName(Name) // workflow name, surfaced when it's wrapped as the process_voice_memo tool
             .Build();

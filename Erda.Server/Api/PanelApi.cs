@@ -6,8 +6,8 @@ namespace Erda.Server.Api;
 
 /// <summary>
 /// Wires the control-panel JSON API: cookie authentication, the <see cref="ConfigPanelService"/>, and
-/// the <c>/api/*</c> endpoint groups guarded by the <see cref="CsrfEndpointFilter"/>. Replaces the
-/// Blazor Server presentation; the SPA (built by Vite) is served as static files with an
+/// the <c>/api/*</c> endpoint groups guarded by the <see cref="CsrfEndpointFilter"/>. The SPA (built
+/// by Vite) is served as static files with an
 /// <c>index.html</c> fallback configured in <c>Program.cs</c>.
 /// </summary>
 public static class PanelApi

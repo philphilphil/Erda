@@ -15,7 +15,7 @@ public static class WorkflowEndpoints
         g.MapGet("", (IWorkflowCatalog catalog) =>
             Results.Ok(new WorkflowsResponse(catalog.GetAll())));
 
-        // Run a panel-runnable workflow (text in → text out). May take a while (fetch + Codex), so
+        // Run a panel-runnable workflow (text in → text out). May take a while (fetch + reasoning), so
         // this is a plain request/response — the SPA shows a spinner.
         g.MapPost("/{id}/run", async (string id, RunWorkflowRequest req, IWorkflowCatalog catalog, CancellationToken ct) =>
         {
@@ -33,7 +33,7 @@ public static class WorkflowEndpoints
             }
             catch (Exception ex)
             {
-                // Surface the failure (bad URL, not runnable, Codex/launch error) to the panel.
+                // Surface the failure (bad URL, not runnable, model error) to the panel.
                 return Results.BadRequest(new ErrorResponse(ex.Message));
             }
         });

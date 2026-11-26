@@ -5,9 +5,8 @@ using Xunit;
 namespace Erda.Tests;
 
 /// <summary>
-/// Covers the presentation helpers ported out of the old <c>Reminders.razor</c>: next-fire
-/// formatting, the timezone fallback, slug generation, and unique-id collision handling. These
-/// must match the Blazor behavior so the JSON API produces the same strings/ids.
+/// Covers the reminder presentation helpers: next-fire formatting, the timezone fallback, slug
+/// generation, and unique-id collision handling.
 /// </summary>
 public class ReminderViewTests
 {

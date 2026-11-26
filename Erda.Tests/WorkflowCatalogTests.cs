@@ -143,7 +143,7 @@ public class WorkflowCatalogTests
 
         Assert.Equal("voice-memo", graph.Id);
         // The four steps in flow order, starting at the chat-protocol input adapter.
-        Assert.Equal(["voice-memo-input", "transcribe", "codex", "obsidian-write"], graph.Nodes.Select(n => n.Id));
+        Assert.Equal(["voice-memo-input", "transcribe", "format-memo", "obsidian-write"], graph.Nodes.Select(n => n.Id));
         Assert.True(graph.Nodes[0].IsStart);
 
         var transcribe = graph.Nodes.Single(n => n.Id == "transcribe");
@@ -151,9 +151,9 @@ public class WorkflowCatalogTests
         Assert.Equal(["string"], transcribe.Inputs);
         Assert.Equal(["string"], transcribe.Outputs);
 
-        // codex produces text; obsidian-write turns it into a chat message.
+        // format-memo produces text; obsidian-write turns it into a chat message.
         Assert.Equal(["ChatMessage"], graph.Nodes.Single(n => n.Id == "obsidian-write").Outputs);
-        Assert.Equal(3, graph.Edges.Count); // input→transcribe→codex→obsidian-write
+        Assert.Equal(3, graph.Edges.Count); // input→transcribe→format-memo→obsidian-write
     }
 
     private sealed class FakeProvider : IWorkflowProvider

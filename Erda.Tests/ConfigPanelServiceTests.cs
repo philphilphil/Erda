@@ -28,10 +28,10 @@ public class ConfigPanelServiceTests
     [Fact]
     public void GetItems_projects_effective_option_values()
     {
-        var items = New(erda: new ErdaOptions { VaultPath = "/my/vault", DbPath = "/db", ChatModel = "gpt-5-mini" }).GetItems();
+        var items = New(erda: new ErdaOptions { VaultPath = "/my/vault", DbPath = "/db", ChatModel = "claude-opus-5-5" }).GetItems();
 
         Assert.Equal("/my/vault", items.Single(i => i.Label == "Vault path").Value);
-        Assert.Equal("gpt-5-mini", items.Single(i => i.Label == "Chat model").Value);
+        Assert.Equal("claude-opus-5-5", items.Single(i => i.Label == "Chat model").Value);
     }
 
     [Fact]
