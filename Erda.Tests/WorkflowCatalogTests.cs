@@ -2,14 +2,9 @@ using Erda.Agents;
 using Erda.Agents.Workflows;
 using Erda.Agents.Workflows.Executors;
 using Erda.Core.Abstractions;
-using Erda.Core.Configuration;
-using Erda.Core.Data;
 using Erda.Core.Services;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Erda.Tests;
@@ -52,9 +47,6 @@ public class WorkflowCatalogTests
 
         Assert.Contains(services, d =>
             d.ServiceType == typeof(IWorkflowProvider) &&
-            d.ImplementationType == typeof(VoiceMemoWorkflowProvider));
-        Assert.Contains(services, d =>
-            d.ServiceType == typeof(IWorkflowProvider) &&
             d.ImplementationType == typeof(RecipeWorkflowProvider));
         Assert.Contains(services, d => d.ServiceType == typeof(IWorkflowCatalog));
     }
@@ -90,16 +82,16 @@ public class WorkflowCatalogTests
     public async Task Non_runnable_workflow_is_rejected()
     {
         var sp = new ServiceCollection().BuildServiceProvider();
-        var catalog = new WorkflowCatalog(sp, [new VoiceMemoWorkflowProvider()]);
+        var catalog = new WorkflowCatalog(sp, [new FakeProvider()]); // not runnable from the panel
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.RunAsync("voice-memo", "x"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.RunAsync("demo", "x"));
     }
 
     [Fact]
     public async Task Unknown_workflow_run_throws_key_not_found()
     {
         var sp = new ServiceCollection().BuildServiceProvider();
-        var catalog = new WorkflowCatalog(sp, [new VoiceMemoWorkflowProvider()]);
+        var catalog = new WorkflowCatalog(sp, [new FakeProvider()]);
 
         await Assert.ThrowsAsync<KeyNotFoundException>(() => catalog.RunAsync("nope", "x"));
     }
@@ -123,37 +115,21 @@ public class WorkflowCatalogTests
     }
 
     [Fact]
-    public void Real_voice_memo_workflow_diagrams_its_four_steps()
+    public void Real_recipe_workflow_diagrams_its_three_steps()
     {
-        var vaultDir = Path.Combine(Path.GetTempPath(), "erda-wf-" + Guid.NewGuid().ToString("N"));
-        var dbPath = Path.Combine(Path.GetTempPath(), "erda-wf-" + Guid.NewGuid().ToString("N") + ".db");
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
-        services.AddSingleton(Options.Create(new ErdaOptions { VaultPath = vaultDir }));
-        services.AddSingleton<VaultService>();
-        services.AddSingleton<Transcriber>();
-        services.AddSingleton<IReasoner, FakeReasoner>();
-        services.AddDbContextFactory<ErdaDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
-        services.AddSingleton<IPromptStore, PromptStore>();
-        var sp = services.BuildServiceProvider();
+        var sp = services
+            .AddSingleton<IUrlFetcher>(new FakeUrlFetcher())
+            .AddSingleton<IReasoner>(new FakeReasoner())
+            .BuildServiceProvider();
 
-        var catalog = new WorkflowCatalog(sp, [new VoiceMemoWorkflowProvider()]);
-        var graph = Assert.Single(catalog.GetAll());
+        var graph = Assert.Single(new WorkflowCatalog(sp, [new RecipeWorkflowProvider()]).GetAll());
 
-        Assert.Equal("voice-memo", graph.Id);
-        // The four steps in flow order, starting at the chat-protocol input adapter.
-        Assert.Equal(["voice-memo-input", "transcribe", "format-memo", "obsidian-write"], graph.Nodes.Select(n => n.Id));
+        Assert.Equal("recipe", graph.Id);
+        Assert.Equal(["fetch", "extract", "format"], graph.Nodes.Select(n => n.Id));
         Assert.True(graph.Nodes[0].IsStart);
-
-        var transcribe = graph.Nodes.Single(n => n.Id == "transcribe");
-        Assert.Equal("TranscribeExecutor", transcribe.Type);
-        Assert.Equal(["string"], transcribe.Inputs);
-        Assert.Equal(["string"], transcribe.Outputs);
-
-        // format-memo produces text; obsidian-write turns it into a chat message.
-        Assert.Equal(["ChatMessage"], graph.Nodes.Single(n => n.Id == "obsidian-write").Outputs);
-        Assert.Equal(3, graph.Edges.Count); // input→transcribe→format-memo→obsidian-write
+        Assert.Equal(2, graph.Edges.Count); // fetch→extract→format
     }
 
     private sealed class FakeProvider : IWorkflowProvider

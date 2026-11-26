@@ -104,6 +104,113 @@ public sealed class VaultService
         File.WriteAllText(full, content);
     }
 
+    /// <summary>
+    /// Renames or moves a note and rewrites every <c>[[wikilink]]</c> (and <c>![[embed]]</c>) in the
+    /// vault that points to it, keeping any <c>#heading</c>, <c>|alias</c> and <c>.md</c> suffix.
+    /// A link written as a bare name (<c>[[Note]]</c>) counts as pointing here only when no other
+    /// note shares that name, which is how Obsidian resolves it too. After the move it is rewritten
+    /// to the new bare name, or to the new path when that name would be ambiguous. A link written as a
+    /// path (<c>[[Folder/Note]]</c>) is matched against the old path and rewritten to the new one.
+    /// Markdown-style <c>[text](path.md)</c> links are not touched. Refuses to overwrite an existing
+    /// note, except for a change of case alone. Path-safe on both ends.
+    /// </summary>
+    public MoveResult MoveNote(string fromPath, string toPath)
+    {
+        var fromFull = ResolveInside(fromPath);
+        var toFull = ResolveInside(toPath);
+        if (!fromFull.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || !toFull.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Both paths must be Markdown notes ending in .md.");
+        if (!File.Exists(fromFull))
+            throw new FileNotFoundException($"Note not found: {fromPath}");
+        if (string.Equals(fromFull, toFull, StringComparison.Ordinal))
+            throw new InvalidOperationException("The source and destination are the same note.");
+
+        var caseOnly = string.Equals(fromFull, toFull, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnly && File.Exists(toFull))
+            throw new InvalidOperationException($"A note already exists at {toPath}; refusing to overwrite it.");
+
+        var oldRel = ToRelative(fromFull);
+        var newRel = ToRelative(toFull);
+        var oldName = Path.GetFileNameWithoutExtension(fromFull);
+        var newName = Path.GetFileNameWithoutExtension(toFull);
+
+        // Bare-name resolution needs the other notes' names, taken before the move.
+        var otherNames = ListNotes(null)
+            .Where(p => !string.Equals(p, oldRel, StringComparison.Ordinal))
+            .Select(p => Path.GetFileNameWithoutExtension(p))
+            .ToList();
+        var oldNameUnique = !otherNames.Contains(oldName, StringComparer.OrdinalIgnoreCase);
+        var newNameUnique = !otherNames.Contains(newName, StringComparer.OrdinalIgnoreCase);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(toFull)!);
+        if (caseOnly)
+        {
+            // Case-insensitive filesystems treat a case-only rename as a no-op; go through a temp name.
+            var temp = fromFull + ".erda-move";
+            File.Move(fromFull, temp);
+            File.Move(temp, toFull);
+        }
+        else
+        {
+            File.Move(fromFull, toFull);
+        }
+
+        var oldPathNoExt = oldRel[..^3];
+        var newPathNoExt = newRel[..^3];
+        var updated = new List<string>();
+        var linkCount = 0;
+
+        foreach (var file in Directory.EnumerateFiles(Root, "*.md", SearchOption.AllDirectories))
+        {
+            if (IsHidden(file))
+                continue;
+
+            string text;
+            try { text = File.ReadAllText(file); }
+            catch { continue; }
+
+            var changed = 0;
+            var rewritten = WikiLink.Replace(text, m =>
+            {
+                var target = m.Groups["target"].Value;
+                var trimmed = target.Trim();
+                var hasExt = trimmed.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
+                var bare = hasExt ? trimmed[..^3] : trimmed;
+
+                string? replacement = null;
+                if (bare.Contains('/'))
+                {
+                    if (string.Equals(bare.TrimStart('/'), oldPathNoExt, StringComparison.OrdinalIgnoreCase))
+                        replacement = newPathNoExt;
+                }
+                else if (oldNameUnique && string.Equals(bare, oldName, StringComparison.OrdinalIgnoreCase))
+                {
+                    replacement = newNameUnique ? newName : newPathNoExt;
+                }
+
+                if (replacement is null)
+                    return m.Value;
+
+                changed++;
+                return $"{m.Groups["embed"].Value}[[{replacement}{(hasExt ? ".md" : "")}{m.Groups["rest"].Value}]]";
+            });
+
+            if (changed == 0)
+                continue;
+
+            File.WriteAllText(file, rewritten);
+            updated.Add(ToRelative(file));
+            linkCount += changed;
+        }
+
+        return new MoveResult(oldRel, newRel, linkCount, updated);
+    }
+
+    /// <summary><c>[[target#heading|alias]]</c>, optionally an <c>!</c> embed; one line, no nesting.</summary>
+    private static readonly System.Text.RegularExpressions.Regex WikiLink = new(
+        @"(?<embed>!?)\[\[(?<target>[^\]\|#\n]+)(?<rest>(?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?)\]\]",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
     public void AppendNote(string path, string content)
     {
         var full = ResolveInside(path);
@@ -202,3 +309,6 @@ public sealed class VaultService
         File.WriteAllText(full, text.Replace(oldString, newString, StringComparison.Ordinal));
     }
 }
+
+/// <summary>The outcome of <see cref="VaultService.MoveNote"/>: where the note went and which notes had links rewritten.</summary>
+public sealed record MoveResult(string From, string To, int LinksUpdated, IReadOnlyList<string> NotesUpdated);

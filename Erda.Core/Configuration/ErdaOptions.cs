@@ -29,7 +29,7 @@ public sealed class ErdaOptions
 
     /// <summary>OpenAI-compatible base URL of the LiteLLM endpoint that fronts the chat model (e.g.
     /// <c>http://litellm.lan:4000/v1</c>). Every chat/reasoning call goes here: the Erda agent, the
-    /// in-process reasoner and the vault editor.</summary>
+    /// in-process reasoner.</summary>
     [Required(AllowEmptyStrings = false)]
     [Url]
     public string ChatBaseUrl { get; set; } = "";
@@ -52,8 +52,7 @@ public sealed class ErdaOptions
 
     /// <summary>Reasoning effort for the chat/reasoning model (low/medium/high). Required, no default —
     /// it must be set in <c>.env</c> and is validated against <see cref="ValidReasoningEfforts"/> at
-    /// startup. The same value drives the orchestrator and the in-process reasoner; the vault editor
-    /// always runs at high.</summary>
+    /// startup. The same value drives the orchestrator and the in-process reasoner.</summary>
     [Required(AllowEmptyStrings = false)]
     public string ChatReasoningEffort { get; set; } = "";
 
@@ -67,8 +66,4 @@ public sealed class ErdaOptions
     /// <summary>OpenAI-platform model used for speech-to-text (e.g. <c>gpt-4o-transcribe</c>).</summary>
     [Required(AllowEmptyStrings = false)]
     public string TranscribeModel { get; set; } = "";
-
-    /// <summary>Vault-relative subfolder where processed voice memos are saved.</summary>
-    [Required(AllowEmptyStrings = false)]
-    public string VoiceMemoSubfolder { get; set; } = "";
 }

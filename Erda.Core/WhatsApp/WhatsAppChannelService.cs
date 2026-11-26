@@ -337,7 +337,7 @@ public sealed class WhatsAppChannelService(
                 if (string.IsNullOrWhiteSpace(transcript))
                     return null;
                 // Hand the agent the transcript as the user's message. The agent can act on it
-                // (answer, or save to the vault via its tools / process_voice_memo) as asked.
+                // (answer, or save to the vault via its tools) as asked.
                 return new TurnInput([new ChatMessage(ChatRole.User, $"[Voice note transcript]\n{transcript}")], transcript);
             }
 

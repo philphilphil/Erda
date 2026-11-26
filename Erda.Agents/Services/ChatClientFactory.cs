@@ -10,7 +10,7 @@ namespace Erda.Agents.Services;
 /// The single place Erda talks to its chat model. It owns the one <see cref="OpenAIClient"/>,
 /// pointed at the OpenAI-compatible LiteLLM endpoint (<see cref="ErdaOptions.ChatBaseUrl"/>) with a real key
 /// (<see cref="ErdaOptions.ChatApiKey"/>). Every LLM consumer goes through it: the <c>erda</c> agent, the
-/// in-process reasoner and the vault-editor sub-agent.
+/// in-process reasoner.
 /// <para>
 /// It uses <b>Chat Completions</b>, LiteLLM's native surface, which every model it fronts supports.
 /// Reasoning effort and web search map to the wire only here, through MEAI's provider-neutral

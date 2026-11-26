@@ -6,15 +6,14 @@ using Erda.Agents.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
-using Erda.Agents.Workflows;
 
 namespace Erda.Agents;
 
 /// <summary>
 /// Builds the Erda chat agent (the orchestrator) over <see cref="ChatClientFactory"/>, i.e. the
-/// configured model on the LiteLLM endpoint. Tools = the Obsidian vault tools, the process_voice_memo
-/// tool (the voice-memo MAF workflow exposed via AsAIFunction, agent-as-tool), notify + reminder tools,
-/// the vault editor, card prices, the optional Apple bridge tools, and hosted web search.
+/// configured model on the LiteLLM endpoint. Tools = the Obsidian vault tools (read, search, conventions,
+/// edit, write, move, todo), notify + reminder tools, card prices, the optional Apple bridge tools, and
+/// hosted web search.
 /// </summary>
 public static class ErdaAgent
 {
@@ -31,10 +30,8 @@ public static class ErdaAgent
 
         var tools = new List<AITool>();
         tools.AddRange(services.GetRequiredService<ObsidianTools>().AsTools());
-        tools.Add(VoiceMemoWorkflow.CreateTool(services));
         tools.AddRange(services.GetRequiredService<NotifyTools>().AsTools());
         tools.AddRange(services.GetRequiredService<ReminderTools>().AsTools());
-        tools.Add(services.GetRequiredService<VaultEditorTool>().AsTool());
 
         // card_price is pure HTTP (Scryfall + a prebuilt Cardmarket link) — always available.
         tools.AddRange(services.GetRequiredService<CardPriceTool>().AsTools());
